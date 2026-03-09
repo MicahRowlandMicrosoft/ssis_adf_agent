@@ -1,0 +1,208 @@
+"""
+ADF Deployer — deploys generated ADF JSON artifacts to an existing Azure Data Factory
+using the azure-mgmt-datafactory SDK.
+
+Authentication uses DefaultAzureCredential (supports:
+  - Local: az login
+  - CI/CD: AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_CLIENT_SECRET env vars
+  - Managed Identity: on Azure-hosted compute)
+
+Supported artifact types: pipeline, linkedService, dataset, dataFlow, trigger.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+try:
+    from azure.identity import DefaultAzureCredential
+    from azure.mgmt.datafactory import DataFactoryManagementClient
+    from azure.mgmt.datafactory.models import (
+        DatasetResource,
+        DataFlowResource,
+        LinkedServiceResource,
+        PipelineResource,
+        TriggerResource,
+    )
+    _AZURE_AVAILABLE = True
+except ImportError:
+    _AZURE_AVAILABLE = False
+
+
+@dataclass
+class DeployResult:
+    artifact_type: str
+    name: str
+    success: bool
+    error: str | None = None
+
+
+class AdfDeployer:
+    """
+    Deploys ADF artifacts (pipelines, linked services, datasets, data flows, triggers)
+    from a directory of JSON files to an Azure Data Factory.
+
+    Usage::
+
+        deployer = AdfDeployer(
+            subscription_id="...",
+            resource_group="rg-myproject",
+            factory_name="adf-myproject",
+        )
+        results = deployer.deploy_all(Path("output/MyPackage"))
+    """
+
+    def __init__(
+        self,
+        subscription_id: str,
+        resource_group: str,
+        factory_name: str,
+        credential: Any = None,
+    ) -> None:
+        if not _AZURE_AVAILABLE:
+            raise ImportError(
+                "azure-mgmt-datafactory and azure-identity are required for AdfDeployer. "
+                "Install with: pip install azure-mgmt-datafactory azure-identity"
+            )
+        self.subscription_id = subscription_id
+        self.resource_group = resource_group
+        self.factory_name = factory_name
+        self._credential = credential or DefaultAzureCredential()
+        self._client: DataFactoryManagementClient | None = None
+
+    @property
+    def client(self) -> "DataFactoryManagementClient":
+        if self._client is None:
+            self._client = DataFactoryManagementClient(
+                self._credential, self.subscription_id
+            )
+        return self._client
+
+    def deploy_all(self, artifacts_dir: Path, dry_run: bool = False) -> list[DeployResult]:
+        """
+        Discover and deploy all ADF JSON artifacts in *artifacts_dir*.
+
+        Deployment order: linkedServices → datasets → dataFlows → pipelines → triggers.
+        Triggers are left in Stopped state and must be activated manually.
+
+        Args:
+            artifacts_dir: Root output directory produced by the generators.
+            dry_run: If True, validate files but do not call Azure APIs.
+
+        Returns:
+            List of DeployResult per artifact.
+        """
+        order = ["linkedService", "dataset", "dataflow", "pipeline", "trigger"]
+        results: list[DeployResult] = []
+
+        for artifact_type in order:
+            sub_dir = artifacts_dir / artifact_type
+            if not sub_dir.exists():
+                continue
+            for json_file in sorted(sub_dir.glob("*.json")):
+                result = self._deploy_file(json_file, artifact_type, dry_run)
+                results.append(result)
+
+        return results
+
+    def _deploy_file(
+        self, json_file: Path, artifact_type: str, dry_run: bool
+    ) -> DeployResult:
+        name = json_file.stem
+        try:
+            payload = json.loads(json_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            return DeployResult(artifact_type=artifact_type, name=name, success=False,
+                                error=f"Failed to read JSON: {exc}")
+
+        if dry_run:
+            logger.info("[DRY RUN] Would deploy %s: %s", artifact_type, name)
+            return DeployResult(artifact_type=artifact_type, name=name, success=True)
+
+        try:
+            dispatch = {
+                "linkedservice": self._deploy_linked_service,
+                "dataset": self._deploy_dataset,
+                "dataflow": self._deploy_data_flow,
+                "pipeline": self._deploy_pipeline,
+                "trigger": self._deploy_trigger,
+            }
+            fn = dispatch.get(artifact_type.lower())
+            if fn is None:
+                return DeployResult(artifact_type=artifact_type, name=name, success=False,
+                                    error=f"Unknown artifact type: {artifact_type}")
+            fn(name, payload)
+            logger.info("Deployed %s: %s", artifact_type, name)
+            return DeployResult(artifact_type=artifact_type, name=name, success=True)
+        except Exception as exc:
+            logger.error("Failed to deploy %s %s: %s", artifact_type, name, exc)
+            return DeployResult(artifact_type=artifact_type, name=name, success=False,
+                                error=str(exc))
+
+    def _deploy_linked_service(self, name: str, payload: dict) -> None:
+        resource = LinkedServiceResource(properties=payload.get("properties", payload))
+        self.client.linked_services.create_or_update(
+            self.resource_group, self.factory_name, name, resource
+        )
+
+    def _deploy_dataset(self, name: str, payload: dict) -> None:
+        resource = DatasetResource(properties=payload.get("properties", payload))
+        self.client.datasets.create_or_update(
+            self.resource_group, self.factory_name, name, resource
+        )
+
+    def _deploy_data_flow(self, name: str, payload: dict) -> None:
+        resource = DataFlowResource(properties=payload.get("properties", payload))
+        self.client.data_flows.create_or_update(
+            self.resource_group, self.factory_name, name, resource
+        )
+
+    def _deploy_pipeline(self, name: str, payload: dict) -> None:
+        resource = PipelineResource(**payload.get("properties", payload))
+        self.client.pipelines.create_or_update(
+            self.resource_group, self.factory_name, name, resource
+        )
+
+    def _deploy_trigger(self, name: str, payload: dict) -> None:
+        resource = TriggerResource(properties=payload.get("properties", payload))
+        self.client.triggers.create_or_update(
+            self.resource_group, self.factory_name, name, resource
+        )
+        # Leave in Stopped state — user must activate manually
+        logger.info("Trigger %s deployed in Stopped state. Activate manually in ADF Studio.", name)
+
+    def validate_artifacts(self, artifacts_dir: Path) -> list[dict[str, Any]]:
+        """
+        Validate JSON files in *artifacts_dir* against basic ADF schema requirements.
+        Returns a list of validation issues (empty = all good).
+        """
+        import jsonschema  # type: ignore[import-untyped]
+
+        issues: list[dict[str, Any]] = []
+        for json_file in artifacts_dir.rglob("*.json"):
+            try:
+                payload = json.loads(json_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                issues.append({
+                    "file": str(json_file),
+                    "error": f"Invalid JSON: {exc}",
+                })
+                continue
+
+            # Basic structural checks
+            relative = json_file.relative_to(artifacts_dir)
+            artifact_type = relative.parts[0].lower() if len(relative.parts) > 1 else "unknown"
+
+            if "name" not in payload:
+                issues.append({"file": str(json_file), "error": "Missing top-level 'name' field"})
+            if "properties" not in payload:
+                issues.append({"file": str(json_file), "error": "Missing top-level 'properties' field"})
+            elif artifact_type == "pipeline" and "activities" not in payload.get("properties", {}):
+                issues.append({"file": str(json_file), "error": "Pipeline missing 'activities' array"})
+
+        return issues

@@ -1,0 +1,835 @@
+"""
+SSIS .dtsx XML parser.
+
+Parses a .dtsx file (XML) into SSISPackage and related Pydantic models.
+Handles namespace variations across SQL Server 2008 through 2022.
+"""
+from __future__ import annotations
+
+import re
+import uuid
+from pathlib import Path
+from typing import Any
+from lxml import etree
+
+from .models import (
+    ConnectionManagerType,
+    DataFlowColumn,
+    DataFlowComponent,
+    DataFlowPath,
+    DataFlowTask,
+    DataType,
+    EventHandler,
+    ExecutePackageTask,
+    ExecuteProcessTask,
+    ExecuteSQLTask,
+    FileSystemTask,
+    ForEachLoopContainer,
+    ForEachEnumeratorType,
+    ForLoopContainer,
+    FTPTask,
+    GapItem,
+    PrecedenceConstraint,
+    PrecedenceEvalOp,
+    PrecedenceValue,
+    ProtectionLevel,
+    ScriptTask,
+    SendMailTask,
+    SequenceContainer,
+    SSISConnectionManager,
+    SSISPackage,
+    SSISParameter,
+    SSISTask,
+    SSISVariable,
+    TaskType,
+)
+
+# ---------------------------------------------------------------------------
+# XML namespace registry — covers SQL Server 2008 → 2022
+# ---------------------------------------------------------------------------
+DTS_NS = "www.microsoft.com/SqlServer/Dts"
+DTS_NS_FULL = f"{{{DTS_NS}}}"
+PIPELINE_NS = "www.microsoft.com/sqlserver/dts/pipeline"
+
+NAMESPACES: dict[str, str] = {
+    "DTS": DTS_NS,
+    "pipeline": PIPELINE_NS,
+    "SQLTask": "www.microsoft.com/sqlserver/dts/tasks/sqltask",
+    "ScriptProject": "www.microsoft.com/SqlServer/Dts/Tasks/ScriptTask",
+    "MSFTContainers": "www.microsoft.com/sqlserver/dts/containers",
+}
+
+# CLSID → component type mapping for Data Flow components
+CLSID_MAP: dict[str, str] = {
+    "{2C0A8BE5-1EDC-4353-A0EF-B778599C65A0}": "OleDbSource",
+    "{E2568105-9550-4F71-A638-B7F7A6C346EC}": "OleDbDestination",
+    "{90C7770B-DE7C-435E-880E-E718C92C0573}": "FlatFileSource",
+    "{A38DDFF8-76AE-40A2-9F87-86B25E8EDC1B}": "FlatFileDestination",
+    "{BCEFE59B-6819-47F7-A125-63753B33ABB7}": "ExcelSource",
+    "{F0F2EBC8-8A66-4D12-8AF4-39C0FC9E8B1E}": "ExcelDestination",
+    "{DFC8EDA7-6CBE-4F4C-BCFD-63E43FD23EB7}": "OdbcSource",
+    "{4FAE0FD3-3B12-4EA3-9B22-5DE2E1B87B7E}": "OdbcDestination",
+    "{27648839-AB06-4806-920A-5E73D2D1DD9D}": "Lookup",
+    "{FB9AA693-7EBD-4B96-9E16-CB5F8D1F3B5F}": "DerivedColumn",
+    "{3D632F73-C90B-400D-B13E-8B38E98BEDB5}": "ConditionalSplit",
+    "{5B651BDB-7FED-4B70-84B0-D02E3E5B09DC}": "Multicast",
+    "{A3DA38DA-B8DF-46BE-9AA9-9A3B1E9B5DDD}": "UnionAll",
+    "{D04A9F10-FBBA-4E25-B2A9-B90A02091066}": "Aggregate",
+    "{1904CD90-55D4-4893-B834-6D8B90ED36F3}": "Sort",
+    "{5B2B19FB-BD61-413B-A8E7-F97E8A56F975}": "MergeJoin",
+    "{1D09B7C7-D8E4-4BE3-89C3-BCD7AE25D71E}": "Merge",
+    "{8BC4C51C-D1D5-4C01-98E3-14A5E2BE8ED5}": "DataConversion",
+    "{48E51C9A-2CA6-4B3F-89B8-A609E7009019}": "CharacterMap",
+    "{7B7E83F3-1DD8-4B22-AAA2-7F8DA32234DA}": "RowCount",
+    "{2932025B-AB99-40F6-B5B8-783A73F80E24}": "ScriptComponent",
+    "{9B18AD15-5D9E-4B92-B3D9-87063EB9B7D1}": "TermExtraction",
+    "{9898B672-DFCE-43ff-8B4A-4A0C6978DF41}": "TermLookup",
+    "{CD7D1B85-1E98-4C5C-B8D0-33B281D7D63D}": "FuzzyLookup",
+    "{FD7D7A0B-F1F1-48B7-9F30-6CA52C68EAED}": "FuzzyGrouping",
+    "{7D910C2B-4EB3-48F8-B892-5BCDF74E1DF9}": "ExportColumn",
+    "{7BB0DB4E-B7E0-4E1E-A15B-43C58DBBCA33}": "ImportColumn",
+    "{D6B8A63B-B3B0-41F7-9EBB-E06E41B0DD80}": "Cache",
+    "{93FFC8EB-6CC1-4989-9F4D-9B0930FB7B77}": "RecordsetDestination",
+    "{62B1106B-04A4-4A69-BCCA-A3E72F862832}": "ADONetSource",
+    "{2C77430C-E219-4034-A577-CFC2CE2D3020}": "ADONetDestination",
+    "{ACA08B87-CCDE-4BA4-BFBF-09AC42891D56}": "SqlServerDestination",
+}
+
+
+def _tag(ns: str, local: str) -> str:
+    return f"{{{ns}}}{local}"
+
+
+def _dts(local: str) -> str:
+    return f"{DTS_NS_FULL}{local}"
+
+
+def _prop(element: etree._Element, name: str, ns: str = DTS_NS) -> str | None:
+    """Get a DTS:Property value by name."""
+    tag = f"{{{ns}}}Property"
+    for prop in element.findall(f".//{tag}"):
+        n = prop.get(f"{{{ns}}}Name") or prop.get("Name") or prop.get("name")
+        if n == name:
+            return (prop.text or "").strip() or None
+    return None
+
+
+def _attr(element: etree._Element, name: str, ns: str = DTS_NS) -> str | None:
+    """Get an attribute value trying both namespaced and bare forms."""
+    val = element.get(f"{{{ns}}}{name}")
+    if val is None:
+        val = element.get(name)
+    return val
+
+
+def _clean_id(raw: str | None) -> str:
+    """Strip curly braces from GUIDs; return a placeholder if None."""
+    if not raw:
+        return str(uuid.uuid4())
+    return raw.strip("{}").upper()
+
+
+def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
+    """Map a clsid or DTS type string to a TaskType enum."""
+    mapping: dict[str, TaskType] = {
+        "Microsoft.SqlServer.Dts.Tasks.ExecuteSQLTask.ExecuteSQLTask": TaskType.EXECUTE_SQL,
+        "Microsoft.SqlServer.Dts.Pipeline.PipelineComponent": TaskType.DATA_FLOW,
+        "Microsoft.SqlServer.Dts.Tasks.ScriptTask.ScriptTask": TaskType.SCRIPT,
+        "Microsoft.SqlServer.Dts.Tasks.FileSystemTask.FileSystemTask": TaskType.FILE_SYSTEM,
+        "Microsoft.SqlServer.Dts.Tasks.FtpTask.FtpTask": TaskType.FTP,
+        "Microsoft.SqlServer.Dts.Tasks.SendMailTask.SendMailTask": TaskType.SEND_MAIL,
+        "Microsoft.SqlServer.Dts.Tasks.ExecutePackageTask.ExecutePackageTask": TaskType.EXECUTE_PACKAGE,
+        "Microsoft.SqlServer.Dts.Tasks.ExecuteProcess.ExecuteProcessTask": TaskType.EXECUTE_PROCESS,
+        "Sequence": TaskType.SEQUENCE,
+        "ForEachLoop": TaskType.FOREACH_LOOP,
+        "ForLoop": TaskType.FOR_LOOP,
+    }
+    # Try class ID first
+    if class_id:
+        for k, v in mapping.items():
+            if k.lower() in class_id.lower() or class_id.strip("{}").upper() in k.upper():
+                return v
+    # Fall back to DTS type string
+    if dts_type:
+        for k, v in mapping.items():
+            if k.lower() in dts_type.lower() or dts_type.lower() in k.lower():
+                return v
+    return TaskType.UNKNOWN
+
+
+class SSISParser:
+    """
+    Parses a .dtsx XML file into an SSISPackage model.
+
+    Usage::
+
+        parser = SSISParser()
+        package = parser.parse(Path("/path/to/package.dtsx"))
+    """
+
+    def parse(self, path: Path, raw_xml: str | None = None) -> SSISPackage:
+        """Parse a .dtsx file. Accepts either a path or raw XML string."""
+        if raw_xml is None:
+            raw_xml = path.read_text(encoding="utf-8", errors="replace")
+
+        root = etree.fromstring(raw_xml.encode("utf-8"))
+        return self._parse_package(root, str(path), raw_xml)
+
+    def parse_xml(self, raw_xml: str, source_identifier: str = "<memory>") -> SSISPackage:
+        """Parse a .dtsx XML string directly (e.g. from SQL Server msdb)."""
+        root = etree.fromstring(raw_xml.encode("utf-8"))
+        return self._parse_package(root, source_identifier, raw_xml)
+
+    # ------------------------------------------------------------------
+    # Package
+    # ------------------------------------------------------------------
+
+    def _parse_package(self, root: etree._Element, source: str, raw_xml: str) -> SSISPackage:
+        pkg_id = _clean_id(_attr(root, "DTSID"))
+        pkg_name = _attr(root, "ObjectName") or Path(source).stem
+
+        protection_str = _attr(root, "ProtectionLevel") or "0"
+        protection_map = {
+            "0": ProtectionLevel.DONT_SAVE_SENSITIVE,
+            "1": ProtectionLevel.ENCRYPT_SENSITIVE_WITH_USER_KEY,
+            "2": ProtectionLevel.ENCRYPT_SENSITIVE_WITH_PASSWORD,
+            "3": ProtectionLevel.ENCRYPT_ALL_WITH_PASSWORD,
+            "4": ProtectionLevel.ENCRYPT_ALL_WITH_USER_KEY,
+            "5": ProtectionLevel.SERVER_STORAGE,
+        }
+        protection = protection_map.get(protection_str, ProtectionLevel.DONT_SAVE_SENSITIVE)
+
+        connection_managers = self._parse_connection_managers(root)
+        variables = self._parse_variables(root, direct_children_only=True)
+        parameters = self._parse_parameters(root)
+        tasks, constraints = self._parse_executables(root)
+        event_handlers = self._parse_event_handlers(root)
+
+        return SSISPackage(
+            id=pkg_id,
+            name=pkg_name,
+            source_file=source,
+            description=_attr(root, "Description") or "",
+            protection_level=protection,
+            creator_computer_name=_attr(root, "CreatorComputerName") or "",
+            creator_name=_attr(root, "CreatorName") or "",
+            creation_date=_attr(root, "CreationDate") or "",
+            package_format_version=int(_attr(root, "PackageFormatVersion") or "8"),
+            connection_managers=connection_managers,
+            variables=variables,
+            parameters=parameters,
+            tasks=tasks,
+            constraints=constraints,
+            event_handlers=event_handlers,
+            raw_xml=raw_xml,
+        )
+
+    # ------------------------------------------------------------------
+    # Connection Managers
+    # ------------------------------------------------------------------
+
+    def _parse_connection_managers(self, root: etree._Element) -> list[SSISConnectionManager]:
+        cms: list[SSISConnectionManager] = []
+        cm_container = root.find(_dts("ConnectionManagers"))
+        if cm_container is None:
+            return cms
+
+        for cm_elem in cm_container.findall(_dts("ConnectionManager")):
+            cm_id = _clean_id(_attr(cm_elem, "DTSID"))
+            cm_name = _attr(cm_elem, "ObjectName") or cm_id
+            cm_type_str = _attr(cm_elem, "CreationName") or ""
+
+            # Resolve type
+            type_map = {
+                "OLEDB": ConnectionManagerType.OLEDB,
+                "ADO.NET": ConnectionManagerType.ADO_NET,
+                "FLATFILE": ConnectionManagerType.FLAT_FILE,
+                "EXCEL": ConnectionManagerType.EXCEL,
+                "FTP": ConnectionManagerType.FTP,
+                "HTTP": ConnectionManagerType.HTTP,
+                "SMTP": ConnectionManagerType.SMTP,
+                "FILE": ConnectionManagerType.FILE,
+                "MULTIFILE": ConnectionManagerType.MULTIFILE,
+                "ODBC": ConnectionManagerType.ODBC,
+            }
+            cm_type = ConnectionManagerType.UNKNOWN
+            for key, val in type_map.items():
+                if key.lower() in cm_type_str.lower():
+                    cm_type = val
+                    break
+
+            # Extract properties from inner ObjectData element
+            props: dict[str, Any] = {}
+            connection_string: str | None = None
+            server: str | None = None
+            database: str | None = None
+            file_path: str | None = None
+
+            object_data = cm_elem.find(_dts("ObjectData"))
+            if object_data is not None:
+                for child in object_data:
+                    local = etree.QName(child.tag).localname
+                    # OLE DB / ADO.NET: ConnectionString attribute
+                    cs = child.get("ConnectionString") or child.get(f"{{{DTS_NS}}}ConnectionString")
+                    if cs:
+                        connection_string = cs
+                        # Try parsing server/database from connection string
+                        m = re.search(r"(?:Data Source|Server)=([^;]+)", cs, re.I)
+                        if m:
+                            server = m.group(1).strip()
+                        m = re.search(r"(?:Initial Catalog|Database)=([^;]+)", cs, re.I)
+                        if m:
+                            database = m.group(1).strip()
+
+                    # Flat File: flat file path
+                    fp = child.get(f"{{{DTS_NS}}}ConnectionString") or child.get("ConnectionString")
+                    if fp and cm_type == ConnectionManagerType.FLAT_FILE:
+                        file_path = fp
+
+                    for attr_name, attr_val in child.attrib.items():
+                        local_attr = etree.QName(attr_name).localname
+                        props[local_attr] = attr_val
+
+            cms.append(SSISConnectionManager(
+                id=cm_id,
+                name=cm_name,
+                type=cm_type,
+                connection_string=connection_string,
+                server=server,
+                database=database,
+                file_path=file_path,
+                properties=props,
+            ))
+        return cms
+
+    # ------------------------------------------------------------------
+    # Variables
+    # ------------------------------------------------------------------
+
+    def _parse_variables(
+        self, parent: etree._Element, direct_children_only: bool = False
+    ) -> list[SSISVariable]:
+        vars_: list[SSISVariable] = []
+        vars_container = parent.find(_dts("Variables"))
+        if vars_container is None:
+            return vars_
+
+        tag = _dts("Variable")
+        elements = vars_container.findall(tag) if direct_children_only else vars_container.iter(tag)
+        for var_elem in elements:
+            name = _attr(var_elem, "ObjectName") or ""
+            ns = _attr(var_elem, "Namespace") or "User"
+            ronly = (_attr(var_elem, "ReadOnly") or "0") == "-1"
+            val_elem = var_elem.find(_dts("VariableValue"))
+            data_type = _attr(var_elem, "DataType") or "String"
+            value: Any = val_elem.text if val_elem is not None else None
+            expression = _attr(var_elem, "Expression")
+            vars_.append(SSISVariable(
+                name=name,
+                namespace=ns,
+                data_type=data_type,
+                value=value,
+                expression=expression,
+                read_only=ronly,
+            ))
+        return vars_
+
+    # ------------------------------------------------------------------
+    # Parameters
+    # ------------------------------------------------------------------
+
+    def _parse_parameters(self, root: etree._Element) -> list[SSISParameter]:
+        params: list[SSISParameter] = []
+        params_container = root.find(_dts("PackageParameters"))
+        if params_container is None:
+            return params
+
+        for p_elem in params_container.findall(_dts("PackageParameter")):
+            name = _attr(p_elem, "ObjectName") or ""
+            data_type = _attr(p_elem, "DataType") or "String"
+            required = (_attr(p_elem, "Required") or "0") != "0"
+            sensitive = (_attr(p_elem, "Sensitive") or "0") != "0"
+            val_elem = p_elem.find(_dts("Property[@DTS:Name='ParameterValue']"))
+            value = val_elem.text if val_elem is not None else None
+            params.append(SSISParameter(
+                name=name,
+                data_type=data_type,
+                value=value,
+                required=required,
+                sensitive=sensitive,
+            ))
+        return params
+
+    # ------------------------------------------------------------------
+    # Executables (tasks + containers)
+    # ------------------------------------------------------------------
+
+    def _parse_executables(
+        self, parent: etree._Element
+    ) -> tuple[list[SSISTask], list[PrecedenceConstraint]]:
+        tasks: list[SSISTask] = []
+        constraints: list[PrecedenceConstraint] = []
+
+        executables = parent.find(_dts("Executables"))
+        if executables is None:
+            return tasks, constraints
+
+        for elem in executables.findall(_dts("Executable")):
+            task = self._parse_executable(elem)
+            if task:
+                tasks.append(task)
+
+        constraints = self._parse_precedence_constraints(parent, tasks)
+        return tasks, constraints
+
+    def _parse_executable(self, elem: etree._Element) -> SSISTask | None:
+        exec_type = _attr(elem, "ExecutableType") or ""
+        creation_name = _attr(elem, "CreationName") or exec_type
+        task_type = _resolve_task_type(None, creation_name)
+
+        task_id = _clean_id(_attr(elem, "DTSID"))
+        task_name = _attr(elem, "ObjectName") or task_id
+        description = _attr(elem, "Description") or ""
+        disabled = (_attr(elem, "Disabled") or "0") not in ("0", "")
+
+        base_kwargs = dict(
+            id=task_id, name=task_name, description=description,
+            task_type=task_type, disabled=disabled,
+        )
+
+        object_data = elem.find(_dts("ObjectData"))
+
+        if task_type == TaskType.EXECUTE_SQL:
+            return self._parse_execute_sql(elem, object_data, base_kwargs)
+        elif task_type == TaskType.DATA_FLOW:
+            return self._parse_data_flow(elem, object_data, base_kwargs)
+        elif task_type == TaskType.SCRIPT:
+            return self._parse_script_task(elem, object_data, base_kwargs)
+        elif task_type == TaskType.FILE_SYSTEM:
+            return self._parse_file_system(elem, object_data, base_kwargs)
+        elif task_type == TaskType.FTP:
+            return self._parse_ftp(elem, object_data, base_kwargs)
+        elif task_type == TaskType.SEND_MAIL:
+            return self._parse_send_mail(elem, object_data, base_kwargs)
+        elif task_type == TaskType.EXECUTE_PACKAGE:
+            return self._parse_execute_package(elem, object_data, base_kwargs)
+        elif task_type == TaskType.EXECUTE_PROCESS:
+            return self._parse_execute_process(elem, object_data, base_kwargs)
+        elif task_type == TaskType.SEQUENCE:
+            return self._parse_sequence(elem, base_kwargs)
+        elif task_type == TaskType.FOREACH_LOOP:
+            return self._parse_foreach(elem, base_kwargs)
+        elif task_type == TaskType.FOR_LOOP:
+            return self._parse_for_loop(elem, base_kwargs)
+        else:
+            props = {etree.QName(k).localname: v for k, v in elem.attrib.items()}
+            return SSISTask(**base_kwargs, properties=props)
+
+    # ------------------------------------------------------------------
+    # Individual task parsers
+    # ------------------------------------------------------------------
+
+    def _parse_execute_sql(
+        self, elem: etree._Element, object_data: etree._Element | None, base: dict
+    ) -> ExecuteSQLTask:
+        conn_id: str | None = None
+        sql: str | None = None
+        result_type = "None"
+        timeout = 0
+        result_bindings: list[dict] = []
+        param_bindings: list[dict] = []
+
+        if object_data is not None:
+            for child in object_data:
+                local = etree.QName(child.tag).localname
+                if local == "SqlTaskData":
+                    conn_id = _clean_id(child.get(f"{{{NAMESPACES['SQLTask']}}}Connection")
+                                        or child.get("Connection"))
+                    sql = (child.get(f"{{{NAMESPACES['SQLTask']}}}SqlStatementSource")
+                           or child.get("SqlStatementSource"))
+                    result_type = (child.get(f"{{{NAMESPACES['SQLTask']}}}ResultType")
+                                   or child.get("ResultType") or "None")
+                    timeout = int(child.get(f"{{{NAMESPACES['SQLTask']}}}TimeOut")
+                                  or child.get("TimeOut") or "0")
+                    for rb in child.findall(f"{{{NAMESPACES['SQLTask']}}}ResultBinding"):
+                        result_bindings.append({
+                            "variable": rb.get(f"{{{NAMESPACES['SQLTask']}}}DtsVariableName") or "",
+                            "result_name": rb.get(f"{{{NAMESPACES['SQLTask']}}}ResultName") or "",
+                        })
+                    for pb in child.findall(f"{{{NAMESPACES['SQLTask']}}}ParameterBinding"):
+                        param_bindings.append({
+                            "variable": pb.get(f"{{{NAMESPACES['SQLTask']}}}DtsVariableName") or "",
+                            "direction": pb.get(f"{{{NAMESPACES['SQLTask']}}}ParameterDirection") or "Input",
+                            "data_type": pb.get(f"{{{NAMESPACES['SQLTask']}}}DataType") or "0",
+                            "parameter_name": pb.get(f"{{{NAMESPACES['SQLTask']}}}ParameterName") or "",
+                        })
+
+        return ExecuteSQLTask(
+            **base,
+            connection_id=conn_id,
+            sql_statement=sql,
+            result_set_type=result_type,
+            timeout=timeout,
+            result_bindings=result_bindings,
+            parameter_bindings=param_bindings,
+        )
+
+    def _parse_script_task(
+        self, elem: etree._Element, object_data: etree._Element | None, base: dict
+    ) -> ScriptTask:
+        language = "CSharp"
+        entry_point = "Main"
+        ro_vars: list[str] = []
+        rw_vars: list[str] = []
+
+        if object_data is not None:
+            for child in object_data:
+                local = etree.QName(child.tag).localname
+                if "ScriptTaskProjectConfiguration" in local or "ScriptTask" in local:
+                    lang = child.get("ScriptLanguage") or child.get(
+                        f"{{{DTS_NS}}}ScriptLanguage"
+                    )
+                    if lang:
+                        language = "VisualBasic" if "VB" in lang.upper() else "CSharp"
+                    ep = child.get("EntryPoint") or child.get(f"{{{DTS_NS}}}EntryPoint")
+                    if ep:
+                        entry_point = ep
+                    ro = child.get("ReadOnlyVariables") or ""
+                    rw = child.get("ReadWriteVariables") or ""
+                    ro_vars = [v.strip() for v in ro.split(",") if v.strip()]
+                    rw_vars = [v.strip() for v in rw.split(",") if v.strip()]
+
+        return ScriptTask(
+            **base,
+            script_language=language,
+            entry_point=entry_point,
+            read_only_variables=ro_vars,
+            read_write_variables=rw_vars,
+        )
+
+    def _parse_file_system(
+        self, elem: etree._Element, object_data: etree._Element | None, base: dict
+    ) -> FileSystemTask:
+        operation = "CopyFile"
+        src = None
+        dst = None
+        overwrite = False
+
+        if object_data is not None:
+            for child in object_data:
+                local = etree.QName(child.tag).localname
+                if "FileSystemData" in local:
+                    operation = child.get("Operation") or "CopyFile"
+                    src = child.get("Source")
+                    dst = child.get("Destination")
+                    ow = child.get("Overwrite") or "False"
+                    overwrite = ow.lower() == "true"
+
+        return FileSystemTask(**base, operation=operation, source_path=src,
+                              destination_path=dst, overwrite=overwrite)
+
+    def _parse_ftp(
+        self, elem: etree._Element, object_data: etree._Element | None, base: dict
+    ) -> FTPTask:
+        conn_id = None
+        operation = "Send"
+        local_path = None
+        remote_path = None
+        overwrite = False
+
+        if object_data is not None:
+            for child in object_data:
+                local = etree.QName(child.tag).localname
+                if "FtpData" in local:
+                    conn_id = _clean_id(child.get("Connection"))
+                    operation = child.get("Operation") or "Send"
+                    local_path = child.get("LocalPath")
+                    remote_path = child.get("RemotePath")
+                    ow = child.get("Overwrite") or "False"
+                    overwrite = ow.lower() == "true"
+
+        return FTPTask(**base, connection_id=conn_id, operation=operation,
+                       local_path=local_path, remote_path=remote_path, overwrite=overwrite)
+
+    def _parse_send_mail(
+        self, elem: etree._Element, object_data: etree._Element | None, base: dict
+    ) -> SendMailTask:
+        conn_id = None
+        to_addr = None
+        cc_addr = None
+        from_addr = None
+        subject = None
+        message = None
+
+        if object_data is not None:
+            for child in object_data:
+                local = etree.QName(child.tag).localname
+                if "MailTaskData" in local or "SendMailTask" in local:
+                    conn_id = _clean_id(child.get("SMTPConnection") or child.get("Connection") or "")
+                    to_addr = child.get("ToLine") or child.get("To")
+                    cc_addr = child.get("CCLine") or child.get("CC")
+                    from_addr = child.get("FromLine") or child.get("From")
+                    subject = child.get("Subject")
+                    message = child.get("MessageSourceType") or child.get("MessageSource")
+
+        return SendMailTask(**base, smtp_connection_id=conn_id, to=to_addr, cc=cc_addr,
+                            from_address=from_addr, subject=subject, message_source=message)
+
+    def _parse_execute_package(
+        self, elem: etree._Element, object_data: etree._Element | None, base: dict
+    ) -> ExecutePackageTask:
+        pkg_path = None
+        conn_id = None
+        use_project = False
+        project_pkg_name = None
+
+        if object_data is not None:
+            for child in object_data:
+                local = etree.QName(child.tag).localname
+                if "ExecutePackageTask" in local:
+                    pkg_path = child.get("PackageName") or child.get("PackagePath")
+                    conn_id = _clean_id(child.get("Connection") or "")
+                    use_project = (child.get("UseProjectReference") or "False").lower() == "true"
+                    project_pkg_name = child.get("PackageName")
+
+        return ExecutePackageTask(**base, package_path=pkg_path,
+                                  package_connection_id=conn_id,
+                                  use_project_reference=use_project,
+                                  project_package_name=project_pkg_name)
+
+    def _parse_execute_process(
+        self, elem: etree._Element, object_data: etree._Element | None, base: dict
+    ) -> ExecuteProcessTask:
+        executable = None
+        args = None
+        wd = None
+
+        if object_data is not None:
+            for child in object_data:
+                executable = child.get("Executable") or child.get("ExecutablePath")
+                args = child.get("Arguments")
+                wd = child.get("WorkingDirectory")
+
+        return ExecuteProcessTask(**base, executable=executable, arguments=args,
+                                  working_directory=wd)
+
+    # ------------------------------------------------------------------
+    # Containers
+    # ------------------------------------------------------------------
+
+    def _parse_sequence(self, elem: etree._Element, base: dict) -> SequenceContainer:
+        tasks, constraints = self._parse_executables(elem)
+        return SequenceContainer(**base, tasks=tasks, constraints=constraints)
+
+    def _parse_foreach(self, elem: etree._Element, base: dict) -> ForEachLoopContainer:
+        tasks, constraints = self._parse_executables(elem)
+
+        enumerator_type = ForEachEnumeratorType.FILE
+        config: dict[str, Any] = {}
+        var_mappings: list[dict] = []
+
+        fe_elem = elem.find(_dts("ForEachEnumerator"))
+        if fe_elem is not None:
+            creation = _attr(fe_elem, "CreationName") or ""
+            for e_type in ForEachEnumeratorType:
+                if e_type.value.lower() in creation.lower():
+                    enumerator_type = e_type
+                    break
+
+            od = fe_elem.find(_dts("ObjectData"))
+            if od is not None:
+                for child in od:
+                    for attr_name, attr_val in child.attrib.items():
+                        config[etree.QName(attr_name).localname] = attr_val
+
+        # Variable mappings
+        vm_container = elem.find(_dts("ForEachVariableMappings"))
+        if vm_container is not None:
+            for vm in vm_container.findall(_dts("ForEachVariableMapping")):
+                var_mappings.append({
+                    "variable": _attr(vm, "VariableName") or "",
+                    "index": _attr(vm, "ValueIndex") or "0",
+                })
+
+        return ForEachLoopContainer(
+            **base,
+            enumerator_type=enumerator_type,
+            enumerator_config=config,
+            variable_mappings=var_mappings,
+            tasks=tasks,
+            constraints=constraints,
+        )
+
+    def _parse_for_loop(self, elem: etree._Element, base: dict) -> ForLoopContainer:
+        tasks, constraints = self._parse_executables(elem)
+        init_expr = _attr(elem, "InitExpression")
+        eval_expr = _attr(elem, "EvalExpression")
+        assign_expr = _attr(elem, "AssignExpression")
+        return ForLoopContainer(**base, init_expression=init_expr, eval_expression=eval_expr,
+                                assign_expression=assign_expr, tasks=tasks, constraints=constraints)
+
+    # ------------------------------------------------------------------
+    # Data Flow
+    # ------------------------------------------------------------------
+
+    def _parse_data_flow(
+        self, elem: etree._Element, object_data: etree._Element | None, base: dict
+    ) -> DataFlowTask:
+        components: list[DataFlowComponent] = []
+        paths: list[DataFlowPath] = []
+
+        if object_data is not None:
+            pipeline_ns = f"{{{PIPELINE_NS}}}"
+            for pipeline in object_data.iter():
+                if etree.QName(pipeline.tag).localname not in ("pipeline", "Pipeline"):
+                    continue
+                components_elem = pipeline.find(f"{pipeline_ns}components") or pipeline.find("components")
+                if components_elem is not None:
+                    for comp in components_elem.findall(f"{pipeline_ns}component") + \
+                                components_elem.findall("component"):
+                        dfc = self._parse_df_component(comp, pipeline_ns)
+                        if dfc:
+                            components.append(dfc)
+
+                paths_elem = pipeline.find(f"{pipeline_ns}paths") or pipeline.find("paths")
+                if paths_elem is not None:
+                    for path_elem in paths_elem.findall(f"{pipeline_ns}path") + \
+                                     paths_elem.findall("path"):
+                        p_id = path_elem.get("id") or str(uuid.uuid4())
+                        p_name = path_elem.get("name") or p_id
+                        start = path_elem.get("startId") or ""
+                        end = path_elem.get("endId") or ""
+                        paths.append(DataFlowPath(id=p_id, name=p_name, start_id=start, end_id=end))
+
+        return DataFlowTask(**base, components=components, paths=paths)
+
+    def _parse_df_component(
+        self, comp: etree._Element, ns: str
+    ) -> DataFlowComponent | None:
+        comp_id = comp.get("id") or str(uuid.uuid4())
+        comp_name = comp.get("name") or comp_id
+        class_id = comp.get("classID") or comp.get("componentClassID") or ""
+        comp_type = CLSID_MAP.get(class_id.strip("{}").upper(), class_id)
+        if not comp_type:
+            comp_type = comp.get("componentName") or "Unknown"
+
+        conn_id: str | None = None
+        # Connection managers for this component
+        for cm_ref in comp.iter(f"{ns}connection"):
+            if cm_ref.get("id"):
+                conn_id = _clean_id(cm_ref.get("componentId") or cm_ref.get("id"))
+                break
+
+        props: dict[str, Any] = {}
+        for prop in comp.iter(f"{ns}property"):
+            pname = prop.get("name")
+            if pname:
+                props[pname] = prop.text
+
+        # Columns
+        input_cols: list[DataFlowColumn] = []
+        output_cols: list[DataFlowColumn] = []
+
+        for input_elem in comp.iter(f"{ns}input"):
+            for col in input_elem.iter(f"{ns}inputColumn"):
+                input_cols.append(self._parse_df_column(col))
+
+        for output_elem in comp.iter(f"{ns}output"):
+            for col in output_elem.iter(f"{ns}outputColumn"):
+                output_cols.append(self._parse_df_column(col))
+
+        return DataFlowComponent(
+            id=comp_id,
+            name=comp_name,
+            component_class_id=class_id,
+            component_type=comp_type,
+            input_columns=input_cols,
+            output_columns=output_cols,
+            properties=props,
+            connection_id=conn_id,
+        )
+
+    def _parse_df_column(self, col: etree._Element) -> DataFlowColumn:
+        dt_str = col.get("dataType") or "wstr"
+        try:
+            dt = DataType(dt_str)
+        except ValueError:
+            dt = DataType.WSTRING
+
+        return DataFlowColumn(
+            name=col.get("name") or col.get("externalMetadataColumnId") or "column",
+            data_type=dt,
+            length=int(col.get("length") or "0"),
+            precision=int(col.get("precision") or "0"),
+            scale=int(col.get("scale") or "0"),
+            code_page=int(col.get("codePage") or "0"),
+        )
+
+    # ------------------------------------------------------------------
+    # Precedence Constraints
+    # ------------------------------------------------------------------
+
+    def _parse_precedence_constraints(
+        self, parent: etree._Element, tasks: list[SSISTask]
+    ) -> list[PrecedenceConstraint]:
+        constraints: list[PrecedenceConstraint] = []
+        pc_container = parent.find(_dts("PrecedenceConstraints"))
+        if pc_container is None:
+            return constraints
+
+        for pc in pc_container.findall(_dts("PrecedenceConstraint")):
+            pc_id = _clean_id(_attr(pc, "DTSID"))
+            from_id = _clean_id(_attr(pc, "From"))
+            to_id = _clean_id(_attr(pc, "To"))
+            eval_op_str = _attr(pc, "EvalOp") or "1"
+            eval_op_map = {
+                "1": PrecedenceEvalOp.CONSTRAINT,
+                "2": PrecedenceEvalOp.EXPRESSION,
+                "3": PrecedenceEvalOp.EXPRESSION_AND_CONSTRAINT,
+                "5": PrecedenceEvalOp.EXPRESSION_OR_CONSTRAINT,
+            }
+            eval_op = eval_op_map.get(eval_op_str, PrecedenceEvalOp.CONSTRAINT)
+            value_str = _attr(pc, "Value") or "0"
+            value_map = {
+                "0": PrecedenceValue.SUCCESS,
+                "1": PrecedenceValue.FAILURE,
+                "2": PrecedenceValue.COMPLETION,
+            }
+            value = value_map.get(value_str, PrecedenceValue.SUCCESS)
+            expression = _attr(pc, "Expression")
+            logical_and = (_attr(pc, "LogicalAnd") or "-1") != "0"
+
+            constraints.append(PrecedenceConstraint(
+                id=pc_id,
+                from_task_id=from_id,
+                to_task_id=to_id,
+                eval_op=eval_op,
+                value=value,
+                expression=expression,
+                logical_and=logical_and,
+            ))
+        return constraints
+
+    # ------------------------------------------------------------------
+    # Event Handlers
+    # ------------------------------------------------------------------
+
+    def _parse_event_handlers(self, root: etree._Element) -> list[EventHandler]:
+        handlers: list[EventHandler] = []
+        eh_container = root.find(_dts("EventHandlers"))
+        if eh_container is None:
+            return handlers
+
+        for eh_elem in eh_container.findall(_dts("EventHandler")):
+            event_name = _attr(eh_elem, "EventName") or "Unknown"
+            tasks, constraints = self._parse_executables(eh_elem)
+            variables = self._parse_variables(eh_elem, direct_children_only=True)
+            handlers.append(EventHandler(
+                event_name=event_name,
+                parent_task_id=None,
+                parent_task_name=None,
+                tasks=tasks,
+                constraints=constraints,
+                variables=variables,
+            ))
+        return handlers

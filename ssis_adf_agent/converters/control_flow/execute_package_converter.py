@@ -1,0 +1,53 @@
+"""
+Execute Package Task → ADF Execute Pipeline Activity.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from ...parsers.models import ExecutePackageTask, PrecedenceConstraint, SSISTask
+from ..base_converter import BaseConverter
+
+
+class ExecutePackageConverter(BaseConverter):
+    def convert(
+        self,
+        task: SSISTask,
+        constraints: list[PrecedenceConstraint],
+        task_by_id: dict[str, SSISTask],
+    ) -> list[dict[str, Any]]:
+        assert isinstance(task, ExecutePackageTask)
+        depends_on = self._depends_on(task, constraints, task_by_id)
+
+        # Derive a pipeline name from the referenced package
+        if task.use_project_reference and task.project_package_name:
+            ref_name = task.project_package_name.replace(".dtsx", "").replace(" ", "_")
+        elif task.package_path:
+            import posixpath
+            ref_name = posixpath.basename(task.package_path or "").replace(".dtsx", "").replace(" ", "_")
+        else:
+            ref_name = "PL_UNKNOWN"
+
+        parameters: dict[str, Any] = {}
+        for pa in task.parameter_assignments:
+            param_name = pa.get("parameter", "param")
+            var_name = pa.get("variable", "")
+            parameters[param_name] = {
+                "value": f"@variables('{var_name}')",
+                "type": "Expression",
+            }
+
+        return [{
+            "name": task.name,
+            "description": task.description or "",
+            "type": "ExecutePipeline",
+            "dependsOn": depends_on,
+            "typeProperties": {
+                "pipeline": {
+                    "referenceName": ref_name,
+                    "type": "PipelineReference",
+                },
+                "waitOnCompletion": True,
+                "parameters": parameters,
+            },
+        }]

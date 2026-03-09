@@ -1,0 +1,147 @@
+"""
+Execute SQL Task → ADF Stored Procedure Activity or Lookup Activity.
+
+Mapping rules
+-------------
+- result_set_type == "None"       → StoredProcedure Activity (fire-and-forget) if sql looks
+                                    like a stored procedure call; otherwise Script Activity.
+- result_set_type == "SingleRow"  → Lookup Activity (first row only)
+- result_set_type == "FullResultSet" → Lookup Activity
+- result_set_type == "Xml"        → WebActivity (not supported natively; flagged as warning)
+"""
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from ...parsers.models import ExecuteSQLTask, PrecedenceConstraint, SSISTask
+from ..base_converter import BaseConverter
+
+_PROC_PATTERN = re.compile(
+    r"^\s*(exec(?:ute)?\s+|call\s+)(?:\[?[\w\s]+\]?\.)?\[?[\w\s]+\]?",
+    re.IGNORECASE,
+)
+
+
+def _is_stored_proc_call(sql: str | None) -> bool:
+    if not sql:
+        return False
+    return bool(_PROC_PATTERN.match(sql.strip()))
+
+
+def _extract_proc_name(sql: str) -> str:
+    """Best-effort extraction of a stored procedure name from a SQL string."""
+    m = re.search(
+        r"(?:exec(?:ute)?\s+|call\s+)(?:\[?[\w\s]+\]?\.)?\[?([\w\s]+)\]?",
+        sql, re.IGNORECASE,
+    )
+    return m.group(1).strip() if m else "sp_unknown"
+
+
+class ExecuteSQLConverter(BaseConverter):
+    def convert(
+        self,
+        task: SSISTask,
+        constraints: list[PrecedenceConstraint],
+        task_by_id: dict[str, SSISTask],
+    ) -> list[dict[str, Any]]:
+        assert isinstance(task, ExecuteSQLTask)
+        depends_on = self._depends_on(task, constraints, task_by_id)
+
+        result_type = task.result_set_type or "None"
+
+        # Build linked service reference from connection_id placeholder
+        linked_service_ref = {
+            "referenceName": f"LS_{task.connection_id or 'unknown'}",
+            "type": "LinkedServiceReference",
+        }
+
+        if result_type in ("SingleRow", "FullResultSet"):
+            return [self._lookup_activity(task, linked_service_ref, depends_on)]
+        else:
+            if _is_stored_proc_call(task.sql_statement):
+                return [self._stored_proc_activity(task, linked_service_ref, depends_on)]
+            else:
+                return [self._script_activity(task, linked_service_ref, depends_on)]
+
+    def _lookup_activity(
+        self,
+        task: ExecuteSQLTask,
+        ls_ref: dict,
+        depends_on: list,
+    ) -> dict[str, Any]:
+        first_row_only = task.result_set_type == "SingleRow"
+        return {
+            "name": task.name,
+            "description": task.description or "",
+            "type": "Lookup",
+            "dependsOn": depends_on,
+            "policy": {
+                "timeout": f"0.{task.timeout // 3600:02d}:{(task.timeout % 3600) // 60:02d}:{task.timeout % 60:02d}"
+                if task.timeout > 0 else "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+            },
+            "typeProperties": {
+                "source": {
+                    "type": "AzureSqlSource",
+                    "sqlReaderQuery": task.sql_statement or "",
+                    "queryTimeout": "02:00:00",
+                },
+                "dataset": {
+                    "referenceName": f"DS_{task.name.replace(' ', '_')}",
+                    "type": "DatasetReference",
+                },
+                "firstRowOnly": first_row_only,
+            },
+        }
+
+    def _stored_proc_activity(
+        self,
+        task: ExecuteSQLTask,
+        ls_ref: dict,
+        depends_on: list,
+    ) -> dict[str, Any]:
+        proc_name = _extract_proc_name(task.sql_statement or "")
+        parameters = {}
+        for pb in task.parameter_bindings:
+            parameters[pb.get("parameter_name", f"param{len(parameters)}")] = {
+                "value": f"@variables('{pb.get('variable', '')}')",
+                "type": "String",
+            }
+        return {
+            "name": task.name,
+            "description": task.description or "",
+            "type": "SqlServerStoredProcedure",
+            "dependsOn": depends_on,
+            "linkedServiceName": ls_ref,
+            "typeProperties": {
+                "storedProcedureName": proc_name,
+                "storedProcedureParameters": parameters,
+            },
+        }
+
+    def _script_activity(
+        self,
+        task: ExecuteSQLTask,
+        ls_ref: dict,
+        depends_on: list,
+    ) -> dict[str, Any]:
+        return {
+            "name": task.name,
+            "description": task.description or "",
+            "type": "Script",
+            "dependsOn": depends_on,
+            "linkedServiceName": ls_ref,
+            "typeProperties": {
+                "scripts": [
+                    {
+                        "type": "Query",
+                        "text": task.sql_statement or "",
+                    }
+                ],
+                "logSettings": {
+                    "logDestination": "ActivityOutput",
+                },
+            },
+        }

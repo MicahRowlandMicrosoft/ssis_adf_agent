@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "ssis-adf-agent": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "ssis_adf_agent.mcp_server"],
+      "cwd": "${workspaceFolder}",
+      "env": {},
+      "description": "SSIS → ADF conversion and deployment agent"
+    }
+  }
+}

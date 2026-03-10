@@ -55,6 +55,7 @@ NAMESPACES: dict[str, str] = {
     "DTS": DTS_NS,
     "pipeline": PIPELINE_NS,
     "SQLTask": "www.microsoft.com/sqlserver/dts/tasks/sqltask",
+    "ExecuteSQLTask": "www.microsoft.com/sqlserver/dts/tasks/ExecuteSQLTask",
     "ScriptProject": "www.microsoft.com/SqlServer/Dts/Tasks/ScriptTask",
     "MSFTContainers": "www.microsoft.com/sqlserver/dts/containers",
 }
@@ -129,6 +130,22 @@ def _clean_id(raw: str | None) -> str:
     return raw.strip("{}").upper()
 
 
+# Short-form CreationName values used by older SQL Server versions
+_SHORT_FORM_TASK_MAP: dict[str, TaskType] = {
+    "microsoft.executesqltask": TaskType.EXECUTE_SQL,
+    "microsoft.pipeline": TaskType.DATA_FLOW,
+    "microsoft.scripttask": TaskType.SCRIPT,
+    "microsoft.filesystemtask": TaskType.FILE_SYSTEM,
+    "microsoft.ftptask": TaskType.FTP,
+    "microsoft.sendmailtask": TaskType.SEND_MAIL,
+    "microsoft.executepackagetask": TaskType.EXECUTE_PACKAGE,
+    "microsoft.executeprocesstask": TaskType.EXECUTE_PROCESS,
+    "stock:sequence": TaskType.SEQUENCE,
+    "stock:foreach": TaskType.FOREACH_LOOP,
+    "stock:forloop": TaskType.FOR_LOOP,
+}
+
+
 def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
     """Map a clsid or DTS type string to a TaskType enum."""
     mapping: dict[str, TaskType] = {
@@ -154,6 +171,10 @@ def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
         for k, v in mapping.items():
             if k.lower() in dts_type.lower() or dts_type.lower() in k.lower():
                 return v
+        # Check short-form creation names (e.g. "Microsoft.ExecuteSQLTask")
+        lower = dts_type.lower()
+        if lower in _SHORT_FORM_TASK_MAP:
+            return _SHORT_FORM_TASK_MAP[lower]
     return TaskType.UNKNOWN
 
 
@@ -340,17 +361,23 @@ class SSISParser:
 
     def _parse_parameters(self, root: etree._Element) -> list[SSISParameter]:
         params: list[SSISParameter] = []
-        params_container = root.find(_dts("PackageParameters"))
+        # Support both modern (PackageParameters/PackageParameter) and
+        # legacy (Parameters/Parameter) formats
+        params_container = root.find(_dts("PackageParameters")) or root.find(_dts("Parameters"))
         if params_container is None:
             return params
 
-        for p_elem in params_container.findall(_dts("PackageParameter")):
-            name = _attr(p_elem, "ObjectName") or ""
+        p_elems = params_container.findall(_dts("PackageParameter")) \
+                  or params_container.findall(_dts("Parameter"))
+        for p_elem in p_elems:
+            # Modern format uses ObjectName; legacy uses Name
+            name = _attr(p_elem, "ObjectName") or _attr(p_elem, "Name") or ""
             data_type = _attr(p_elem, "DataType") or "String"
             required = (_attr(p_elem, "Required") or "0") != "0"
             sensitive = (_attr(p_elem, "Sensitive") or "0") != "0"
-            val_elem = p_elem.find(_dts("Property[@DTS:Name='ParameterValue']"))
-            value = val_elem.text if val_elem is not None else None
+            val_elem = p_elem.find(_dts("Property"))
+            # Legacy format stores value as element text content
+            value = (val_elem.text if val_elem is not None else None) or (p_elem.text or "").strip() or None
             params.append(SSISParameter(
                 name=name,
                 data_type=data_type,
@@ -442,26 +469,38 @@ class SSISParser:
         if object_data is not None:
             for child in object_data:
                 local = etree.QName(child.tag).localname
-                if local == "SqlTaskData":
-                    conn_id = _clean_id(child.get(f"{{{NAMESPACES['SQLTask']}}}Connection")
-                                        or child.get("Connection"))
-                    sql = (child.get(f"{{{NAMESPACES['SQLTask']}}}SqlStatementSource")
-                           or child.get("SqlStatementSource"))
-                    result_type = (child.get(f"{{{NAMESPACES['SQLTask']}}}ResultType")
-                                   or child.get("ResultType") or "None")
-                    timeout = int(child.get(f"{{{NAMESPACES['SQLTask']}}}TimeOut")
-                                  or child.get("TimeOut") or "0")
-                    for rb in child.findall(f"{{{NAMESPACES['SQLTask']}}}ResultBinding"):
+                ns = etree.QName(child.tag).namespace or ""
+                # Accept both canonicalpipeline namespace variants:
+                #   - "SqlTaskData" (www.microsoft.com/sqlserver/dts/tasks/sqltask)
+                #   - "ExecuteSQLTask" (www.microsoft.com/sqlserver/dts/tasks/ExecuteSQLTask)
+                if local in ("SqlTaskData", "ExecuteSQLTask"):
+                    # Attributes may live under either namespace or bare
+                    def _get_sqla(attr: str) -> str | None:
+                        return (
+                            child.get(f"{{{ns}}}{attr}")
+                            or child.get(f"{{{NAMESPACES['SQLTask']}}}{attr}")
+                            or child.get(f"{{{NAMESPACES['ExecuteSQLTask']}}}{attr}")
+                            or child.get(attr)
+                        )
+                    conn_id = _clean_id(_get_sqla("Connection"))
+                    sql = _get_sqla("SqlStatementSource")
+                    result_type = _get_sqla("ResultType") or "None"
+                    timeout = int(_get_sqla("TimeOut") or "0")
+                    for rb in list(child.findall(f"{{{NAMESPACES['SQLTask']}}}ResultBinding"))\
+                              + list(child.findall(f"{{{NAMESPACES['ExecuteSQLTask']}}}ResultBinding")):
+                        rb_ns = etree.QName(rb.tag).namespace or ""
                         result_bindings.append({
-                            "variable": rb.get(f"{{{NAMESPACES['SQLTask']}}}DtsVariableName") or "",
-                            "result_name": rb.get(f"{{{NAMESPACES['SQLTask']}}}ResultName") or "",
+                            "variable": rb.get(f"{{{rb_ns}}}DtsVariableName") or rb.get("DtsVariableName") or "",
+                            "result_name": rb.get(f"{{{rb_ns}}}ResultName") or rb.get("ResultName") or "",
                         })
-                    for pb in child.findall(f"{{{NAMESPACES['SQLTask']}}}ParameterBinding"):
+                    for pb in list(child.findall(f"{{{NAMESPACES['SQLTask']}}}ParameterBinding"))\
+                              + list(child.findall(f"{{{NAMESPACES['ExecuteSQLTask']}}}ParameterBinding")):
+                        pb_ns = etree.QName(pb.tag).namespace or ""
                         param_bindings.append({
-                            "variable": pb.get(f"{{{NAMESPACES['SQLTask']}}}DtsVariableName") or "",
-                            "direction": pb.get(f"{{{NAMESPACES['SQLTask']}}}ParameterDirection") or "Input",
-                            "data_type": pb.get(f"{{{NAMESPACES['SQLTask']}}}DataType") or "0",
-                            "parameter_name": pb.get(f"{{{NAMESPACES['SQLTask']}}}ParameterName") or "",
+                            "variable": pb.get(f"{{{pb_ns}}}DtsVariableName") or pb.get("DtsVariableName") or "",
+                            "direction": pb.get(f"{{{pb_ns}}}ParameterDirection") or pb.get("ParameterDirection") or "Input",
+                            "data_type": pb.get(f"{{{pb_ns}}}DataType") or pb.get("DataType") or "0",
+                            "parameter_name": pb.get(f"{{{pb_ns}}}ParameterName") or pb.get("ParameterName") or "",
                         })
 
         return ExecuteSQLTask(

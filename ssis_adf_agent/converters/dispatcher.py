@@ -27,8 +27,8 @@ class ConverterDispatcher:
         activities = dispatcher.convert_task(task, constraints, task_by_id)
     """
 
-    def __init__(self, stubs_dir: Path | None = None) -> None:
-        script_converter = ScriptTaskConverter(stubs_output_dir=stubs_dir)
+    def __init__(self, stubs_dir: Path | None = None, llm_translate: bool = False) -> None:
+        script_converter = ScriptTaskConverter(stubs_output_dir=stubs_dir, llm_translate=llm_translate)
 
         # Pass self to loop converters so they can recursively convert inner tasks
         foreach_converter = ForEachConverter(child_converter=self)

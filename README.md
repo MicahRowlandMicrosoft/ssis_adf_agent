@@ -38,6 +38,7 @@ Azure Data Factory
   - [3. Convert a package](#3-convert-a-package)
   - [4. Validate generated artifacts](#4-validate-generated-artifacts)
   - [5. Deploy to Azure Data Factory](#5-deploy-to-azure-data-factory)
+- [LLM-Powered Script Task Translation](#llm-powered-script-task-translation)
 - [Using the Built-in Prompt Files](#using-the-built-in-prompt-files)
 - [Authentication](#authentication)
 - [SSIS Component Mapping Reference](#ssis-component-mapping-reference)
@@ -76,6 +77,12 @@ To also install development tools (pytest, ruff, mypy):
 
 ```bash
 pip install -e ".[dev]"
+```
+
+To enable **automatic C# → Python translation** of Script Tasks via Azure OpenAI:
+
+```bash
+pip install -e ".[llm]"
 ```
 
 Verify the installation:
@@ -229,6 +236,7 @@ Convert C:\Projects\LegacyETL\LoadFactSales.dtsx to ADF artifacts and write them
 | `package_path` | Yes | Absolute path to the `.dtsx` file |
 | `output_dir` | Yes | Directory to write artifacts into |
 | `generate_trigger` | No | Emit a `ScheduleTrigger` template (default: `true`) |
+| `llm_translate` | No | Call Azure OpenAI to translate C# Script Task source code to Python in the generated stubs. Requires `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_API_KEY` env vars. Falls back gracefully if unavailable. Default: `false` |
 
 Sub-folders are created automatically inside `output_dir`. See [Generated Artifact Structure](#generated-artifact-structure).
 
@@ -290,6 +298,43 @@ Deploy C:\adf_output\LoadFactSales to ADF instance my-adf in resource group rg-d
 
 ---
 
+## LLM-Powered Script Task Translation
+
+SSIS Script Tasks contain C# (or VB.NET) code that cannot be rule-based converted. By default the converter generates a Python Azure Function stub with `TODO` comments and the original source embedded as comments. When `llm_translate=true` is passed to `convert_ssis_package`, the agent extracts the embedded C# source from the DTSX binary blob and calls **Azure OpenAI** to produce a working Python implementation body.
+
+### How it works
+
+1. **Extraction** — The parser decodes the base64-encoded ZIP blob inside `DTS:ObjectData/ScriptProject/BinaryData`, unzips it, and reads all `.cs` / `.vb` source files (excluding `AssemblyInfo` and designer files).
+2. **Translation** — `CSharpToPythonTranslator` sends the source to Azure OpenAI Chat Completions with a structured prompt that preserves business logic and replaces unsupported patterns (SQL calls, file I/O, SMTP) with `# TODO` comments pointing to Azure equivalents.
+3. **Stub output** — The generated `stubs/<FunctionName>/__init__.py` contains the translated Python body. The original C# is preserved as line comments below the implementation for reference.
+4. **Graceful fallback** — If the API key is not configured, the model deployment is unavailable, or the DTSX uses a self-closing stub format (no embedded source), the converter falls back to the standard `TODO` stub without raising an error. A warning comment is embedded in the stub file.
+
+### Required environment variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `AZURE_OPENAI_ENDPOINT` | Your Azure OpenAI resource URL, e.g. `https://my-resource.openai.azure.com/` | required |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | required |
+| `AZURE_OPENAI_DEPLOYMENT` | Model deployment name | `gpt-4o` |
+
+### Installation
+
+The `openai` SDK is an optional dependency — install it alongside the package:
+
+```bash
+pip install "ssis-adf-agent[llm]"
+```
+
+### Example prompt
+
+```
+Convert C:\Projects\LegacyETL\LoadFactSales.dtsx to C:\adf_output\LoadFactSales and translate all Script Tasks to Python using Azure OpenAI.
+```
+
+> **Note:** Translated code should always be reviewed before deploying to production. The LLM preserves control flow and business logic but replaces infrastructure calls (SQL, file I/O, SMTP) with `# TODO` placeholders that require manual completion.
+
+---
+
 ## Using the Built-in Prompt Files
 
 Three reusable prompt files are included in `.vscode/` and can be invoked directly from Copilot Chat to run the full workflow with guided inputs.
@@ -336,6 +381,24 @@ az login
 
 The service principal must have the **Data Factory Contributor** role on the target ADF instance.
 
+### Azure OpenAI (for LLM Script Task translation)
+
+Set the following environment variables before calling `convert_ssis_package` with `llm_translate=true`:
+
+```powershell
+# Windows (PowerShell)
+$env:AZURE_OPENAI_ENDPOINT   = "https://my-resource.openai.azure.com/"
+$env:AZURE_OPENAI_API_KEY    = "<your-key>"
+$env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"   # optional, defaults to gpt-4o
+```
+
+```bash
+# macOS / Linux
+export AZURE_OPENAI_ENDPOINT="https://my-resource.openai.azure.com/"
+export AZURE_OPENAI_API_KEY="<your-key>"
+export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
+```
+
 ---
 
 ## SSIS Component Mapping Reference
@@ -346,7 +409,7 @@ The service principal must have the **Data Factory Contributor** role on the tar
 | Data Flow Task (simple) | Copy Activity | Single source → single destination, no transformations |
 | Data Flow Task (complex) | Execute Data Flow Activity (Mapping Data Flow) | Multiple sources, transformations, or fanout |
 | Execute Package Task | Execute Pipeline Activity | Child pipeline must also be converted |
-| Script Task (C# / VB) | Azure Function Activity | Stub generated at `stubs/<FunctionName>/__init__.py`; requires manual porting |
+| Script Task (C# / VB) | Azure Function Activity | Stub generated at `stubs/<FunctionName>/__init__.py`. When `llm_translate=true`, C# source is extracted from the DTSX and translated to Python via Azure OpenAI; otherwise a `TODO` stub is generated. |
 | ForEach Loop Container | ForEach Activity | Expression varies by enumerator type |
 | For Loop Container | SetVariable (init) + Until Activity + SetVariable (increment) | Condition logic is inverted |
 | Sequence Container | Flattened into parent with `dependsOn` chaining | No ADF equivalent |
@@ -388,7 +451,7 @@ The service principal must have the **Data Factory Contributor** role on the tar
 After running `convert_ssis_package`, review the following checklist before deploying:
 
 - [ ] **Connection string passwords** — packages with `EncryptAllWithPassword` protection level may have missing passwords in linked service JSON files. Fill them in or reference Azure Key Vault secrets.
-- [ ] **Script Task stubs** — each stub in `stubs/<FunctionName>/__init__.py` contains `TODO` comments marking where the original C# / VB.NET logic must be ported to Python. Deploy the Function to Azure Functions before running the pipeline.
+- [ ] **Script Task stubs** — each stub in `stubs/<FunctionName>/__init__.py` contains `TODO` comments. If `llm_translate=true` was used, the stub contains LLM-translated Python with infrastructure calls (`# TODO: Replace with Azure SQL...`) still requiring manual completion. If `llm_translate=false` (default), port the original C# / VB.NET logic manually. Deploy the Function to Azure Functions before running the pipeline.
 - [ ] **Local file paths** — File System Tasks that reference local paths (e.g. `C:\Data\input.csv`) have placeholder Azure Storage paths. Replace them with valid `abfss://` or `https://` URLs.
 - [ ] **Trigger schedules** — the generated `ScheduleTrigger` uses a placeholder cron schedule. Update it to match your production schedule before activating.
 - [ ] **Re-validate** — run `validate_adf_artifacts` again after all manual edits.

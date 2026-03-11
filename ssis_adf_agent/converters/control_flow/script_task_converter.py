@@ -5,10 +5,13 @@ The converter:
 1. Generates an AzureFunctionActivity JSON that calls an Azure Function endpoint.
 2. Writes a Python Azure Function stub to the ``stubs/`` output directory that
    preserves the original variable interface so the developer can fill in logic.
+3. Optionally calls Azure OpenAI to translate the original C# source to Python
+   (set ``llm_translate=True`` and configure AZURE_OPENAI_* env vars).
 """
 from __future__ import annotations
 
 import textwrap
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +20,13 @@ from ..base_converter import BaseConverter
 
 
 class ScriptTaskConverter(BaseConverter):
-    def __init__(self, stubs_output_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        stubs_output_dir: Path | None = None,
+        llm_translate: bool = False,
+    ) -> None:
         self.stubs_output_dir = stubs_output_dir or Path("stubs")
+        self.llm_translate = llm_translate
 
     def convert(
         self,
@@ -67,12 +75,23 @@ class ScriptTaskConverter(BaseConverter):
             f"        {v}: pipeline variable (read-write)" for v in rw_vars
         )
 
-        original_code_block = ""
+        # --- LLM translation attempt ---
+        translated_body: str | None = None
+        translation_warning: str = ""
+        if self.llm_translate and task.source_code:
+            translated_body, translation_warning = _attempt_llm_translation(task)
+        elif self.llm_translate and not task.source_code:
+            translation_warning = (
+                f"[LLM translation skipped for '{task.name}': no C# source code was "
+                "extracted from the DTSX (package may use self-closing stub format)]"
+            )
+
+        # Original C# included as line comments whenever source is available
+        original_code_comment = ""
         if task.source_code:
-            original_code_block = textwrap.indent(
-                f'"""\nOriginal {task.script_language} source:\n\n'
-                + textwrap.indent(task.source_code, "    ")
-                + '\n"""',
+            original_code_comment = textwrap.indent(
+                f"# ---- Original {task.script_language} source ----\n"
+                + "\n".join(f"# {line}" for line in task.source_code.splitlines()),
                 "    ",
             )
 
@@ -81,6 +100,25 @@ class ScriptTaskConverter(BaseConverter):
             for v in all_params
         )
         return_dict = "{" + ", ".join(f'"{v}": {_py_name(v)}' for v in rw_vars) + "}"
+
+        if translated_body:
+            impl = textwrap.indent(translated_body, "    ")
+            if original_code_comment:
+                impl += "\n\n" + original_code_comment
+            if translation_warning:
+                impl = f"    # {translation_warning}\n" + impl
+        else:
+            warn_line = f"    # {translation_warning}\n" if translation_warning else ""
+            orig_block = original_code_comment + "\n\n" if original_code_comment else ""
+            impl = (
+                warn_line
+                + orig_block
+                + "    # TODO: implement converted logic here\n"
+                + f"    raise NotImplementedError(\n"
+                + f'        "Script Task \'{task.name}\' has not been implemented yet. "\n'
+                + f'        "See the original {task.script_language} code above."\n'
+                + "    )"
+            )
 
         stub_content = f'''\
 """
@@ -110,13 +148,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
 {param_assignments or "    pass  # no variables declared"}
 
-{original_code_block}
-
-    # TODO: implement converted logic here
-    raise NotImplementedError(
-        "Script Task '{task.name}' has not been implemented yet. "
-        "See the original {task.script_language} code above."
-    )
+{impl}
 
     return func.HttpResponse(
         json.dumps({return_dict or "{}"}),
@@ -126,6 +158,34 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 '''
         stub_file.write_text(stub_content, encoding="utf-8")
         return stub_file
+
+
+def _attempt_llm_translation(task: ScriptTask) -> tuple[str | None, str]:
+    """
+    Try to translate ``task.source_code`` via Azure OpenAI.
+
+    Returns (translated_python, warning_message).
+    On success: (code_str, "").
+    On failure: (None, warning_message) — caller falls back to TODO stub.
+    """
+    from ...translators.csharp_to_python import CSharpToPythonTranslator, TranslationError
+
+    translator = CSharpToPythonTranslator()
+    if not translator.is_configured():
+        msg = (
+            "[LLM translation skipped: AZURE_OPENAI_ENDPOINT and/or AZURE_OPENAI_API_KEY "
+            "are not set. Set these env vars to enable automatic C# → Python translation.]"
+        )
+        warnings.warn(msg, stacklevel=4)
+        return None, msg
+
+    try:
+        python_code = translator.translate(task.source_code or "", task)
+        return python_code, ""
+    except TranslationError as exc:
+        msg = f"[LLM translation failed for '{task.name}': {exc}. Falling back to TODO stub.]"
+        warnings.warn(msg, stacklevel=4)
+        return None, msg
 
 
 def _safe_name(name: str) -> str:

@@ -30,6 +30,9 @@ dev = [
     "mypy>=1.9.0",
     "lxml-stubs>=0.5.0",
 ]
+llm = [
+    "openai>=1.30.0",
+]
 
 [project.scripts]
 ssis-adf-agent = "ssis_adf_agent.mcp_server:main"

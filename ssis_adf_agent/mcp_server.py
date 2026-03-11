@@ -126,6 +126,16 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Whether to emit a template ScheduleTrigger JSON. Default: true.",
                         "default": True,
                     },
+                    "llm_translate": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, call Azure OpenAI to translate C# Script Task source code to Python "
+                            "in the generated Azure Function stubs. Requires AZURE_OPENAI_ENDPOINT and "
+                            "AZURE_OPENAI_API_KEY environment variables. Falls back gracefully if unavailable. "
+                            "Default: false."
+                        ),
+                        "default": False,
+                    },
                 },
                 "required": ["package_path", "output_dir"],
             },
@@ -312,6 +322,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     path = Path(args["package_path"])
     output_dir = Path(args["output_dir"])
     gen_trigger = args.get("generate_trigger", True)
+    llm_translate = args.get("llm_translate", False)
 
     reader = LocalReader()
     package = reader.read(path)
@@ -319,7 +330,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     stubs_dir = output_dir / "stubs"
 
     # Run generators
-    pipeline = generate_pipeline(package, output_dir, stubs_dir=stubs_dir)
+    pipeline = generate_pipeline(package, output_dir, stubs_dir=stubs_dir, llm_translate=llm_translate)
     linked_services = generate_linked_services(package, output_dir)
     datasets = generate_datasets(package, output_dir)
     data_flows = generate_data_flows(package, output_dir)
@@ -329,7 +340,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     stub_files = list(stubs_dir.rglob("*.py")) if stubs_dir.exists() else []
 
     # Collect warnings from pipeline activities
-    warnings = [
+    conversion_warnings = [
         act["description"]
         for act in pipeline.get("properties", {}).get("activities", [])
         if "MANUAL REVIEW" in act.get("description", "") or "UNSUPPORTED" in act.get("description", "")
@@ -346,8 +357,8 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
             "triggers": len(triggers),
             "azure_function_stubs": len(stub_files),
         },
-        "manual_review_required": len(warnings),
-        "warnings": warnings[:20],  # cap output size
+        "manual_review_required": len(conversion_warnings),
+        "warnings": conversion_warnings[:20],  # cap output size
         "files": {
             "pipeline": str(output_dir / "pipeline" / f"{pipeline['name']}.json"),
             "linked_services": [ls["name"] for ls in linked_services],

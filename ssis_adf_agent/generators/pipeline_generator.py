@@ -48,13 +48,14 @@ def generate_pipeline(
     package: SSISPackage,
     output_dir: Path,
     stubs_dir: Path | None = None,
+    llm_translate: bool = False,
 ) -> dict[str, Any]:
     """
     Convert an SSISPackage to a full ADF pipeline JSON and write it to *output_dir*.
 
     Returns the pipeline dict.
     """
-    dispatcher = ConverterDispatcher(stubs_dir=stubs_dir or output_dir / "stubs")
+    dispatcher = ConverterDispatcher(stubs_dir=stubs_dir or output_dir / "stubs", llm_translate=llm_translate)
     pipeline_name = f"PL_{package.name.replace(' ', '_')}"
 
     # Topological task ordering

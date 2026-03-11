@@ -146,6 +146,59 @@ _SHORT_FORM_TASK_MAP: dict[str, TaskType] = {
 }
 
 
+def _extract_source_from_blob(b64_text: str, language: str) -> str | None:
+    """
+    Decode a base64-encoded ZIP blob (Pattern A/B) and extract C#/VB source files.
+
+    Returns concatenated source code string, or None if extraction fails.
+    """
+    import base64
+    import io
+    import zipfile
+    import logging
+
+    ext = ".vb" if language == "VisualBasic" else ".cs"
+    _EXCLUDE = {"assemblyinfo", ".designer.", "assemblyattributes"}
+
+    try:
+        raw = base64.b64decode(b64_text.strip())
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            entries = sorted(
+                n for n in zf.namelist()
+                if n.lower().endswith(ext)
+                and not any(ex in n.lower() for ex in _EXCLUDE)
+            )
+            if not entries:
+                return None
+            parts: list[str] = []
+            for entry in entries:
+                code = zf.read(entry).decode("utf-8", errors="replace")
+                parts.append(f"// --- {entry} ---\n{code}")
+            return "\n\n".join(parts)
+    except Exception:
+        logging.getLogger(__name__).debug(
+            "Failed to extract script source from blob", exc_info=True
+        )
+        return None
+
+
+def _extract_source_from_script_project(
+    config_elem: "etree._Element", language: str
+) -> str | None:
+    """
+    Pattern A (SSIS 2012+): look for a ScriptProject child inside the config element,
+    then find a BinaryData child and decode it.
+    """
+    for child in config_elem:
+        local = etree.QName(child.tag).localname
+        if "ScriptProject" in local:
+            for sub in child:
+                sub_local = etree.QName(sub.tag).localname
+                if sub_local == "BinaryData" and sub.text:
+                    return _extract_source_from_blob(sub.text, language)
+    return None
+
+
 def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
     """Map a clsid or DTS type string to a TaskType enum."""
     mapping: dict[str, TaskType] = {
@@ -175,6 +228,9 @@ def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
         lower = dts_type.lower()
         if lower in _SHORT_FORM_TASK_MAP:
             return _SHORT_FORM_TASK_MAP[lower]
+        # Handle versioned SSIS Pipeline identifiers: "SSIS.Pipeline.2", "SSIS.Pipeline.4", etc.
+        if lower.startswith("ssis.pipeline"):
+            return TaskType.DATA_FLOW
     return TaskType.UNKNOWN
 
 
@@ -520,6 +576,7 @@ class SSISParser:
         entry_point = "Main"
         ro_vars: list[str] = []
         rw_vars: list[str] = []
+        source_code: str | None = None
 
         if object_data is not None:
             for child in object_data:
@@ -538,12 +595,22 @@ class SSISParser:
                     ro_vars = [v.strip() for v in ro.split(",") if v.strip()]
                     rw_vars = [v.strip() for v in rw.split(",") if v.strip()]
 
+                    # Pattern B (SSIS 2008): ProjectBytes attribute on the config element
+                    project_bytes = child.get("ProjectBytes")
+                    if project_bytes:
+                        source_code = _extract_source_from_blob(project_bytes, language)
+
+                    # Pattern A (SSIS 2012+): BinaryData child inside ScriptProject child
+                    if source_code is None:
+                        source_code = _extract_source_from_script_project(child, language)
+
         return ScriptTask(
             **base,
             script_language=language,
             entry_point=entry_point,
             read_only_variables=ro_vars,
             read_write_variables=rw_vars,
+            source_code=source_code,
         )
 
     def _parse_file_system(
@@ -860,7 +927,7 @@ class SSISParser:
             return handlers
 
         for eh_elem in eh_container.findall(_dts("EventHandler")):
-            event_name = _attr(eh_elem, "EventName") or "Unknown"
+            event_name = _attr(eh_elem, "EventName") or _attr(eh_elem, "CreationName") or "Unknown"
             tasks, constraints = self._parse_executables(eh_elem)
             variables = self._parse_variables(eh_elem, direct_children_only=True)
             handlers.append(EventHandler(

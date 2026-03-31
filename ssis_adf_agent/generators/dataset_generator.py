@@ -1,5 +1,8 @@
 """
 Dataset generator — emits ADF dataset JSON files for source/destination components.
+
+Uses Microsoft Recommended format: separate `schema` and `table` properties
+instead of the deprecated `tableName` property.
 """
 from __future__ import annotations
 
@@ -32,6 +35,21 @@ _COMP_TO_DS_TYPE: dict[str, str] = {
 }
 
 
+def _parse_table_name(raw_name: str | None) -> tuple[str | None, str | None]:
+    """Split a possibly-qualified table name into (schema, table).
+
+    Handles: ``[schema].[table]``, ``schema.table``, ``table`` (defaults to dbo).
+    """
+    if not raw_name:
+        return None, None
+    # Remove surrounding brackets and whitespace
+    name = raw_name.strip().strip("[]")
+    if "." in name:
+        parts = [p.strip().strip("[]") for p in name.split(".", 1)]
+        return parts[0], parts[1]
+    return "dbo", name
+
+
 def _build_dataset(
     name: str,
     ds_type: str,
@@ -39,6 +57,7 @@ def _build_dataset(
     table_name: str | None = None,
     file_path: str | None = None,
     description: str = "",
+    schema_remap: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     props: dict[str, Any] = {
         "linkedServiceName": {
@@ -53,8 +72,17 @@ def _build_dataset(
     }
 
     if ds_type in ("AzureSqlTable", "SqlServerTable", "OdbcTable"):
-        if table_name:
-            props["typeProperties"]["tableName"] = table_name
+        schema_part, table_part = _parse_table_name(table_name)
+
+        # Apply schema remapping if configured
+        if schema_remap and schema_part:
+            remap_key = schema_part.lower()
+            if remap_key in schema_remap:
+                schema_part = schema_remap[remap_key]
+
+        if table_part:
+            props["typeProperties"]["schema"] = schema_part or "dbo"
+            props["typeProperties"]["table"] = table_part
 
     elif ds_type == "DelimitedText":
         props["typeProperties"] = {
@@ -87,15 +115,29 @@ def _build_dataset(
 def generate_datasets(
     package: SSISPackage,
     output_dir: Path,
+    *,
+    schema_remap: dict[str, str] | None = None,
+    shared_artifacts_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     """
     Generate ADF dataset JSON files for every Data Flow source and destination.
-    Files are written to *output_dir*/dataset/.
 
+    When *shared_artifacts_dir* is set, checks for existing dataset JSON files
+    there before creating new ones (cross-package deduplication).
+
+    Files are written to *output_dir*/dataset/.
     Returns the list of dataset dicts.
     """
     ds_dir = output_dir / "dataset"
     ds_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build index of existing shared datasets for dedup
+    existing_ds: set[str] = set()
+    if shared_artifacts_dir:
+        shared_ds_dir = shared_artifacts_dir / "dataset"
+        if shared_ds_dir.exists():
+            for f in shared_ds_dir.glob("*.json"):
+                existing_ds.add(f.stem)
 
     conn_by_id: dict[str, SSISConnectionManager] = {cm.id: cm for cm in package.connection_managers}
     results: list[dict[str, Any]] = []
@@ -112,7 +154,7 @@ def generate_datasets(
                 continue  # transformation — no dataset needed
 
             ds_name = f"DS_{comp.name.replace(' ', '_')}"
-            if ds_name in seen:
+            if ds_name in seen or ds_name in existing_ds:
                 continue
             seen.add(ds_name)
 
@@ -131,6 +173,7 @@ def generate_datasets(
                 table_name=table,
                 file_path=file_path,
                 description=f"Dataset for SSIS component: {comp.name}",
+                schema_remap=schema_remap,
             )
             (ds_dir / f"{ds_name}.json").write_text(
                 json.dumps(ds, indent=4, ensure_ascii=False),

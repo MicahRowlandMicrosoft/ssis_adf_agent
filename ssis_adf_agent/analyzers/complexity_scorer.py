@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from ..parsers.models import (  # type: ignore[attr-defined]
     ComplexityScore,
+    CrossDbReferenceType,
     DataFlowTask,
     ForEachLoopContainer,
     ForLoopContainer,
@@ -53,6 +54,10 @@ _EVENT_HANDLER_WEIGHT = 4
 # Score added per nesting level (beyond 1)
 _NEST_DEPTH_WEIGHT = 3
 
+# Score per cross-database / linked server reference
+_LINKED_SERVER_WEIGHT = 8
+_CROSS_DB_WEIGHT = 3
+
 
 def _walk_tasks(tasks: list[SSISTask], depth: int = 0):  # type: ignore[type-arg]
     """Generator: yields (task, depth) pairs recursively."""
@@ -71,6 +76,8 @@ def score_package(package: SSISPackage) -> ComplexityScore:
     loop_count = 0
     eh_count = len(package.event_handlers)
     unknown_count = 0
+    cross_db_count = 0
+    linked_server_count = 0
     max_depth = 0
     raw_score = 0.0
 
@@ -91,6 +98,19 @@ def score_package(package: SSISPackage) -> ComplexityScore:
             loop_count += 1
         elif task.task_type == TaskType.UNKNOWN:
             unknown_count += 1
+
+        # Cross-database / linked server references
+        for ref in task.cross_db_references:
+            if ref.ref_type in (
+                CrossDbReferenceType.FOUR_PART,
+                CrossDbReferenceType.OPENQUERY,
+                CrossDbReferenceType.OPENROWSET,
+            ):
+                linked_server_count += 1
+                raw_score += _LINKED_SERVER_WEIGHT
+            elif ref.ref_type == CrossDbReferenceType.THREE_PART:
+                cross_db_count += 1
+                raw_score += _CROSS_DB_WEIGHT
 
     # Add event handler contribution
     raw_score += eh_count * _EVENT_HANDLER_WEIGHT
@@ -123,6 +143,8 @@ def score_package(package: SSISPackage) -> ComplexityScore:
         event_handler_count=eh_count,
         nest_depth=max_depth,
         unknown_task_count=unknown_count,
+        cross_db_ref_count=cross_db_count,
+        linked_server_ref_count=linked_server_count,
         score=score,
         effort_estimate=effort,
     )

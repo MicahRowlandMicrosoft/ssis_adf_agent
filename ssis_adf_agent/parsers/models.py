@@ -7,7 +7,7 @@ analyzers, and converters. All converters consume these models rather than raw X
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
@@ -81,6 +81,20 @@ class ConnectionManagerType(str, Enum):
     UNKNOWN = "Unknown"
 
 
+class IngestionPattern(str, Enum):
+    FULL = "full"
+    DELTA = "delta"
+    MERGE = "merge"
+    UNKNOWN = "unknown"
+
+
+class CrossDbReferenceType(str, Enum):
+    THREE_PART = "three_part"       # [database].[schema].[table]
+    FOUR_PART = "four_part"         # [server].[database].[schema].[table]
+    OPENQUERY = "openquery"         # OPENQUERY(...)
+    OPENROWSET = "openrowset"       # OPENROWSET(...)
+
+
 class DataType(str, Enum):
     INT8 = "i1"
     INT16 = "i2"
@@ -140,6 +154,29 @@ class SSISConnectionManager(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
+class CrossDbReference(BaseModel):
+    """A cross-database or linked-server reference detected in SQL text."""
+    ref_type: CrossDbReferenceType
+    server_name: str | None = None
+    database_name: str | None = None
+    schema_name: str | None = None
+    table_name: str | None = None
+    raw_match: str = ""  # original matched text
+
+
+class SqlAgentSchedule(BaseModel):
+    """SQL Agent job schedule metadata extracted from msdb."""
+    job_name: str = ""
+    schedule_name: str = ""
+    frequency_type: int = 4          # 1=once, 4=daily, 8=weekly, 16=monthly, 32=monthly-relative
+    freq_interval: int = 1           # depends on frequency_type
+    freq_subday_type: int = 1        # 1=at specified time, 4=minutes, 8=hours
+    freq_subday_interval: int = 0
+    active_start_time: int = 0       # HHMMSS format, e.g. 60000 = 06:00:00
+    active_end_time: int = 235959
+    freq_recurrence_factor: int = 0  # weekly: every N weeks, monthly: every N months
+
+
 class PrecedenceConstraint(BaseModel):
     id: str
     from_task_id: str
@@ -163,6 +200,7 @@ class SSISTask(BaseModel):
     disabled: bool = False
     delay_validation: bool = False
     properties: dict[str, Any] = Field(default_factory=dict)
+    cross_db_references: list[CrossDbReference] = Field(default_factory=list)
 
 
 class ExecuteSQLTask(SSISTask):
@@ -173,6 +211,8 @@ class ExecuteSQLTask(SSISTask):
     result_bindings: list[dict[str, str]] = Field(default_factory=list)
     parameter_bindings: list[dict[str, Any]] = Field(default_factory=list)
     timeout: int = 0
+    ingestion_pattern: IngestionPattern = IngestionPattern.UNKNOWN
+    delta_column: str | None = None
 
 
 class ExecutePackageTask(SSISTask):
@@ -259,6 +299,7 @@ class DataFlowComponent(BaseModel):
     output_columns: list[DataFlowColumn] = Field(default_factory=list)
     properties: dict[str, Any] = Field(default_factory=dict)
     connection_id: str | None = None
+    key_columns: list[str] = Field(default_factory=list)
 
 
 class DataFlowPath(BaseModel):
@@ -274,6 +315,7 @@ class DataFlowTask(SSISTask):
     paths: list[DataFlowPath] = Field(default_factory=list)
     default_buffer_max_rows: int = 10000
     default_buffer_size: int = 10485760
+    ingestion_pattern: IngestionPattern = IngestionPattern.UNKNOWN
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +386,9 @@ class SSISPackage(BaseModel):
     # Source metadata
     raw_xml: str | None = None  # kept for debugging; not serialized to ADF
 
+    # SQL Agent schedule (populated from msdb when available)
+    sql_agent_schedule: SqlAgentSchedule | None = None
+
 
 # ---------------------------------------------------------------------------
 # Analysis result models (used by analyzers)
@@ -368,6 +413,8 @@ class ComplexityScore(BaseModel):
     event_handler_count: int = 0
     nest_depth: int = 0
     unknown_task_count: int = 0
+    cross_db_ref_count: int = 0
+    linked_server_ref_count: int = 0
     score: int = 0  # 0-100 complexity score
     effort_estimate: str = ""  # "Low", "Medium", "High", "Very High"
 

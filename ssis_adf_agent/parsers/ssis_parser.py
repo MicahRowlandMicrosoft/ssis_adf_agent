@@ -14,6 +14,8 @@ from lxml import etree
 
 from .models import (
     ConnectionManagerType,
+    CrossDbReference,
+    CrossDbReferenceType,
     DataFlowColumn,
     DataFlowComponent,
     DataFlowPath,
@@ -29,6 +31,7 @@ from .models import (
     ForLoopContainer,
     FTPTask,
     GapItem,
+    IngestionPattern,
     PrecedenceConstraint,
     PrecedenceEvalOp,
     PrecedenceValue,
@@ -128,6 +131,178 @@ def _clean_id(raw: str | None) -> str:
     if not raw:
         return str(uuid.uuid4())
     return raw.strip("{}").upper()
+
+
+# ---------------------------------------------------------------------------
+# Cross-database / linked server detection regexes
+# ---------------------------------------------------------------------------
+
+# Four-part name: [server].[database].[schema].[table]
+_FOUR_PART_RE = re.compile(
+    r"\[?(\w+)\]?\.\[?(\w+)\]?\.\[?(\w+)\]?\.\[?(\w+)\]?",
+)
+
+# Three-part name: [database].[schema].[table]
+# Exclude common false positives: sys.*, INFORMATION_SCHEMA.*, dbo.sp_*
+_THREE_PART_RE = re.compile(
+    r"(?<!\w)\[?(\w+)\]?\.\[?(\w+)\]?\.\[?(\w+)\]?(?!\.\[?\w)",
+)
+
+# OPENQUERY / OPENROWSET patterns
+_OPENQUERY_RE = re.compile(r"\bOPENQUERY\s*\(\s*\[?(\w+)\]?", re.IGNORECASE)
+_OPENROWSET_RE = re.compile(r"\bOPENROWSET\s*\(", re.IGNORECASE)
+
+# Skip databases for three-part-name detection (system databases, common aliases)
+_SKIP_DBS = frozenset({"sys", "INFORMATION_SCHEMA", "tempdb", "master", "model", "msdb"})
+
+
+def _detect_cross_db_references(sql: str | None) -> list[CrossDbReference]:
+    """Scan SQL text for cross-database and linked server references."""
+    if not sql:
+        return []
+
+    refs: list[CrossDbReference] = []
+    seen: set[str] = set()
+
+    # OPENQUERY
+    for m in _OPENQUERY_RE.finditer(sql):
+        key = f"openquery:{m.group(1).upper()}"
+        if key not in seen:
+            seen.add(key)
+            refs.append(CrossDbReference(
+                ref_type=CrossDbReferenceType.OPENQUERY,
+                server_name=m.group(1),
+                raw_match=m.group(0),
+            ))
+
+    # OPENROWSET
+    for m in _OPENROWSET_RE.finditer(sql):
+        key = f"openrowset:{m.start()}"
+        if key not in seen:
+            seen.add(key)
+            refs.append(CrossDbReference(
+                ref_type=CrossDbReferenceType.OPENROWSET,
+                raw_match=m.group(0),
+            ))
+
+    # Four-part names (linked server)
+    for m in _FOUR_PART_RE.finditer(sql):
+        server, db, schema, table = m.group(1), m.group(2), m.group(3), m.group(4)
+        key = f"4part:{server}.{db}.{schema}.{table}".upper()
+        if key not in seen:
+            seen.add(key)
+            refs.append(CrossDbReference(
+                ref_type=CrossDbReferenceType.FOUR_PART,
+                server_name=server,
+                database_name=db,
+                schema_name=schema,
+                table_name=table,
+                raw_match=m.group(0),
+            ))
+
+    # Three-part names (cross-database) — skip if already covered by four-part
+    for m in _THREE_PART_RE.finditer(sql):
+        db, schema, table = m.group(1), m.group(2), m.group(3)
+        if db in _SKIP_DBS:
+            continue
+        # Skip if this match is part of a four-part match
+        four_part_key = None
+        for four_m in _FOUR_PART_RE.finditer(sql):
+            if four_m.start() <= m.start() <= four_m.end():
+                four_part_key = True
+                break
+        if four_part_key:
+            continue
+        key = f"3part:{db}.{schema}.{table}".upper()
+        if key not in seen:
+            seen.add(key)
+            refs.append(CrossDbReference(
+                ref_type=CrossDbReferenceType.THREE_PART,
+                database_name=db,
+                schema_name=schema,
+                table_name=table,
+                raw_match=m.group(0),
+            ))
+
+    return refs
+
+
+# ---------------------------------------------------------------------------
+# Delta / incremental load pattern detection
+# ---------------------------------------------------------------------------
+
+# Common delta variable patterns in SSIS
+_DELTA_VAR_RE = re.compile(
+    r"@\[?(?:User::)?(LastExtractDate|LastRunDate|MaxModifiedDate|IncrementalDate|"
+    r"LastLoadDate|WatermarkDate|DeltaDate|StartDate|ModifiedSince)\]?",
+    re.IGNORECASE,
+)
+
+# WHERE clause with > or >= on a date-like comparison
+_DELTA_WHERE_RE = re.compile(
+    r"WHERE\b.+?(\w+)\s*(?:>=?|>)\s*(?:@\[?(?:User::)?\w+\]?|\?)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# MERGE statement detection
+_MERGE_RE = re.compile(r"\bMERGE\b\s+(?:INTO\s+)?", re.IGNORECASE)
+
+
+def _detect_ingestion_pattern(sql: str | None) -> tuple[IngestionPattern, str | None]:
+    """Detect ingestion pattern (full/delta/merge) and delta column from SQL text."""
+    if not sql:
+        return IngestionPattern.UNKNOWN, None
+
+    # Check for MERGE first (most specific)
+    if _MERGE_RE.search(sql):
+        return IngestionPattern.MERGE, None
+
+    # Check for delta variable references
+    if _DELTA_VAR_RE.search(sql):
+        # Try to extract the actual column being compared
+        m = _DELTA_WHERE_RE.search(sql)
+        delta_col = m.group(1) if m else None
+        return IngestionPattern.DELTA, delta_col
+
+    # Check for delta-like WHERE patterns even without named variables
+    m = _DELTA_WHERE_RE.search(sql)
+    if m:
+        col = m.group(1).lower()
+        if any(kw in col for kw in ("modif", "date", "time", "extract", "load", "update", "change")):
+            return IngestionPattern.DELTA, m.group(1)
+
+    return IngestionPattern.UNKNOWN, None
+
+
+# ---------------------------------------------------------------------------
+# Key column extraction from OLE DB Destination / MERGE commands
+# ---------------------------------------------------------------------------
+
+_MERGE_ON_RE = re.compile(
+    r"\bON\b\s+(.+?)\s*\bWHEN\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_COLUMN_REF_RE = re.compile(r"\b(?:target|t|src|s|source)\.\[?(\w+)\]?", re.IGNORECASE)
+
+
+def _extract_key_columns_from_sql(sql: str | None) -> list[str]:
+    """Extract key columns from a MERGE statement's ON clause."""
+    if not sql:
+        return []
+    m = _MERGE_ON_RE.search(sql)
+    if not m:
+        return []
+    on_clause = m.group(1)
+    cols = _COLUMN_REF_RE.findall(on_clause)
+    # Deduplicate preserving order
+    seen: set[str] = set()
+    result: list[str] = []
+    for c in cols:
+        if c.upper() not in seen:
+            seen.add(c.upper())
+            result.append(c)
+    return result
 
 
 # Short-form CreationName values used by older SQL Server versions
@@ -559,6 +734,10 @@ class SSISParser:
                             "parameter_name": pb.get(f"{{{pb_ns}}}ParameterName") or pb.get("ParameterName") or "",
                         })
 
+        # Detect cross-DB references and ingestion pattern
+        cross_db_refs = _detect_cross_db_references(sql)
+        ingestion_pat, delta_col = _detect_ingestion_pattern(sql)
+
         return ExecuteSQLTask(
             **base,
             connection_id=conn_id,
@@ -567,6 +746,9 @@ class SSISParser:
             timeout=timeout,
             result_bindings=result_bindings,
             parameter_bindings=param_bindings,
+            cross_db_references=cross_db_refs,
+            ingestion_pattern=ingestion_pat,
+            delta_column=delta_col,
         )
 
     def _parse_script_task(
@@ -807,7 +989,28 @@ class SSISParser:
                         end = path_elem.get("endId") or ""
                         paths.append(DataFlowPath(id=p_id, name=p_name, start_id=start, end_id=end))
 
-        return DataFlowTask(**base, components=components, paths=paths)
+        # Detect ingestion pattern and cross-DB refs from component SQL properties
+        all_cross_db: list[CrossDbReference] = []
+        ingestion_pat = IngestionPattern.UNKNOWN
+        for comp in components:
+            comp_sql = comp.properties.get("SqlCommand") or comp.properties.get("CommandText") or ""
+            if comp_sql:
+                all_cross_db.extend(_detect_cross_db_references(comp_sql))
+                pat, _ = _detect_ingestion_pattern(comp_sql)
+                if pat != IngestionPattern.UNKNOWN:
+                    ingestion_pat = pat
+            # Check for MERGE in destination CommandText
+            dest_cmd = comp.properties.get("CommandText") or ""
+            if dest_cmd and _MERGE_RE.search(dest_cmd):
+                ingestion_pat = IngestionPattern.MERGE
+
+        return DataFlowTask(
+            **base,
+            components=components,
+            paths=paths,
+            cross_db_references=all_cross_db,
+            ingestion_pattern=ingestion_pat,
+        )
 
     def _parse_df_component(
         self, comp: etree._Element, ns: str
@@ -844,6 +1047,12 @@ class SSISParser:
             for col in output_elem.iter(f"{ns}outputColumn"):
                 output_cols.append(self._parse_df_column(col))
 
+        # Extract key columns from destination components (e.g., MERGE ON clause)
+        key_columns: list[str] = []
+        if comp_type in ("OleDbDestination", "ADONetDestination", "SqlServerDestination"):
+            command_text = props.get("CommandText") or props.get("OpenRowset") or ""
+            key_columns = _extract_key_columns_from_sql(command_text)
+
         return DataFlowComponent(
             id=comp_id,
             name=comp_name,
@@ -853,6 +1062,7 @@ class SSISParser:
             output_columns=output_cols,
             properties=props,
             connection_id=conn_id,
+            key_columns=key_columns,
         )
 
     def _parse_df_column(self, col: etree._Element) -> DataFlowColumn:

@@ -12,7 +12,7 @@ import zlib
 from dataclasses import dataclass
 
 from ..ssis_parser import SSISParser
-from ..models import SSISPackage
+from ..models import SSISPackage, SqlAgentSchedule
 
 try:
     import pyodbc
@@ -279,3 +279,52 @@ class SqlServerReader:
                 warnings.warn(f"Skipped catalog package: {err}", stacklevel=2)
 
         return packages
+
+    # ------------------------------------------------------------------
+    # SQL Agent schedule extraction
+    # ------------------------------------------------------------------
+
+    _AGENT_SCHEDULE_SQL = """
+        SELECT
+            j.name AS job_name,
+            s.name AS schedule_name,
+            s.freq_type,
+            s.freq_interval,
+            s.freq_subday_type,
+            s.freq_subday_interval,
+            s.active_start_time,
+            s.active_end_time,
+            s.freq_recurrence_factor
+        FROM msdb.dbo.sysjobs j
+        JOIN msdb.dbo.sysjobschedules js ON j.job_id = js.job_id
+        JOIN msdb.dbo.sysschedules s ON js.schedule_id = s.schedule_id
+        WHERE j.name = ?
+          AND s.enabled = 1
+        ORDER BY js.next_run_date DESC
+    """
+
+    def read_agent_schedule(self, job_name: str) -> SqlAgentSchedule | None:
+        """Read the SQL Agent job schedule for a given job name.
+
+        Returns the first enabled schedule or None if no schedule found.
+        """
+        try:
+            with self._connect() as conn:
+                cursor = conn.cursor()
+                cursor.execute(self._AGENT_SCHEDULE_SQL, (job_name,))
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                return SqlAgentSchedule(
+                    job_name=row[0],
+                    schedule_name=row[1],
+                    frequency_type=int(row[2]),
+                    freq_interval=int(row[3]),
+                    freq_subday_type=int(row[4]),
+                    freq_subday_interval=int(row[5]),
+                    active_start_time=int(row[6]),
+                    active_end_time=int(row[7]),
+                    freq_recurrence_factor=int(row[8]),
+                )
+        except Exception:
+            return None

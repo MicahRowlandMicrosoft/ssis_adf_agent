@@ -85,7 +85,8 @@ async def list_tools() -> list[types.Tool]:
                 "Analyze a single SSIS package (.dtsx file) and return a detailed report including: "
                 "complexity score (0-100), effort estimate (Low/Medium/High/Very High), "
                 "component inventory, gap analysis (items needing manual work), "
-                "and dependency execution order."
+                "cross-database/linked server references, CDM pattern detection, "
+                "ESI reuse candidates, and dependency execution order."
             ),
             inputSchema={
                 "type": "object",
@@ -93,6 +94,13 @@ async def list_tools() -> list[types.Tool]:
                     "package_path": {
                         "type": "string",
                         "description": "Absolute path to the .dtsx file.",
+                    },
+                    "esi_tables_path": {
+                        "type": "string",
+                        "description": (
+                            "Optional path to a JSON file mapping source_system → table list for ESI reuse detection. "
+                            "Format: {\"PHINEOS\": [\"TocPartyAddress\", \"TLBenefit\"]}."
+                        ),
                     },
                 },
                 "required": ["package_path"],
@@ -104,6 +112,8 @@ async def list_tools() -> list[types.Tool]:
                 "Convert a single SSIS package (.dtsx file) to Azure Data Factory JSON artifacts. "
                 "Generates: pipeline JSON, linked service JSONs, dataset JSONs, "
                 "mapping data flow JSONs, trigger JSONs, and Azure Function stubs for Script Tasks. "
+                "Supports Self-Hosted IR, Key Vault secrets, Microsoft Recommended linked service format, "
+                "schema remapping, ESI reuse detection, CDM pattern flagging, and cross-package dedup. "
                 "Returns a summary of generated files and any warnings."
             ),
             inputSchema={
@@ -135,6 +145,57 @@ async def list_tools() -> list[types.Tool]:
                             "Default: false."
                         ),
                         "default": False,
+                    },
+                    "on_prem_ir_name": {
+                        "type": "string",
+                        "description": "Integration Runtime name for on-prem connections. Default: 'SelfHostedIR'.",
+                        "default": "SelfHostedIR",
+                    },
+                    "auth_type": {
+                        "type": "string",
+                        "description": "Default authentication type for Azure SQL linked services. Default: 'SystemAssignedManagedIdentity'.",
+                        "enum": ["SystemAssignedManagedIdentity", "SQL", "ServicePrincipal"],
+                        "default": "SystemAssignedManagedIdentity",
+                    },
+                    "use_key_vault": {
+                        "type": "boolean",
+                        "description": "Use Azure Key Vault secret references for passwords/connection strings. Default: false.",
+                        "default": False,
+                    },
+                    "kv_ls_name": {
+                        "type": "string",
+                        "description": "Name for the Key Vault linked service. Default: 'LS_KeyVault'.",
+                        "default": "LS_KeyVault",
+                    },
+                    "kv_url": {
+                        "type": "string",
+                        "description": "Azure Key Vault base URL. Default: 'https://TODO.vault.azure.net/'.",
+                        "default": "https://TODO.vault.azure.net/",
+                    },
+                    "esi_tables_path": {
+                        "type": "string",
+                        "description": (
+                            "Optional path to a JSON file mapping source_system → table list for ESI reuse detection."
+                        ),
+                    },
+                    "schema_remap_path": {
+                        "type": "string",
+                        "description": (
+                            "Optional path to a JSON file mapping old schema prefixes to new ones for database consolidation. "
+                            "Format: {\"StagingDB.dbo\": \"ConsolidatedDB.staging\"}."
+                        ),
+                    },
+                    "shared_artifacts_dir": {
+                        "type": "string",
+                        "description": (
+                            "Optional shared directory for cross-package linked service/dataset deduplication. "
+                            "When converting multiple packages, point all to the same shared dir."
+                        ),
+                    },
+                    "pipeline_prefix": {
+                        "type": "string",
+                        "description": "Prefix for pipeline names. Default: 'PL_'.",
+                        "default": "PL_",
                     },
                 },
                 "required": ["package_path", "output_dir"],
@@ -275,6 +336,8 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
     from .analyzers.complexity_scorer import score_package
     from .analyzers.gap_analyzer import analyze_gaps
     from .analyzers.dependency_graph import build_package_dependency_order
+    from .analyzers.cdm_pattern_detector import detect_cdm_patterns
+    from .analyzers.esi_reuse_analyzer import analyze_esi_reuse, load_esi_config
 
     path = Path(args["package_path"])
     reader = LocalReader()
@@ -282,6 +345,19 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
 
     complexity = score_package(package)
     gaps = analyze_gaps(package)
+
+    # CDM pattern detection
+    cdm_gaps = detect_cdm_patterns(package)
+    gaps.extend(cdm_gaps)
+
+    # ESI reuse detection
+    esi_gaps: list = []
+    esi_tables_path = args.get("esi_tables_path")
+    if esi_tables_path:
+        esi_config = load_esi_config(esi_tables_path)
+        esi_gaps = analyze_esi_reuse(package, esi_config)
+        gaps.extend(esi_gaps)
+
     dep_order = build_package_dependency_order(package)
 
     # Get task names in order
@@ -318,22 +394,68 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     from .generators.dataset_generator import generate_datasets
     from .generators.dataflow_generator import generate_data_flows
     from .generators.trigger_generator import generate_triggers
+    from .analyzers.cdm_pattern_detector import detect_cdm_patterns
+    from .analyzers.esi_reuse_analyzer import analyze_esi_reuse, load_esi_config
 
     path = Path(args["package_path"])
     output_dir = Path(args["output_dir"])
     gen_trigger = args.get("generate_trigger", True)
     llm_translate = args.get("llm_translate", False)
 
+    # New parameters
+    on_prem_ir_name = args.get("on_prem_ir_name", "SelfHostedIR")
+    auth_type = args.get("auth_type", "SystemAssignedManagedIdentity")
+    use_key_vault = args.get("use_key_vault", False)
+    kv_ls_name = args.get("kv_ls_name", "LS_KeyVault")
+    kv_url = args.get("kv_url", "https://TODO.vault.azure.net/")
+    pipeline_prefix = args.get("pipeline_prefix", "PL_")
+    shared_artifacts_dir = Path(args["shared_artifacts_dir"]) if args.get("shared_artifacts_dir") else None
+
+    # Load optional config files
+    schema_remap: dict[str, str] | None = None
+    schema_remap_path = args.get("schema_remap_path")
+    if schema_remap_path:
+        schema_remap = json.loads(Path(schema_remap_path).read_text(encoding="utf-8"))
+
+    esi_config: dict = {}
+    esi_tables_path = args.get("esi_tables_path")
+    if esi_tables_path:
+        esi_config = load_esi_config(esi_tables_path)
+
     reader = LocalReader()
     package = reader.read(path)
 
     stubs_dir = output_dir / "stubs"
 
-    # Run generators
-    pipeline = generate_pipeline(package, output_dir, stubs_dir=stubs_dir, llm_translate=llm_translate)
-    linked_services = generate_linked_services(package, output_dir)
-    datasets = generate_datasets(package, output_dir)
+    # Run analyzers for annotations
+    cdm_gaps = detect_cdm_patterns(package)
+    esi_gaps = analyze_esi_reuse(package, esi_config) if esi_config else []
+
+    # Run generators with new parameters
+    linked_services = generate_linked_services(
+        package, output_dir,
+        on_prem_ir_name=on_prem_ir_name,
+        auth_type=auth_type,
+        use_key_vault=use_key_vault,
+        kv_ls_name=kv_ls_name,
+        kv_url=kv_url,
+        shared_artifacts_dir=shared_artifacts_dir,
+    )
+    datasets = generate_datasets(
+        package, output_dir,
+        schema_remap=schema_remap,
+        shared_artifacts_dir=shared_artifacts_dir,
+    )
     data_flows = generate_data_flows(package, output_dir)
+    pipeline = generate_pipeline(
+        package, output_dir,
+        stubs_dir=stubs_dir,
+        llm_translate=llm_translate,
+        pipeline_prefix=pipeline_prefix,
+        cdm_gaps=cdm_gaps,
+        esi_gaps=esi_gaps,
+        schema_remap=schema_remap,
+    )
     triggers = generate_triggers(package, output_dir) if gen_trigger else []
 
     # Find stub files
@@ -358,6 +480,8 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
             "azure_function_stubs": len(stub_files),
         },
         "manual_review_required": len(conversion_warnings),
+        "cdm_patterns_flagged": len(cdm_gaps),
+        "esi_reuse_candidates": len(esi_gaps),
         "warnings": conversion_warnings[:20],  # cap output size
         "files": {
             "pipeline": str(output_dir / "pipeline" / f"{pipeline['name']}.json"),

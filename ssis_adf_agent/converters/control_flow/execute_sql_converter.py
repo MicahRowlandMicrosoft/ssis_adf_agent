@@ -8,6 +8,8 @@ Mapping rules
 - result_set_type == "SingleRow"  → Lookup Activity (first row only)
 - result_set_type == "FullResultSet" → Lookup Activity
 - result_set_type == "Xml"        → WebActivity (not supported natively; flagged as warning)
+
+Supports optional schema remapping for database consolidation scenarios.
 """
 from __future__ import annotations
 
@@ -36,6 +38,33 @@ def _extract_proc_name(sql: str) -> str:
         sql, re.IGNORECASE,
     )
     return m.group(1).strip() if m else "sp_unknown"
+
+
+def apply_schema_remap(sql: str | None, schema_remap: dict[str, str] | None) -> str | None:
+    """Apply schema remapping to SQL text.
+
+    Replaces three-part names like ``OldDB.dbo.Table`` with ``NewDB.newschema.Table``
+    based on the remap dict (key = "OldDB.dbo" → value = "NewDB.newschema").
+    """
+    if not sql or not schema_remap:
+        return sql
+    result = sql
+    for old_prefix, new_prefix in schema_remap.items():
+        # Match [OldDB].[dbo] or OldDB.dbo (with optional brackets)
+        parts = old_prefix.split(".", 1)
+        if len(parts) == 2:
+            db, schema = parts
+            pattern = re.compile(
+                rf"\[?{re.escape(db)}\]?\.\[?{re.escape(schema)}\]?\.",
+                re.IGNORECASE,
+            )
+            new_parts = new_prefix.split(".", 1)
+            if len(new_parts) == 2:
+                replacement = f"[{new_parts[0]}].[{new_parts[1]}]."
+            else:
+                replacement = f"[{new_prefix}]."
+            result = pattern.sub(replacement, result)
+    return result
 
 
 class ExecuteSQLConverter(BaseConverter):

@@ -10,8 +10,10 @@ Each gap item has a severity:
 from __future__ import annotations
 
 from ..parsers.models import (  # type: ignore[attr-defined]
+    CrossDbReferenceType,
     DataFlowTask,
     ExecuteProcessTask,
+    ExecuteSQLTask,
     FileSystemTask,
     ForEachLoopContainer,
     ForEachEnumeratorType,
@@ -218,5 +220,56 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                     message=_REVIEW_DF_COMPONENTS[comp.component_type],
                     recommendation="Review the generated Mapping Data Flow transformation.",
                 ))
+
+    # Cross-database and linked server references (applies to any task)
+    for ref in task.cross_db_references:
+        if ref.ref_type == CrossDbReferenceType.FOUR_PART:
+            gaps.append(GapItem(
+                task_id=task.id,
+                task_name=task.name,
+                task_type=f"{task.task_type.value}/LinkedServer",
+                severity="manual_required",
+                message=(
+                    f"Linked server reference detected: {ref.raw_match}. "
+                    f"Server '{ref.server_name}' → database '{ref.database_name}'. "
+                    "This pattern has no direct ADF equivalent."
+                ),
+                recommendation=(
+                    "Replace with Azure SQL external table, elastic query, or consolidate databases. "
+                    "If the linked server points to a different data source, create a separate "
+                    "linked service and pipeline."
+                ),
+            ))
+        elif ref.ref_type == CrossDbReferenceType.THREE_PART:
+            gaps.append(GapItem(
+                task_id=task.id,
+                task_name=task.name,
+                task_type=f"{task.task_type.value}/CrossDatabase",
+                severity="warning",
+                message=(
+                    f"Cross-database reference detected: {ref.raw_match}. "
+                    f"Database '{ref.database_name}' → '{ref.schema_name}.{ref.table_name}'. "
+                    "Verify the target database is accessible from Azure SQL."
+                ),
+                recommendation=(
+                    "If consolidating to a single Azure SQL database, update schema references. "
+                    "If keeping separate databases, ensure connectivity via linked services."
+                ),
+            ))
+        elif ref.ref_type in (CrossDbReferenceType.OPENQUERY, CrossDbReferenceType.OPENROWSET):
+            gaps.append(GapItem(
+                task_id=task.id,
+                task_name=task.name,
+                task_type=f"{task.task_type.value}/{ref.ref_type.value}",
+                severity="manual_required",
+                message=(
+                    f"{ref.ref_type.value.upper()} detected: {ref.raw_match}. "
+                    "This pattern is not supported in Azure SQL."
+                ),
+                recommendation=(
+                    "Replace with a linked service query or Azure Function. "
+                    "Use Copy Activity to stage the remote data into Azure SQL first."
+                ),
+            ))
 
     return gaps

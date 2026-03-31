@@ -5,12 +5,23 @@ For simple single-source → single-destination flows with no intermediate
 transformations, a Copy Activity is generated (cheaper, faster, no Spark overhead).
 For flows with transformations, a Mapping Data Flow activity is generated.
 The actual Mapping Data Flow JSON is produced by generators/dataflow_generator.py.
+
+Copy Activity patterns follow Microsoft best practices:
+  - Full Load: writeBehavior=insert, tableOption=autoCreate
+  - Delta/Upsert: writeBehavior=upsert, upsertSettings with keys from parsed key_columns
+  - MERGE: writeBehavior=upsert with detected key columns
+  - Retry policy: 2 retries, 60s interval per Microsoft recommended pattern
 """
 from __future__ import annotations
 
 from typing import Any
 
-from ...parsers.models import DataFlowTask, PrecedenceConstraint, SSISTask
+from ...parsers.models import (
+    DataFlowTask,
+    IngestionPattern,
+    PrecedenceConstraint,
+    SSISTask,
+)
 from ..base_converter import BaseConverter
 
 # Component types treated as "pure source"
@@ -68,15 +79,68 @@ class DataFlowConverter(BaseConverter):
         src_ds = f"DS_{src.name.replace(' ', '_')}" if src else f"DS_src_{safe_name}"
         dst_ds = f"DS_{dst.name.replace(' ', '_')}" if dst else f"DS_dst_{safe_name}"
 
+        # Determine sink pattern based on ingestion pattern
+        ingestion = task.ingestion_pattern
+
+        # Collect key columns from destination component
+        key_cols: list[str] = []
+        if dst and dst.key_columns:
+            key_cols = dst.key_columns
+
+        sink: dict[str, Any]
+        if ingestion == IngestionPattern.MERGE or (
+            ingestion == IngestionPattern.DELTA and key_cols
+        ):
+            # Upsert pattern with native temp table
+            sink = {
+                "type": "AzureSqlSink",
+                "writeBehavior": "upsert",
+                "upsertSettings": {
+                    "useTempDB": True,
+                    "keys": key_cols or ["TODO_KEY_COLUMN"],
+                },
+                "sqlWriterUseTableLock": False,
+            }
+        elif ingestion == IngestionPattern.DELTA:
+            # Delta without detected keys — upsert with placeholder
+            sink = {
+                "type": "AzureSqlSink",
+                "writeBehavior": "upsert",
+                "upsertSettings": {
+                    "useTempDB": True,
+                    "keys": ["TODO_KEY_COLUMN"],
+                },
+                "sqlWriterUseTableLock": False,
+            }
+        else:
+            # Full load — insert with auto-create
+            sink = {
+                "type": "AzureSqlSink",
+                "writeBehavior": "insert",
+                "tableOption": "autoCreate",
+                "writeBatchSize": 100000,
+                "sqlWriterUseTableLock": False,
+            }
+
         return {
             "name": task.name,
             "description": task.description or "",
             "type": "Copy",
             "dependsOn": depends_on,
-            "policy": {"timeout": "0.12:00:00", "retry": 0, "retryIntervalInSeconds": 30},
+            "policy": {
+                "timeout": "01:00:00",
+                "retry": 2,
+                "retryIntervalInSeconds": 60,
+                "secureOutput": False,
+                "secureInput": False,
+            },
             "typeProperties": {
-                "source": {"type": "AzureSqlSource", "queryTimeout": "02:00:00"},
-                "sink": {"type": "AzureSqlSink", "writeBehavior": "upsert"},
+                "source": {
+                    "type": "AzureSqlSource",
+                    "queryTimeout": "02:00:00",
+                    "isolationLevel": "ReadUncommitted",
+                },
+                "sink": sink,
                 "enableStaging": False,
                 "translator": {"type": "TabularTranslator", "typeConversion": True},
             },
@@ -92,7 +156,13 @@ class DataFlowConverter(BaseConverter):
             "description": task.description or "",
             "type": "ExecuteDataFlow",
             "dependsOn": depends_on,
-            "policy": {"timeout": "1.00:00:00", "retry": 0, "retryIntervalInSeconds": 30},
+            "policy": {
+                "timeout": "1.00:00:00",
+                "retry": 2,
+                "retryIntervalInSeconds": 60,
+                "secureOutput": False,
+                "secureInput": False,
+            },
             "typeProperties": {
                 "dataflow": {
                     "referenceName": f"DF_{safe_name}",

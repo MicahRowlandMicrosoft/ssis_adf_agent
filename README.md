@@ -5,23 +5,35 @@
 
 An MCP (Model Context Protocol) server that reads SSIS packages (`.dtsx`) and converts them to Azure Data Factory (ADF) JSON artifacts, exposed as tools directly inside **GitHub Copilot**.
 
+All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
+
 ```
-.dtsx file(s)
-      │
-      ▼
-┌─────────────────────────────┐
-│      ssis-adf-agent         │  ← MCP stdio server
-│                             │
-│  scan → analyze → convert   │
-│      → validate → deploy    │
-└─────────────────────────────┘
-      │
-      ▼
-ADF JSON artifacts
-(pipeline / linkedService / dataset / dataflow / trigger)
-      │
-      ▼
-Azure Data Factory
+.dtsx file(s)  ──┐
+                  │      ┌────────────────────────┐
+SQL Agent jobs ───┤      │   Optional configs:    │
+                  ├─────▶│  • ESI tables JSON     │
+  Config files ───┘      │  • Schema remap JSON   │
+                         │  • Shared artifacts dir │
+                         └──────────┬─────────────┘
+                                    ▼
+                    ┌─────────────────────────────┐
+                    │      ssis-adf-agent         │  ← MCP stdio server
+                    │                             │
+                    │  scan → analyze → convert   │
+                    │      → validate → deploy    │
+                    │                             │
+                    │  Detects:                   │
+                    │  • Cross-DB / linked server  │
+                    │  • Delta / MERGE patterns    │
+                    │  • CDM-layer logic           │
+                    │  • ESI reuse candidates      │
+                    └──────────┬──────────────────┘
+                               ▼
+                    ADF JSON artifacts
+            (pipeline / linkedService / dataset /
+             dataflow / trigger / stubs)
+                               ▼
+                    Azure Data Factory
 ```
 
 ---
@@ -38,6 +50,14 @@ Azure Data Factory
   - [3. Convert a package](#3-convert-a-package)
   - [4. Validate generated artifacts](#4-validate-generated-artifacts)
   - [5. Deploy to Azure Data Factory](#5-deploy-to-azure-data-factory)
+- [Enterprise Features](#enterprise-features)
+  - [Self-Hosted Integration Runtime](#self-hosted-integration-runtime)
+  - [Azure Key Vault Secrets](#azure-key-vault-secrets)
+  - [Cross-Package Deduplication](#cross-package-deduplication)
+  - [Schema Remapping (Database Consolidation)](#schema-remapping-database-consolidation)
+  - [ESI Reuse Detection](#esi-reuse-detection)
+  - [CDM Pattern Flagging](#cdm-pattern-flagging)
+  - [SQL Agent Schedule Mapping](#sql-agent-schedule-mapping)
 - [LLM-Powered Script Task Translation](#llm-powered-script-task-translation)
 - [Using the Built-in Prompt Files](#using-the-built-in-prompt-files)
 - [Authentication](#authentication)
@@ -190,13 +210,24 @@ List all SSIS packages stored in SQL Server at SERVER=MYSERVER;DATABASE=msdb.
 
 **Tool:** `analyze_ssis_package`
 
-Produces a complexity score, gap analysis, and component inventory for a single package. Run this before converting to understand the scope of manual work required.
+Produces a complexity score, gap analysis, component inventory, cross-database/linked server detection, CDM pattern flags, and optional ESI reuse candidates for a single package. Run this before converting to understand the scope of manual work required.
 
-**Example prompt:**
+**Example prompts:**
 
 ```
 Analyze the SSIS package at C:\Projects\LegacyETL\LoadFactSales.dtsx and tell me how complex it is.
 ```
+
+```
+Analyze C:\Projects\LegacyETL\LoadFactSales.dtsx with ESI tables config at C:\config\esi_tables.json.
+```
+
+**Key parameters:**
+
+| Parameter | Required | Description |
+|---|---|---|
+| `package_path` | Yes | Absolute path to the `.dtsx` file |
+| `esi_tables_path` | No | Path to a JSON file mapping source systems to ESI-available tables (see [ESI Reuse Detection](#esi-reuse-detection)) |
 
 **Complexity score guide:**
 
@@ -207,7 +238,7 @@ Analyze the SSIS package at C:\Projects\LegacyETL\LoadFactSales.dtsx and tell me
 | 51–75 | High | 3–5 days |
 | 76–100 | Very High | 1+ weeks |
 
-Score drivers: Script Tasks (+20 each), Data Flow Tasks (+8 each), ForEach/ForLoop containers (+5 each), unknown task types (+10 each).
+Score drivers: Script Tasks (+20 each), Data Flow Tasks (+8 each), ForEach/ForLoop containers (+5 each), unknown task types (+10 each), linked server references (+8 each), cross-database references (+3 each).
 
 **Key output:**
 - Complexity score and effort label
@@ -236,7 +267,16 @@ Convert C:\Projects\LegacyETL\LoadFactSales.dtsx to ADF artifacts and write them
 | `package_path` | Yes | Absolute path to the `.dtsx` file |
 | `output_dir` | Yes | Directory to write artifacts into |
 | `generate_trigger` | No | Emit a `ScheduleTrigger` template (default: `true`) |
-| `llm_translate` | No | Call Azure OpenAI to translate C# Script Task source code to Python in the generated stubs. Requires `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_API_KEY` env vars. Falls back gracefully if unavailable. Default: `false` |
+| `llm_translate` | No | Call Azure OpenAI to translate C# Script Tasks to Python. Default: `false` |
+| `on_prem_ir_name` | No | Integration Runtime name for on-prem connections (default: `SelfHostedIR`) |
+| `auth_type` | No | Default auth for Azure SQL linked services: `SystemAssignedManagedIdentity` (default), `SQL`, or `ServicePrincipal` |
+| `use_key_vault` | No | Use Azure Key Vault secret references for passwords (default: `false`) |
+| `kv_ls_name` | No | Name for the Key Vault linked service (default: `LS_KeyVault`) |
+| `kv_url` | No | Azure Key Vault base URL (default: `https://TODO.vault.azure.net/`) |
+| `esi_tables_path` | No | Path to ESI tables config JSON for reuse detection |
+| `schema_remap_path` | No | Path to schema remap JSON for database consolidation |
+| `shared_artifacts_dir` | No | Shared directory for cross-package linked service/dataset deduplication |
+| `pipeline_prefix` | No | Prefix for pipeline names (default: `PL_`) |
 
 Sub-folders are created automatically inside `output_dir`. See [Generated Artifact Structure](#generated-artifact-structure).
 
@@ -295,6 +335,95 @@ Deploy C:\adf_output\LoadFactSales to ADF instance my-adf in resource group rg-d
 | `dry_run` | No | `true` to log only without calling Azure APIs (default: `false`) |
 
 > **Triggers are always deployed in Stopped state.** Activate them manually in the ADF Studio after validating pipeline runs.
+
+---
+
+## Enterprise Features
+
+These features were designed for large-scale enterprise SSIS migrations where packages share connections, target consolidated databases, or operate alongside existing data platforms (ESI, CDM layers).
+
+### Self-Hosted Integration Runtime
+
+On-prem connections are automatically detected (heuristics: `localhost`, IP addresses, non-`.database.windows.net` server names). These connections generate `SqlServer` linked services with a `connectVia` reference to a Self-Hosted Integration Runtime. Use `on_prem_ir_name` to override the default name `SelfHostedIR`.
+
+### Azure Key Vault Secrets
+
+When `use_key_vault=true`, linked services reference Azure Key Vault secrets instead of embedding credentials:
+
+```json
+{
+  "password": {
+    "type": "AzureKeyVaultSecret",
+    "store": { "referenceName": "LS_KeyVault", "type": "LinkedServiceReference" },
+    "secretName": "conn-MyDatabase-password"
+  }
+}
+```
+
+A Key Vault linked service (`LS_KeyVault`) is auto-generated. Customize the name with `kv_ls_name` and the vault URL with `kv_url`.
+
+### Cross-Package Deduplication
+
+When migrating multiple SSIS packages that share connection managers, pass `shared_artifacts_dir` to avoid duplicate linked services and datasets:
+
+```
+Convert LoadDimCustomer.dtsx with shared_artifacts_dir=C:\output\shared
+Convert LoadFactSales.dtsx with shared_artifacts_dir=C:\output\shared
+```
+
+The generator writes each linked service / dataset only once. Subsequent packages that reference the same connection reuse the existing file.
+
+### Schema Remapping (Database Consolidation)
+
+When consolidating multiple on-prem databases into a single Azure SQL database, provide a schema remap config:
+
+```json
+{
+  "StagingDB": "staging",
+  "ReportingDB": "reporting",
+  "DWDB": "dw"
+}
+```
+
+Keys are original database names; values are target schemas. Pass the file path via `schema_remap_path`. The converter replaces cross-database references in SQL text and qualified table names in datasets.
+
+### ESI Reuse Detection
+
+If your organization maintains an ESI (Enterprise Source Integration) layer, you can provide a JSON config mapping source systems to tables already available in the ESI Azure SQL layer:
+
+```json
+{
+  "source_system": "SAP",
+  "esi_database": "ESI_SAP",
+  "tables": ["VBAK", "VBAP", "MARA", "KNA1"]
+}
+```
+
+Pass this file via `esi_tables_path` (available on both `analyze` and `convert` tools). The analyzer produces INFO-level gap items identifying data flow sources that could read from ESI instead of pulling from the on-prem source via SHIR.
+
+### CDM Pattern Flagging
+
+The analyzer automatically detects Common Data Model (CDM) layer patterns:
+
+- **Multi-source joins** \u2014 data flows with 3+ sources feeding a Merge Join or Union All
+- **Aggregation** \u2014 data flows with grouped aggregation transformations
+- **Cross-system enrichment** \u2014 joins between sources from different connection managers
+- **Denormalization** \u2014 3+ lookup transformations in a single data flow
+
+Detected patterns produce INFO-level gap items with `[CDM REVIEW]` recommendations and `cdm-review-required` pipeline annotations. These are informational \u2014 they help teams decide whether to migrate the logic as-is or replace it with existing CDM entities.
+
+### SQL Agent Schedule Mapping
+
+When the SSIS package source is a SQL Server (`sql_server` source type in `scan_ssis_packages`), the tool reads SQL Agent job schedules from `msdb`. The converted trigger uses the mapped ADF recurrence:
+
+| SQL Agent `freq_type` | ADF Recurrence |
+|---|---|
+| 4 (Daily) | `Day` with `interval` from `freq_interval` |
+| 8 (Weekly) | `Week` with weekday schedule from bitmask |
+| 16 (Monthly, day-of-month) | `Month` with day schedule |
+| 32 (Monthly, relative) | `Month` \u2014 flag for manual review |
+
+If no SQL Agent schedule is available, the trigger falls back to a placeholder daily-at-midnight schedule.
 
 ---
 
@@ -406,8 +535,8 @@ export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
 | SSIS Component | ADF Equivalent | Notes |
 |---|---|---|
 | Execute SQL Task | Stored Procedure / Script / Lookup Activity | Depends on `ResultSetType` and SQL pattern |
-| Data Flow Task (simple) | Copy Activity | Single source → single destination, no transformations |
-| Data Flow Task (complex) | Execute Data Flow Activity (Mapping Data Flow) | Multiple sources, transformations, or fanout |
+| Data Flow Task (simple) | Copy Activity | Single source → single destination. Sink pattern varies: `insert` (full load), `upsert` with keys (delta/merge). Retry policy: 2 retries, 60s interval. |
+| Data Flow Task (complex) | Execute Data Flow Activity (Mapping Data Flow) | Multiple sources, transformations, or fanout. `READ_UNCOMMITTED` isolation, `errorHandlingOption: stopOnFirstError`. |
 | Execute Package Task | Execute Pipeline Activity | Child pipeline must also be converted |
 | Script Task (C# / VB) | Azure Function Activity | Stub generated at `stubs/<FunctionName>/__init__.py`. When `llm_translate=true`, C# source is extracted from the DTSX and translated to Python via Azure OpenAI; otherwise a `TODO` stub is generated. |
 | ForEach Loop Container | ForEach Activity | Expression varies by enumerator type |
@@ -419,6 +548,9 @@ export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
 | Send Mail Task | Logic App / Web Activity | No native ADF equivalent |
 | Event Handler (`OnError`) | Pipeline fails path / error handling | Converted to sub-pipeline reference |
 | Event Handler (`OnPostExecute`) | Succeeded dependency path | Converted to sub-pipeline reference |
+| Connection Manager (Azure SQL) | Linked Service (`AzureSqlDatabase`) | Microsoft Recommended version: `server`/`database`/`authenticationType`. Default auth: `SystemAssignedManagedIdentity`. |
+| Connection Manager (on-prem SQL) | Linked Service (`SqlServer`) | Auto-detected. Uses Self-Hosted IR with `pooling: false`. |
+| SQL Agent Job Schedule | Schedule Trigger | Mapped from `msdb` `freq_type`/`freq_interval`. Falls back to placeholder if unavailable. |
 
 ---
 
@@ -429,20 +561,78 @@ export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
 ```
 <output_dir>/
   pipeline/
-    <PackageName>.json          ← Main ADF pipeline
+    PL_<PackageName>.json       ← Main ADF pipeline (prefix configurable)
   linkedService/
-    <ConnectionName>.json       ← One per SSIS connection manager
+    LS_<ConnectionName>.json    ← Microsoft Recommended version format
+    LS_KeyVault.json            ← Auto-generated when use_key_vault=true
   dataset/
-    <DatasetName>.json          ← One per data flow source / destination
+    DS_<DatasetName>.json       ← Uses schema+table (not deprecated tableName)
   dataflow/
-    <DataFlowName>.json         ← One per complex Data Flow Task
+    DF_<DataFlowName>.json      ← Mapping Data Flow with READ_UNCOMMITTED + error handling
   trigger/
-    <PackageName>_trigger.json  ← ScheduleTrigger template (Stopped state)
+    TR_<PackageName>.json       ← ScheduleTrigger (Stopped state); accurate if SQL Agent schedule provided
   stubs/
     <FunctionName>/
       __init__.py               ← Python stub with TODO blocks
       function.json             ← Azure Function binding definition
 ```
+
+### Linked Service Format
+
+Linked services use the **Microsoft Recommended version** format with discrete properties instead of the legacy `connectionString` format:
+
+```json
+{
+  "type": "AzureSqlDatabase",
+  "typeProperties": {
+    "server": "myserver.database.windows.net",
+    "database": "mydb",
+    "encrypt": "mandatory",
+    "trustServerCertificate": false,
+    "authenticationType": "SystemAssignedManagedIdentity"
+  }
+}
+```
+
+For on-prem connections, the `SqlServer` connector type with Self-Hosted IR is used automatically:
+
+```json
+{
+  "type": "SqlServer",
+  "typeProperties": {
+    "server": "on-prem-server",
+    "database": "mydb",
+    "authenticationType": "Windows",
+    "pooling": false
+  },
+  "connectVia": { "referenceName": "SelfHostedIR", "type": "IntegrationRuntimeReference" }
+}
+```
+
+### Dataset Format
+
+Datasets use separate `schema` and `table` properties per Microsoft's recommendation:
+
+```json
+{
+  "type": "AzureSqlTable",
+  "typeProperties": {
+    "schema": "dbo",
+    "table": "MyTable"
+  }
+}
+```
+
+### Pipeline Annotations
+
+Generated pipelines include automatic annotations based on detected patterns:
+
+- `ssis-adf-agent` — identifies the source tool
+- `source-package:<name>` — original SSIS package name
+- `ingestion-pattern:delta` or `ingestion-pattern:merge` — when delta/merge patterns detected
+- `has-cross-db-references` — when cross-database or linked server references found
+- `cdm-review-required` — when CDM-layer patterns detected
+- `esi-reuse-candidate` — when ESI reuse opportunities found
 
 ---
 
@@ -450,10 +640,14 @@ export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
 
 After running `convert_ssis_package`, review the following checklist before deploying:
 
-- [ ] **Connection string passwords** — packages with `EncryptAllWithPassword` protection level may have missing passwords in linked service JSON files. Fill them in or reference Azure Key Vault secrets.
-- [ ] **Script Task stubs** — each stub in `stubs/<FunctionName>/__init__.py` contains `TODO` comments. If `llm_translate=true` was used, the stub contains LLM-translated Python with infrastructure calls (`# TODO: Replace with Azure SQL...`) still requiring manual completion. If `llm_translate=false` (default), port the original C# / VB.NET logic manually. Deploy the Function to Azure Functions before running the pipeline.
-- [ ] **Local file paths** — File System Tasks that reference local paths (e.g. `C:\Data\input.csv`) have placeholder Azure Storage paths. Replace them with valid `abfss://` or `https://` URLs.
-- [ ] **Trigger schedules** — the generated `ScheduleTrigger` uses a placeholder cron schedule. Update it to match your production schedule before activating.
+- [ ] **Connection string passwords** — packages with `EncryptAllWithPassword` protection level may have missing passwords. When `use_key_vault=true`, linked services reference Key Vault secrets — verify the secret names exist and are populated. Otherwise fill in plaintext credentials.
+- [ ] **Script Task stubs** — each stub in `stubs/<FunctionName>/__init__.py` contains `TODO` comments. If `llm_translate=true` was used, the stub contains LLM-translated Python. Deploy the Function to Azure Functions before running the pipeline.
+- [ ] **Local file paths** — File System Tasks that reference local paths have placeholder Azure Storage paths. Replace them with valid `abfss://` or `https://` URLs.
+- [ ] **Trigger schedules** — if no SQL Agent schedule was available, the trigger uses a placeholder daily-at-midnight schedule. Update it to match your production schedule. When SQL Agent metadata was provided, verify the mapped ADF recurrence matches the original.
+- [ ] **Cross-database / linked server references** — check the gap analysis for `manual_required` severity items. Replace linked server four-part names with Azure SQL elastic queries, external tables, or separate linked services. Remap three-part names if consolidating databases.
+- [ ] **CDM review items** — if the pipeline has a `cdm-review-required` annotation, coordinate with the CDM team to decide whether the transformation logic should migrate as-is or be replaced by existing CDM-layer entities.
+- [ ] **ESI reuse candidates** — if the pipeline has an `esi-reuse-candidate` annotation, review whether reading from the ESI Azure SQL layer is preferable to re-staging from the on-prem source via SHIR.
+- [ ] **Upsert key columns** — Copy Activities with `writeBehavior: "upsert"` include detected key columns. Verify these match the target table's unique key. Replace `TODO_KEY_COLUMN` placeholders where keys could not be auto-detected.
 - [ ] **Re-validate** — run `validate_adf_artifacts` again after all manual edits.
 - [ ] **Activate triggers** — triggers are deployed in **Stopped** state. Activate them in ADF Studio only after a successful pipeline smoke-test.
 

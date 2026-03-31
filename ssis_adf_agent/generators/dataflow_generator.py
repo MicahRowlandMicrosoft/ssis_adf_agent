@@ -3,6 +3,12 @@ Mapping Data Flow generator — emits ADF dataflow.json for each complex Data Fl
 
 Simple (single source → single destination, no transforms) data flows are handled
 as Copy Activities; this generator only fires for multi-component flows.
+
+Best practices applied:
+  - allowSchemaDrift: true, validateSchema: false (Microsoft default for flexibility)
+  - errorHandlingOption: stopOnFirstError (explicit)
+  - Isolation level: READ_UNCOMMITTED for sources (Microsoft default for data flows)
+  - Configurable compute settings (coreCount, computeType)
 """
 from __future__ import annotations
 
@@ -68,8 +74,14 @@ def generate_data_flows(
             if t is not None:
                 transformations.append(t)
 
+        # Collect key columns from destination components for upsert config
+        key_cols: list[str] = []
+        for comp in dest_comps:
+            if comp.key_columns:
+                key_cols.extend(comp.key_columns)
+
         # Build data flow script (simplified — real scripts produced by ADF Studio)
-        script = _build_dsl_script(sources, transformations, sinks)
+        script = _build_dsl_script(sources, transformations, sinks, key_cols)
 
         df: dict[str, Any] = {
             "name": df_name,
@@ -100,6 +112,7 @@ def _build_dsl_script(
     sources: list[dict],
     transformations: list[dict],
     sinks: list[dict],
+    key_columns: list[str] | None = None,
 ) -> str:
     """
     Build a minimal ADF Data Flow DSL script stub so the JSON is valid.
@@ -110,7 +123,9 @@ def _build_dsl_script(
     for s in sources:
         lines.append(f"source(output(/* TODO: declare output schema */),")
         lines.append(f'    allowSchemaDrift: true,')
-        lines.append(f'    validateSchema: false) ~> {s["name"]}')
+        lines.append(f'    validateSchema: false,')
+        lines.append(f"    isolationLevel: 'READ_UNCOMMITTED',")
+        lines.append(f"    errorHandlingOption: 'stopOnFirstError') ~> {s['name']}")
 
     for t in transformations:
         prev = sources[-1]["name"] if sources else "source1"
@@ -121,11 +136,21 @@ def _build_dsl_script(
             transformations[-1]["name"] if transformations
             else (sources[-1]["name"] if sources else "source1")
         )
+        has_keys = bool(key_columns)
         lines.append(f'{prev} sink(allowSchemaDrift: true,')
         lines.append(f'    validateSchema: false,')
-        lines.append(f'    deletable: false,')
-        lines.append(f'    insertable: true,')
-        lines.append(f'    updateable: false,')
-        lines.append(f'    upsertable: true) ~> {sk["name"]}')
+        lines.append(f'    errorHandlingOption: \'stopOnFirstError\',')
+        if has_keys:
+            keys_str = ", ".join(f"'{k}'" for k in key_columns)
+            lines.append(f'    keys: [{keys_str}],')
+            lines.append(f'    deletable: false,')
+            lines.append(f'    insertable: true,')
+            lines.append(f'    updateable: true,')
+            lines.append(f'    upsertable: true) ~> {sk["name"]}')
+        else:
+            lines.append(f'    deletable: false,')
+            lines.append(f'    insertable: true,')
+            lines.append(f'    updateable: false,')
+            lines.append(f'    upsertable: true) ~> {sk["name"]}')
 
     return "\n".join(lines)

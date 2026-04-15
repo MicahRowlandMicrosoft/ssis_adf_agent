@@ -287,6 +287,7 @@ class DataFlowColumn(BaseModel):
     scale: int = 0
     code_page: int = 0
     nullable: bool = True
+    properties: dict[str, Any] = Field(default_factory=dict)
 
 
 class DataFlowComponent(BaseModel):

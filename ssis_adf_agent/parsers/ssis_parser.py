@@ -1029,23 +1029,47 @@ class SSISParser:
                 conn_id = _clean_id(cm_ref.get("componentId") or cm_ref.get("id"))
                 break
 
+        # Component-level properties only (direct <properties> child, not recursive)
         props: dict[str, Any] = {}
-        for prop in comp.iter(f"{ns}property"):
-            pname = prop.get("name")
-            if pname:
-                props[pname] = prop.text
+        props_container = comp.find(f"{ns}properties")
+        if props_container is not None:
+            for prop in props_container.findall(f"{ns}property"):
+                pname = prop.get("name")
+                if pname:
+                    props[pname] = prop.text
 
-        # Columns
+        # Columns — capture column-level properties separately
         input_cols: list[DataFlowColumn] = []
         output_cols: list[DataFlowColumn] = []
 
         for input_elem in comp.iter(f"{ns}input"):
             for col in input_elem.iter(f"{ns}inputColumn"):
-                input_cols.append(self._parse_df_column(col))
+                input_cols.append(self._parse_df_column(col, ns))
 
         for output_elem in comp.iter(f"{ns}output"):
+            output_name = output_elem.get("name") or ""
+            is_error = output_elem.get("isErrorOut") == "true"
+            if is_error:
+                continue  # skip error outputs
+
+            # Capture output-level properties (ConditionalSplit conditions, etc.)
+            out_props_container = output_elem.find(f"{ns}properties")
+            if out_props_container is not None:
+                out_props: dict[str, str | None] = {}
+                for prop in out_props_container.findall(f"{ns}property"):
+                    pname = prop.get("name")
+                    if pname:
+                        out_props[pname] = prop.text
+                if out_props:
+                    # Store output-level properties keyed by output name
+                    conds = props.setdefault("_output_conditions", [])
+                    conds.append({
+                        "output_name": output_name,
+                        **out_props,
+                    })
+
             for col in output_elem.iter(f"{ns}outputColumn"):
-                output_cols.append(self._parse_df_column(col))
+                output_cols.append(self._parse_df_column(col, ns))
 
         # Extract key columns from destination components (e.g., MERGE ON clause)
         key_columns: list[str] = []
@@ -1065,12 +1089,27 @@ class SSISParser:
             key_columns=key_columns,
         )
 
-    def _parse_df_column(self, col: etree._Element) -> DataFlowColumn:
+    def _parse_df_column(self, col: etree._Element, ns: str = "") -> DataFlowColumn:
         dt_str = col.get("dataType") or "wstr"
         try:
             dt = DataType(dt_str)
         except ValueError:
             dt = DataType.WSTRING
+
+        # Extract column-level properties (Expression, JoinToReferenceColumn,
+        # AggregationType, SortKeyPosition, etc.)
+        col_props: dict[str, Any] = {}
+        props_container = col.find(f"{ns}properties") if ns else None
+        if props_container is not None:
+            for prop in props_container.findall(f"{ns}property"):
+                pname = prop.get("name")
+                if pname:
+                    col_props[pname] = prop.text
+
+        # Also check for lineageId (used for column cross-referencing)
+        lineage_id = col.get("lineageId")
+        if lineage_id:
+            col_props["_lineageId"] = lineage_id
 
         return DataFlowColumn(
             name=col.get("name") or col.get("externalMetadataColumnId") or "column",
@@ -1079,6 +1118,7 @@ class SSISParser:
             precision=int(col.get("precision") or "0"),
             scale=int(col.get("scale") or "0"),
             code_page=int(col.get("codePage") or "0"),
+            properties=col_props,
         )
 
     # ------------------------------------------------------------------

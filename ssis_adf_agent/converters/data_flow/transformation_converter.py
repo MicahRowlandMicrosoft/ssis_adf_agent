@@ -12,6 +12,7 @@ from typing import Any
 
 from ...parsers.models import DataFlowComponent
 from ...translators.ssis_expression_translator import translate_expression
+from ...warnings_collector import warn
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +332,12 @@ def _script_component(component: DataFlowComponent) -> dict[str, Any]:
         "transformation. Implement logic in Azure Function / Databricks."
     )
     t["typeProperties"] = {"functionName": f"TODO_{component.name.replace(' ', '_')}"}
+    warn(
+        phase="convert", severity="warning",
+        source="transformation_converter",
+        message=f"Script Component '{component.name}' requires manual implementation",
+        detail="Mapped to ExternalCall placeholder — implement in Azure Function or Databricks",
+    )
     return t
 
 
@@ -340,10 +347,22 @@ def _unsupported(component: DataFlowComponent) -> dict[str, Any]:
         f"[UNSUPPORTED — {component.component_type}] Manual implementation required. "
         "This component has no ADF Mapping Data Flow equivalent."
     )
+    warn(
+        phase="convert", severity="warning",
+        source="transformation_converter",
+        message=f"Unsupported component type '{component.component_type}' in '{component.name}'",
+        detail="No ADF Mapping Data Flow equivalent — emitting placeholder Wait transformation",
+    )
     return t
 
 
 def _generic(component: DataFlowComponent) -> dict[str, Any]:
+    warn(
+        phase="convert", severity="warning",
+        source="transformation_converter",
+        message=f"Unknown component type '{component.component_type}' in '{component.name}'",
+        detail="Emitting empty DerivedColumn placeholder — manual review needed",
+    )
     return {
         "name": component.name.replace(" ", "_"),
         "description": f"[Unknown component type: {component.component_type}] — manual review needed.",

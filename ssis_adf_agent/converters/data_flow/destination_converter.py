@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...parsers.models import DataFlowComponent
+from ...warnings_collector import warn
 
 _SINK_DATASET_TYPE: dict[str, str] = {
     "OleDbDestination": "AzureSqlTable",
@@ -38,6 +39,15 @@ def convert_destination(component: DataFlowComponent) -> dict[str, Any]:
     write_behavior = _WRITE_BEHAVIOR.get(comp_type, "upsert")
     safe_name = component.name.replace(" ", "_")
 
+    conn_ref = component.connection_id
+    if not conn_ref:
+        warn(
+            phase="convert", severity="warning", source="destination_converter",
+            message=f"Destination component '{component.name}' has no connection ID",
+            detail="Using fallback 'LS_unknown' — update the linked service reference manually",
+        )
+        conn_ref = "unknown"
+
     sink: dict[str, Any] = {
         "name": safe_name,
         "description": f"Sink from SSIS {comp_type}: {component.name}",
@@ -46,7 +56,7 @@ def convert_destination(component: DataFlowComponent) -> dict[str, Any]:
             "type": "DatasetReference",
         },
         "linkedService": {
-            "referenceName": f"LS_{component.connection_id or 'unknown'}",
+            "referenceName": f"LS_{conn_ref}",
             "type": "LinkedServiceReference",
         },
         "typeProperties": {

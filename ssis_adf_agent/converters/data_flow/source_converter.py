@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...parsers.models import DataFlowComponent
+from ...warnings_collector import warn
 
 # Map SSIS source component type → ADF dataset type
 _SOURCE_DATASET_TYPE: dict[str, str] = {
@@ -34,6 +35,15 @@ def convert_source(component: DataFlowComponent) -> dict[str, Any]:
     ds_type = _SOURCE_DATASET_TYPE.get(comp_type, "AzureSqlTable")
     safe_name = component.name.replace(" ", "_")
 
+    conn_ref = component.connection_id
+    if not conn_ref:
+        warn(
+            phase="convert", severity="warning", source="source_converter",
+            message=f"Source component '{component.name}' has no connection ID",
+            detail="Using fallback 'LS_unknown' — update the linked service reference manually",
+        )
+        conn_ref = "unknown"
+
     source: dict[str, Any] = {
         "name": safe_name,
         "description": f"Source from SSIS {comp_type}: {component.name}",
@@ -42,7 +52,7 @@ def convert_source(component: DataFlowComponent) -> dict[str, Any]:
             "type": "DatasetReference",
         },
         "linkedService": {
-            "referenceName": f"LS_{component.connection_id or 'unknown'}",
+            "referenceName": f"LS_{conn_ref}",
             "type": "LinkedServiceReference",
         },
         "typeProperties": {

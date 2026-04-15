@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ..parsers.models import ConnectionManagerType, SSISConnectionManager, SSISPackage
+from ..warnings_collector import warn
 
 
 _DEFAULT_IR = "AutoResolveIntegrationRuntime"
@@ -315,7 +316,13 @@ def generate_linked_services(
                     key = f"{tp.get('server', '')}|{tp.get('database', '')}".lower()
                     if key != "|":
                         existing_ls[key] = data["name"]
-                except Exception:
+                except Exception as exc:
+                    warn(
+                        phase="generate", severity="warning",
+                        source="linked_service_generator",
+                        message=f"Failed to read shared linked service '{f.name}': {exc}",
+                        detail="Deduplication may create a duplicate linked service",
+                    )
                     continue
 
     seen_ids: set[str] = set()

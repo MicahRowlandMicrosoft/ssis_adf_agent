@@ -404,6 +404,17 @@ class GapItem(BaseModel):
     recommendation: str = ""
 
 
+class ConversionWarning(BaseModel):
+    """Structured warning emitted during parsing, conversion, or generation."""
+    phase: str  # "parse", "analyze", "convert", "generate", "deploy"
+    severity: str  # "error", "warning", "info"
+    source: str  # module/component that emitted the warning
+    message: str
+    task_name: str = ""
+    task_id: str = ""
+    detail: str = ""  # additional context (e.g. fallback value used)
+
+
 class ComplexityScore(BaseModel):
     package_name: str
     total_tasks: int = 0

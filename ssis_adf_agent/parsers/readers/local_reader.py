@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ..ssis_parser import SSISParser
 from ..models import SSISPackage
+from ...warnings_collector import warn
 
 
 class LocalReader:
@@ -48,8 +49,9 @@ class LocalReader:
                 packages.append(self.read(p))
             except Exception as exc:
                 errors.append(f"{p}: {exc}")
-        if errors:
-            import warnings
-            for err in errors:
-                warnings.warn(f"Skipped package due to parse error: {err}", stacklevel=2)
+        for err in errors:
+            warn(
+                phase="parse", severity="error", source="local_reader",
+                message=f"Skipped package due to parse error: {err}",
+            )
         return packages

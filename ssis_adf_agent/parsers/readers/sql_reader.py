@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from ..ssis_parser import SSISParser
 from ..models import SSISPackage, SqlAgentSchedule
+from ...warnings_collector import warn
 
 try:
     import pyodbc
@@ -161,10 +162,11 @@ class SqlServerReader:
                 packages.append(self.read(name))
             except Exception as exc:
                 errors.append(f"{name}: {exc}")
-        if errors:
-            import warnings
-            for err in errors:
-                warnings.warn(f"Skipped package: {err}", stacklevel=2)
+        for err in errors:
+            warn(
+                phase="parse", severity="error", source="sql_reader",
+                message=f"Skipped package: {err}",
+            )
         return packages
 
     def _decode_package_data(self, data: bytes | bytearray | memoryview) -> str:
@@ -273,10 +275,11 @@ class SqlServerReader:
                 except Exception as exc:
                     errors.append(f"{ref.folder_name}/{ref.name}: {exc}")
 
-        if errors:
-            import warnings
-            for err in errors:
-                warnings.warn(f"Skipped catalog package: {err}", stacklevel=2)
+        for err in errors:
+            warn(
+                phase="parse", severity="error", source="sql_reader",
+                message=f"Skipped catalog package: {err}",
+            )
 
         return packages
 
@@ -326,5 +329,9 @@ class SqlServerReader:
                     active_end_time=int(row[7]),
                     freq_recurrence_factor=int(row[8]),
                 )
-        except Exception:
+        except Exception as exc:
+            warn(
+                phase="parse", severity="warning", source="sql_reader",
+                message=f"Failed to read SQL Agent schedule for job '{job_name}': {exc}",
+            )
             return None

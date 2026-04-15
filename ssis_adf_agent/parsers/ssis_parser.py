@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from lxml import etree
 
+from ..warnings_collector import warn
 from .models import (
     ConnectionManagerType,
     CrossDbReference,
@@ -354,6 +355,11 @@ def _extract_source_from_blob(b64_text: str, language: str) -> str | None:
         logging.getLogger(__name__).debug(
             "Failed to extract script source from blob", exc_info=True
         )
+        warn(
+            phase="parse", severity="warning", source="ssis_parser",
+            message="Failed to extract script source code from binary blob",
+            detail="Script Task will be classified by heuristics instead of source analysis",
+        )
         return None
 
 
@@ -680,6 +686,12 @@ class SSISParser:
         elif task_type == TaskType.FOR_LOOP:
             return self._parse_for_loop(elem, base_kwargs)
         else:
+            warn(
+                phase="parse", severity="warning", source="ssis_parser",
+                message=f"Unknown task type '{creation_name}' — mapped to TaskType.UNKNOWN",
+                task_name=task_name, task_id=task_id,
+                detail="This task will receive a placeholder Wait activity in the converted pipeline",
+            )
             props = {etree.QName(k).localname: v for k, v in elem.attrib.items()}
             return SSISTask(**base_kwargs, properties=props)
 

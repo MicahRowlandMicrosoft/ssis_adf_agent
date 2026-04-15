@@ -28,6 +28,8 @@ import mcp.server.stdio
 import mcp.types as types
 from mcp.server import Server
 
+from .warnings_collector import WarningsCollector
+
 # ---------------------------------------------------------------------------
 # Server setup
 # ---------------------------------------------------------------------------
@@ -334,44 +336,47 @@ async def _scan(args: dict[str, Any]) -> list[types.TextContent]:
 
     packages_info: list[dict[str, Any]] = []
 
-    if source_type == "local":
-        from .parsers.readers.local_reader import LocalReader
-        reader = LocalReader()
-        paths = reader.scan(path_or_conn, recursive=recursive)
-        for p in paths:
-            packages_info.append({"name": p.stem, "path": str(p), "source": "local"})
+    with WarningsCollector() as wc:
+        if source_type == "local":
+            from .parsers.readers.local_reader import LocalReader
+            reader = LocalReader()
+            paths = reader.scan(path_or_conn, recursive=recursive)
+            for p in paths:
+                packages_info.append({"name": p.stem, "path": str(p), "source": "local"})
 
-    elif source_type == "git":
-        from .parsers.readers.git_reader import GitReader
-        reader = GitReader(branch=branch)
-        pkgs = reader.read_all(path_or_conn, recursive=recursive)
-        for pkg in pkgs:
-            packages_info.append({
-                "name": pkg.name,
-                "source_file": pkg.source_file,
-                "protection_level": pkg.protection_level.value,
-                "task_count": len(pkg.tasks),
-                "connection_count": len(pkg.connection_managers),
-            })
+        elif source_type == "git":
+            from .parsers.readers.git_reader import GitReader
+            reader = GitReader(branch=branch)
+            pkgs = reader.read_all(path_or_conn, recursive=recursive)
+            for pkg in pkgs:
+                packages_info.append({
+                    "name": pkg.name,
+                    "source_file": pkg.source_file,
+                    "protection_level": pkg.protection_level.value,
+                    "task_count": len(pkg.tasks),
+                    "connection_count": len(pkg.connection_managers),
+                })
 
-    elif source_type == "sql":
-        from .parsers.readers.sql_reader import SqlServerReader
-        # Expect path_or_conn to be a pyodbc-style connection string
-        # Parse it first to get server/database
-        import re
-        server_m = re.search(r"SERVER=([^;]+)", path_or_conn, re.I)
-        db_m = re.search(r"DATABASE=([^;]+)", path_or_conn, re.I)
-        server = server_m.group(1) if server_m else "localhost"
-        database = db_m.group(1) if db_m else "msdb"
-        reader = SqlServerReader(server=server, database=database, trusted_connection=True)
-        names = reader.list_packages()
-        for n in names:
-            packages_info.append({"name": n, "source": "msdb", "server": server})
+        elif source_type == "sql":
+            from .parsers.readers.sql_reader import SqlServerReader
+            # Expect path_or_conn to be a pyodbc-style connection string
+            # Parse it first to get server/database
+            import re
+            server_m = re.search(r"SERVER=([^;]+)", path_or_conn, re.I)
+            db_m = re.search(r"DATABASE=([^;]+)", path_or_conn, re.I)
+            server = server_m.group(1) if server_m else "localhost"
+            database = db_m.group(1) if db_m else "msdb"
+            reader = SqlServerReader(server=server, database=database, trusted_connection=True)
+            names = reader.list_packages()
+            for n in names:
+                packages_info.append({"name": n, "source": "msdb", "server": server})
 
-    result = {
-        "found": len(packages_info),
-        "packages": packages_info,
-    }
+        result = {
+            "found": len(packages_info),
+            "packages": packages_info,
+            "conversion_warnings": [w.model_dump() for w in wc.warnings],
+        }
+
     return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
 
 
@@ -384,69 +389,71 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
     from .analyzers.esi_reuse_analyzer import analyze_esi_reuse, load_esi_config
     from .analyzers.similarity_analyzer import fingerprint_package
 
-    path = Path(args["package_path"])
-    reader = LocalReader()
-    package = reader.read(path)
+    with WarningsCollector() as wc:
+        path = Path(args["package_path"])
+        reader = LocalReader()
+        package = reader.read(path)
 
-    complexity, script_classifications = score_package_detailed(package)
-    gaps = analyze_gaps(package)
+        complexity, script_classifications = score_package_detailed(package)
+        gaps = analyze_gaps(package)
 
-    # CDM pattern detection
-    cdm_gaps = detect_cdm_patterns(package)
-    gaps.extend(cdm_gaps)
+        # CDM pattern detection
+        cdm_gaps = detect_cdm_patterns(package)
+        gaps.extend(cdm_gaps)
 
-    # ESI reuse detection
-    esi_gaps: list = []
-    esi_tables_path = args.get("esi_tables_path")
-    if esi_tables_path:
-        esi_config = load_esi_config(esi_tables_path)
-        esi_gaps = analyze_esi_reuse(package, esi_config)
-        gaps.extend(esi_gaps)
+        # ESI reuse detection
+        esi_gaps: list = []
+        esi_tables_path = args.get("esi_tables_path")
+        if esi_tables_path:
+            esi_config = load_esi_config(esi_tables_path)
+            esi_gaps = analyze_esi_reuse(package, esi_config)
+            gaps.extend(esi_gaps)
 
-    dep_order = build_package_dependency_order(package)
+        dep_order = build_package_dependency_order(package)
 
-    # Structural fingerprint for consolidation grouping
-    fp = fingerprint_package(package)
+        # Structural fingerprint for consolidation grouping
+        fp = fingerprint_package(package)
 
-    # Get task names in order
-    task_by_id = {t.id: t for t in package.tasks}
-    ordered_names = [task_by_id[tid].name for tid in dep_order if tid in task_by_id]
+        # Get task names in order
+        task_by_id = {t.id: t for t in package.tasks}
+        ordered_names = [task_by_id[tid].name for tid in dep_order if tid in task_by_id]
 
-    report = {
-        "package_name": package.name,
-        "source_file": package.source_file,
-        "complexity": complexity.model_dump(),
-        "gap_count": len(gaps),
-        "gaps_by_severity": {
-            "manual_required": [g.model_dump() for g in gaps if g.severity == "manual_required"],
-            "warning": [g.model_dump() for g in gaps if g.severity == "warning"],
-            "info": [g.model_dump() for g in gaps if g.severity == "info"],
-        },
-        "execution_order": ordered_names,
-        "connection_managers": [
-            {"name": cm.name, "type": cm.type.value, "server": cm.server, "database": cm.database}
-            for cm in package.connection_managers
-        ],
-        "parameters": [p.name for p in package.parameters],
-        "variables": [v.name for v in package.variables if v.namespace.lower() == "user"],
-        "event_handlers": [eh.event_name for eh in package.event_handlers],
-        "consolidation_fingerprint": {
-            "digest": fp.digest[:12],
-            "shape": fp.shape_summary,
-            "task_sequence": list(fp.task_type_sequence),
-            "connection_types": list(fp.connection_manager_types),
-        },
-        "script_task_classifications": [
-            {
-                "tier": sc.tier.value,
-                "weight": sc.weight,
-                "reason": sc.reason,
-                "variables_only": sc.variables_only,
-                "adf_expressible": sc.adf_expressible,
-            }
-            for sc in script_classifications
-        ],
-    }
+        report = {
+            "package_name": package.name,
+            "source_file": package.source_file,
+            "complexity": complexity.model_dump(),
+            "gap_count": len(gaps),
+            "gaps_by_severity": {
+                "manual_required": [g.model_dump() for g in gaps if g.severity == "manual_required"],
+                "warning": [g.model_dump() for g in gaps if g.severity == "warning"],
+                "info": [g.model_dump() for g in gaps if g.severity == "info"],
+            },
+            "execution_order": ordered_names,
+            "connection_managers": [
+                {"name": cm.name, "type": cm.type.value, "server": cm.server, "database": cm.database}
+                for cm in package.connection_managers
+            ],
+            "parameters": [p.name for p in package.parameters],
+            "variables": [v.name for v in package.variables if v.namespace.lower() == "user"],
+            "event_handlers": [eh.event_name for eh in package.event_handlers],
+            "consolidation_fingerprint": {
+                "digest": fp.digest[:12],
+                "shape": fp.shape_summary,
+                "task_sequence": list(fp.task_type_sequence),
+                "connection_types": list(fp.connection_manager_types),
+            },
+            "script_task_classifications": [
+                {
+                    "tier": sc.tier.value,
+                    "weight": sc.weight,
+                    "reason": sc.reason,
+                    "variables_only": sc.variables_only,
+                    "adf_expressible": sc.adf_expressible,
+                }
+                for sc in script_classifications
+            ],
+            "conversion_warnings": [w.model_dump() for w in wc.warnings],
+        }
 
     return [types.TextContent(type="text", text=json.dumps(report, indent=2))]
 
@@ -486,75 +493,77 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     if esi_tables_path:
         esi_config = load_esi_config(esi_tables_path)
 
-    reader = LocalReader()
-    package = reader.read(path)
+    with WarningsCollector() as wc:
+        reader = LocalReader()
+        package = reader.read(path)
 
-    stubs_dir = output_dir / "stubs"
+        stubs_dir = output_dir / "stubs"
 
-    # Run analyzers for annotations
-    cdm_gaps = detect_cdm_patterns(package)
-    esi_gaps = analyze_esi_reuse(package, esi_config) if esi_config else []
+        # Run analyzers for annotations
+        cdm_gaps = detect_cdm_patterns(package)
+        esi_gaps = analyze_esi_reuse(package, esi_config) if esi_config else []
 
-    # Run generators with new parameters
-    linked_services = generate_linked_services(
-        package, output_dir,
-        on_prem_ir_name=on_prem_ir_name,
-        auth_type=auth_type,
-        use_key_vault=use_key_vault,
-        kv_ls_name=kv_ls_name,
-        kv_url=kv_url,
-        shared_artifacts_dir=shared_artifacts_dir,
-    )
-    datasets = generate_datasets(
-        package, output_dir,
-        schema_remap=schema_remap,
-        shared_artifacts_dir=shared_artifacts_dir,
-    )
-    data_flows = generate_data_flows(package, output_dir)
-    pipeline = generate_pipeline(
-        package, output_dir,
-        stubs_dir=stubs_dir,
-        llm_translate=llm_translate,
-        pipeline_prefix=pipeline_prefix,
-        cdm_gaps=cdm_gaps,
-        esi_gaps=esi_gaps,
-        schema_remap=schema_remap,
-    )
-    triggers = generate_triggers(package, output_dir) if gen_trigger else []
+        # Run generators with new parameters
+        linked_services = generate_linked_services(
+            package, output_dir,
+            on_prem_ir_name=on_prem_ir_name,
+            auth_type=auth_type,
+            use_key_vault=use_key_vault,
+            kv_ls_name=kv_ls_name,
+            kv_url=kv_url,
+            shared_artifacts_dir=shared_artifacts_dir,
+        )
+        datasets = generate_datasets(
+            package, output_dir,
+            schema_remap=schema_remap,
+            shared_artifacts_dir=shared_artifacts_dir,
+        )
+        data_flows = generate_data_flows(package, output_dir)
+        pipeline = generate_pipeline(
+            package, output_dir,
+            stubs_dir=stubs_dir,
+            llm_translate=llm_translate,
+            pipeline_prefix=pipeline_prefix,
+            cdm_gaps=cdm_gaps,
+            esi_gaps=esi_gaps,
+            schema_remap=schema_remap,
+        )
+        triggers = generate_triggers(package, output_dir) if gen_trigger else []
 
-    # Find stub files
-    stub_files = list(stubs_dir.rglob("*.py")) if stubs_dir.exists() else []
+        # Find stub files
+        stub_files = list(stubs_dir.rglob("*.py")) if stubs_dir.exists() else []
 
-    # Collect warnings from pipeline activities
-    conversion_warnings = [
-        act["description"]
-        for act in pipeline.get("properties", {}).get("activities", [])
-        if "MANUAL REVIEW" in act.get("description", "") or "UNSUPPORTED" in act.get("description", "")
-    ]
+        # Collect warnings from pipeline activities
+        conversion_warnings = [
+            act["description"]
+            for act in pipeline.get("properties", {}).get("activities", [])
+            if "MANUAL REVIEW" in act.get("description", "") or "UNSUPPORTED" in act.get("description", "")
+        ]
 
-    summary = {
-        "package_name": package.name,
-        "output_directory": str(output_dir),
-        "artifacts_generated": {
-            "pipelines": 1,
-            "linked_services": len(linked_services),
-            "datasets": len(datasets),
-            "data_flows": len(data_flows),
-            "triggers": len(triggers),
-            "azure_function_stubs": len(stub_files),
-        },
-        "manual_review_required": len(conversion_warnings),
-        "cdm_patterns_flagged": len(cdm_gaps),
-        "esi_reuse_candidates": len(esi_gaps),
-        "warnings": conversion_warnings[:20],  # cap output size
-        "files": {
-            "pipeline": str(output_dir / "pipeline" / f"{pipeline['name']}.json"),
-            "linked_services": [ls["name"] for ls in linked_services],
-            "datasets": [ds["name"] for ds in datasets],
-            "data_flows": [df["name"] for df in data_flows],
-            "stubs": [str(f) for f in stub_files],
-        },
-    }
+        summary = {
+            "package_name": package.name,
+            "output_directory": str(output_dir),
+            "artifacts_generated": {
+                "pipelines": 1,
+                "linked_services": len(linked_services),
+                "datasets": len(datasets),
+                "data_flows": len(data_flows),
+                "triggers": len(triggers),
+                "azure_function_stubs": len(stub_files),
+            },
+            "manual_review_required": len(conversion_warnings),
+            "cdm_patterns_flagged": len(cdm_gaps),
+            "esi_reuse_candidates": len(esi_gaps),
+            "warnings": conversion_warnings[:20],  # cap output size
+            "conversion_warnings": [w.model_dump() for w in wc.warnings],
+            "files": {
+                "pipeline": str(output_dir / "pipeline" / f"{pipeline['name']}.json"),
+                "linked_services": [ls["name"] for ls in linked_services],
+                "datasets": [ds["name"] for ds in datasets],
+                "data_flows": [df["name"] for df in data_flows],
+                "stubs": [str(f) for f in stub_files],
+            },
+        }
 
     return [types.TextContent(type="text", text=json.dumps(summary, indent=2))]
 
@@ -611,50 +620,53 @@ async def _consolidate(args: dict[str, Any]) -> list[types.TextContent]:
     pipeline_prefix = args.get("pipeline_prefix", "PL_")
     analyze_only = args.get("analyze_only", False)
 
-    reader = LocalReader()
-    packages = [reader.read(p) for p in package_paths]
+    with WarningsCollector() as wc:
+        reader = LocalReader()
+        packages = [reader.read(p) for p in package_paths]
 
-    result = group_similar_packages(packages)
+        result = group_similar_packages(packages)
 
-    # Build the analysis report
-    report: dict[str, Any] = {
-        "total_packages": result.total_packages,
-        "consolidation_groups": len(result.groups),
-        "ungrouped_packages": len(result.ungrouped),
-        "groups": [],
-        "ungrouped": [
-            {
-                "package_name": fp.package_name,
-                "source_file": fp.source_file,
-                "fingerprint": fp.digest[:12],
-                "shape": fp.shape_summary,
-            }
-            for fp in result.ungrouped
-        ],
-    }
-
-    for group in result.groups:
-        group_info: dict[str, Any] = {
-            "fingerprint": group.fingerprint.digest[:12],
-            "shape": group.fingerprint.shape_summary,
-            "package_count": len(group.packages),
-            "packages": [pkg.name for pkg in group.packages],
-            "varying_parameters": group.shared_parameter_names,
-            "parameter_sets": [
-                {"package": ps.package_name, "values": ps.values}
-                for ps in group.parameter_sets
+        # Build the analysis report
+        report: dict[str, Any] = {
+            "total_packages": result.total_packages,
+            "consolidation_groups": len(result.groups),
+            "ungrouped_packages": len(result.ungrouped),
+            "groups": [],
+            "ungrouped": [
+                {
+                    "package_name": fp.package_name,
+                    "source_file": fp.source_file,
+                    "fingerprint": fp.digest[:12],
+                    "shape": fp.shape_summary,
+                }
+                for fp in result.ungrouped
             ],
         }
 
-        if not analyze_only and output_dir is not None:
-            gen_result = generate_consolidated_pipelines(
-                group,
-                output_dir,
-                pipeline_prefix=pipeline_prefix,
-            )
-            group_info["generated"] = gen_result
+        for group in result.groups:
+            group_info: dict[str, Any] = {
+                "fingerprint": group.fingerprint.digest[:12],
+                "shape": group.fingerprint.shape_summary,
+                "package_count": len(group.packages),
+                "packages": [pkg.name for pkg in group.packages],
+                "varying_parameters": group.shared_parameter_names,
+                "parameter_sets": [
+                    {"package": ps.package_name, "values": ps.values}
+                    for ps in group.parameter_sets
+                ],
+            }
 
-        report["groups"].append(group_info)
+            if not analyze_only and output_dir is not None:
+                gen_result = generate_consolidated_pipelines(
+                    group,
+                    output_dir,
+                    pipeline_prefix=pipeline_prefix,
+                )
+                group_info["generated"] = gen_result
+
+            report["groups"].append(group_info)
+
+        report["conversion_warnings"] = [w.model_dump() for w in wc.warnings]
 
     return [types.TextContent(type="text", text=json.dumps(report, indent=2))]
 

@@ -18,6 +18,7 @@ from typing import Any
 
 from ..analyzers.similarity_analyzer import ConsolidationGroup
 from ..generators.pipeline_generator import generate_pipeline
+from ..warnings_collector import warn
 
 
 def generate_consolidated_pipelines(
@@ -43,6 +44,13 @@ def generate_consolidated_pipelines(
         Summary dict with generated file paths and config.
     """
     # Use the first package as the template for the child pipeline
+    if not group.packages:
+        warn(
+            phase="generate", severity="error",
+            source="consolidated_pipeline_generator",
+            message="Consolidation group has no packages — cannot generate pipelines",
+        )
+        return {"error": "Consolidation group has no packages"}
     template_package = group.packages[0]
     param_names = group.shared_parameter_names
 

@@ -22,6 +22,7 @@ from ...parsers.models import (
     PrecedenceConstraint,
     SSISTask,
 )
+from ...warnings_collector import warn
 from ..base_converter import BaseConverter
 
 # Component types treated as "pure source"

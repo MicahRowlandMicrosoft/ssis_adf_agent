@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..parsers.models import PrecedenceConstraint, SSISTask, TaskType
+from ..warnings_collector import warn
 from .base_converter import BaseConverter
 from .control_flow.execute_sql_converter import ExecuteSQLConverter
 from .control_flow.execute_package_converter import ExecutePackageConverter
@@ -164,6 +165,12 @@ class _SequenceConverter(BaseConverter):
 class _FallbackConverter(BaseConverter):
     def convert(self, task, constraints, task_by_id):  # type: ignore[override]
         depends_on = self._depends_on(task, constraints, task_by_id)
+        warn(
+            phase="convert", severity="warning", source="dispatcher",
+            message=f"No converter for task type '{task.task_type.value}'",
+            task_name=task.name, task_id=task.id,
+            detail="Emitting placeholder Wait activity — manual implementation required",
+        )
         return [{
             "name": task.name,
             "description": (

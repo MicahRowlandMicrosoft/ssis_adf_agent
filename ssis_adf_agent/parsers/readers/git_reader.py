@@ -13,6 +13,7 @@ from typing import Iterator
 
 from ..ssis_parser import SSISParser
 from ..models import SSISPackage
+from ...warnings_collector import warn
 
 try:
     import git  # gitpython
@@ -86,10 +87,11 @@ class GitReader:
                 packages.append(self._parser.parse(dtsx))
             except Exception as exc:
                 errors.append(f"{dtsx}: {exc}")
-        if errors:
-            import warnings
-            for err in errors:
-                warnings.warn(f"Skipped package due to parse error: {err}", stacklevel=2)
+        for err in errors:
+            warn(
+                phase="parse", severity="error", source="git_reader",
+                message=f"Skipped package due to parse error: {err}",
+            )
         return packages
 
     def iter_dtsx_blobs(self, repo_url_or_path: str, branch: str | None = None) -> Iterator[tuple[str, str]]:
@@ -103,6 +105,10 @@ class GitReader:
         try:
             commit = repo.commit(ref)
         except Exception:
+            warn(
+                phase="parse", severity="warning", source="git_reader",
+                message=f"Branch/ref '{ref}' not found, falling back to HEAD",
+            )
             commit = repo.head.commit
 
         def _walk_tree(tree: git.Tree, prefix: str = "") -> Iterator[tuple[str, str]]:

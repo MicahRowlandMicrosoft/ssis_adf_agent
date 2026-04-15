@@ -255,6 +255,48 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["artifacts_dir", "subscription_id", "resource_group", "factory_name"],
             },
         ),
+        types.Tool(
+            name="consolidate_packages",
+            description=(
+                "Analyze multiple SSIS packages for structural similarity and consolidate "
+                "identical packages into a single parameterized ADF pipeline. "
+                "For example, 10 packages that all do 'run SQL → export to CSV' become "
+                "one child pipeline with parameters and one parent pipeline with a ForEach "
+                "that iterates a config array. Returns similarity analysis, consolidation "
+                "groups, and generated pipeline file paths."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of absolute paths to .dtsx files to analyze and consolidate.",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": (
+                            "Directory to write consolidated ADF artifacts to. "
+                            "Sub-folders pipeline/, linkedService/, dataset/, etc. will be created."
+                        ),
+                    },
+                    "pipeline_prefix": {
+                        "type": "string",
+                        "description": "Prefix for pipeline names. Default: 'PL_'.",
+                        "default": "PL_",
+                    },
+                    "analyze_only": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, only perform similarity analysis and return groupings "
+                            "without generating consolidated pipelines. Default: false."
+                        ),
+                        "default": False,
+                    },
+                },
+                "required": ["package_paths"],
+            },
+        ),
     ]
 
 
@@ -275,6 +317,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _validate(arguments)
         elif name == "deploy_to_adf":
             return await _deploy(arguments)
+        elif name == "consolidate_packages":
+            return await _consolidate(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -338,6 +382,7 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
     from .analyzers.dependency_graph import build_package_dependency_order
     from .analyzers.cdm_pattern_detector import detect_cdm_patterns
     from .analyzers.esi_reuse_analyzer import analyze_esi_reuse, load_esi_config
+    from .analyzers.similarity_analyzer import fingerprint_package
 
     path = Path(args["package_path"])
     reader = LocalReader()
@@ -359,6 +404,9 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
         gaps.extend(esi_gaps)
 
     dep_order = build_package_dependency_order(package)
+
+    # Structural fingerprint for consolidation grouping
+    fp = fingerprint_package(package)
 
     # Get task names in order
     task_by_id = {t.id: t for t in package.tasks}
@@ -382,6 +430,12 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
         "parameters": [p.name for p in package.parameters],
         "variables": [v.name for v in package.variables if v.namespace.lower() == "user"],
         "event_handlers": [eh.event_name for eh in package.event_handlers],
+        "consolidation_fingerprint": {
+            "digest": fp.digest[:12],
+            "shape": fp.shape_summary,
+            "task_sequence": list(fp.task_type_sequence),
+            "connection_types": list(fp.connection_manager_types),
+        },
         "script_task_classifications": [
             {
                 "tier": sc.tier.value,
@@ -545,6 +599,64 @@ async def _deploy(args: dict[str, Any]) -> list[types.TextContent]:
         ],
     }
     return [types.TextContent(type="text", text=json.dumps(summary, indent=2))]
+
+
+async def _consolidate(args: dict[str, Any]) -> list[types.TextContent]:
+    from .parsers.readers.local_reader import LocalReader
+    from .analyzers.similarity_analyzer import group_similar_packages, fingerprint_package
+    from .generators.consolidated_pipeline_generator import generate_consolidated_pipelines
+
+    package_paths = [Path(p) for p in args["package_paths"]]
+    output_dir = Path(args["output_dir"]) if args.get("output_dir") else None
+    pipeline_prefix = args.get("pipeline_prefix", "PL_")
+    analyze_only = args.get("analyze_only", False)
+
+    reader = LocalReader()
+    packages = [reader.read(p) for p in package_paths]
+
+    result = group_similar_packages(packages)
+
+    # Build the analysis report
+    report: dict[str, Any] = {
+        "total_packages": result.total_packages,
+        "consolidation_groups": len(result.groups),
+        "ungrouped_packages": len(result.ungrouped),
+        "groups": [],
+        "ungrouped": [
+            {
+                "package_name": fp.package_name,
+                "source_file": fp.source_file,
+                "fingerprint": fp.digest[:12],
+                "shape": fp.shape_summary,
+            }
+            for fp in result.ungrouped
+        ],
+    }
+
+    for group in result.groups:
+        group_info: dict[str, Any] = {
+            "fingerprint": group.fingerprint.digest[:12],
+            "shape": group.fingerprint.shape_summary,
+            "package_count": len(group.packages),
+            "packages": [pkg.name for pkg in group.packages],
+            "varying_parameters": group.shared_parameter_names,
+            "parameter_sets": [
+                {"package": ps.package_name, "values": ps.values}
+                for ps in group.parameter_sets
+            ],
+        }
+
+        if not analyze_only and output_dir is not None:
+            gen_result = generate_consolidated_pipelines(
+                group,
+                output_dir,
+                pipeline_prefix=pipeline_prefix,
+            )
+            group_info["generated"] = gen_result
+
+        report["groups"].append(group_info)
+
+    return [types.TextContent(type="text", text=json.dumps(report, indent=2))]
 
 
 # ---------------------------------------------------------------------------

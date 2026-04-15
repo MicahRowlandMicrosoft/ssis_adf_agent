@@ -253,6 +253,11 @@ async def list_tools() -> list[types.Tool]:
                         "description": "If true, validate and log but do not call Azure APIs. Default: false.",
                         "default": False,
                     },
+                    "validate_first": {
+                        "type": "boolean",
+                        "description": "If true (default), run structural validation before deploying. Invalid artifacts are skipped and reported.",
+                        "default": True,
+                    },
                 },
                 "required": ["artifacts_dir", "subscription_id", "resource_group", "factory_name"],
             },
@@ -587,26 +592,29 @@ async def _validate(args: dict[str, Any]) -> list[types.TextContent]:
 async def _deploy(args: dict[str, Any]) -> list[types.TextContent]:
     from .deployer.adf_deployer import AdfDeployer
 
-    deployer = AdfDeployer(
-        subscription_id=args["subscription_id"],
-        resource_group=args["resource_group"],
-        factory_name=args["factory_name"],
-    )
-    results = deployer.deploy_all(
-        Path(args["artifacts_dir"]),
-        dry_run=args.get("dry_run", False),
-    )
+    with WarningsCollector() as wc:
+        deployer = AdfDeployer(
+            subscription_id=args["subscription_id"],
+            resource_group=args["resource_group"],
+            factory_name=args["factory_name"],
+        )
+        results = deployer.deploy_all(
+            Path(args["artifacts_dir"]),
+            dry_run=args.get("dry_run", False),
+            validate_first=args.get("validate_first", True),
+        )
 
-    summary = {
-        "total": len(results),
-        "succeeded": sum(1 for r in results if r.success),
-        "failed": sum(1 for r in results if not r.success),
-        "results": [
-            {"type": r.artifact_type, "name": r.name, "success": r.success,
-             "error": r.error}
-            for r in results
-        ],
-    }
+        summary = {
+            "total": len(results),
+            "succeeded": sum(1 for r in results if r.success),
+            "failed": sum(1 for r in results if not r.success),
+            "results": [
+                {"type": r.artifact_type, "name": r.name, "success": r.success,
+                 "error": r.error, "retries": r.retries}
+                for r in results
+            ],
+            "warnings": [w.model_dump() for w in wc.warnings],
+        }
     return [types.TextContent(type="text", text=json.dumps(summary, indent=2))]
 
 

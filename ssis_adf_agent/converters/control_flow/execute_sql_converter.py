@@ -134,8 +134,10 @@ class ExecuteSQLConverter(BaseConverter):
         proc_name = _extract_proc_name(task.sql_statement or "")
         parameters = {}
         for pb in task.parameter_bindings:
+            var_raw = pb.get('variable', '')
+            var_name = var_raw.split('::')[-1] if '::' in var_raw else var_raw
             parameters[pb.get("parameter_name", f"param{len(parameters)}")] = {
-                "value": f"@variables('{pb.get('variable', '')}')",
+                "value": f"@variables('{var_name}')",
                 "type": "String",
             }
         return {

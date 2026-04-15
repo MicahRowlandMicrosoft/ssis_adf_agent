@@ -31,7 +31,8 @@ class ExecutePackageConverter(BaseConverter):
         parameters: dict[str, Any] = {}
         for pa in task.parameter_assignments:
             param_name = pa.get("parameter", "param")
-            var_name = pa.get("variable", "")
+            var_raw = pa.get("variable", "")
+            var_name = var_raw.split("::")[-1] if "::" in var_raw else var_raw
             parameters[param_name] = {
                 "value": f"@variables('{var_name}')",
                 "type": "Expression",

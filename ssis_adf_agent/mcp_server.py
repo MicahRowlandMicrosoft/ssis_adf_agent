@@ -333,7 +333,7 @@ async def _scan(args: dict[str, Any]) -> list[types.TextContent]:
 
 async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
     from .parsers.readers.local_reader import LocalReader
-    from .analyzers.complexity_scorer import score_package
+    from .analyzers.complexity_scorer import score_package_detailed
     from .analyzers.gap_analyzer import analyze_gaps
     from .analyzers.dependency_graph import build_package_dependency_order
     from .analyzers.cdm_pattern_detector import detect_cdm_patterns
@@ -343,7 +343,7 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
     reader = LocalReader()
     package = reader.read(path)
 
-    complexity = score_package(package)
+    complexity, script_classifications = score_package_detailed(package)
     gaps = analyze_gaps(package)
 
     # CDM pattern detection
@@ -382,6 +382,16 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
         "parameters": [p.name for p in package.parameters],
         "variables": [v.name for v in package.variables if v.namespace.lower() == "user"],
         "event_handlers": [eh.event_name for eh in package.event_handlers],
+        "script_task_classifications": [
+            {
+                "tier": sc.tier.value,
+                "weight": sc.weight,
+                "reason": sc.reason,
+                "variables_only": sc.variables_only,
+                "adf_expressible": sc.adf_expressible,
+            }
+            for sc in script_classifications
+        ],
     }
 
     return [types.TextContent(type="text", text=json.dumps(report, indent=2))]

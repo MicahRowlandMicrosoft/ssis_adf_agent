@@ -12,12 +12,64 @@ from typing import Any
 
 from ..parsers.models import (
     ConnectionManagerType,
+    DataFlowColumn,
     DataFlowComponent,
     DataFlowTask,
+    DataType,
     SSISConnectionManager,
     SSISPackage,
     TaskType,
 )
+
+# ---------------------------------------------------------------------------
+# SSIS DataType → ADF dataset schema type mapping
+# ---------------------------------------------------------------------------
+
+_SSIS_TO_ADF_TYPE: dict[DataType, str] = {
+    DataType.INT8: "int8",
+    DataType.INT16: "int16",
+    DataType.INT32: "int32",
+    DataType.INT64: "int64",
+    DataType.UINT8: "byte",
+    DataType.UINT16: "int32",
+    DataType.UINT32: "int64",
+    DataType.UINT64: "decimal",
+    DataType.FLOAT: "float",
+    DataType.DOUBLE: "double",
+    DataType.CURRENCY: "decimal",
+    DataType.DECIMAL: "decimal",
+    DataType.BOOLEAN: "boolean",
+    DataType.STRING: "string",
+    DataType.WSTRING: "string",
+    DataType.BYTES: "binary",
+    DataType.DATE: "date",
+    DataType.DBDATE: "date",
+    DataType.DBTIME: "string",  # no native time type
+    DataType.DBTIMESTAMP: "datetime",
+    DataType.GUID: "string",
+    DataType.EMPTY: "string",
+}
+
+
+def _columns_to_schema(columns: list[DataFlowColumn]) -> list[dict[str, Any]]:
+    """Convert a list of SSIS DataFlowColumns to an ADF dataset schema array."""
+    schema: list[dict[str, Any]] = []
+    for col in columns:
+        entry: dict[str, Any] = {
+            "name": col.name,
+            "type": _SSIS_TO_ADF_TYPE.get(col.data_type, "string"),
+        }
+        # Include precision/scale for decimal types
+        if col.data_type in (DataType.DECIMAL, DataType.CURRENCY):
+            if col.precision:
+                entry["precision"] = col.precision
+            if col.scale:
+                entry["scale"] = col.scale
+        # Include length for string types
+        if col.data_type in (DataType.STRING, DataType.WSTRING) and col.length:
+            entry["length"] = col.length
+        schema.append(entry)
+    return schema
 
 _COMP_TO_DS_TYPE: dict[str, str] = {
     "OleDbSource": "AzureSqlTable",
@@ -58,6 +110,7 @@ def _build_dataset(
     file_path: str | None = None,
     description: str = "",
     schema_remap: dict[str, str] | None = None,
+    columns: list[DataFlowColumn] | None = None,
 ) -> dict[str, Any]:
     props: dict[str, Any] = {
         "linkedServiceName": {
@@ -68,7 +121,7 @@ def _build_dataset(
         "annotations": ["ssis-adf-agent"],
         "type": ds_type,
         "typeProperties": {},
-        "schema": [],
+        "schema": _columns_to_schema(columns) if columns else [],
     }
 
     if ds_type in ("AzureSqlTable", "SqlServerTable", "OdbcTable"):
@@ -166,6 +219,9 @@ def generate_datasets(
             )
             file_path = conn.file_path if conn else None
 
+            # Use output_columns for sources, input_columns for destinations
+            columns = comp.output_columns or comp.input_columns or []
+
             ds = _build_dataset(
                 name=ds_name,
                 ds_type=ds_type,
@@ -174,6 +230,7 @@ def generate_datasets(
                 file_path=file_path,
                 description=f"Dataset for SSIS component: {comp.name}",
                 schema_remap=schema_remap,
+                columns=columns if columns else None,
             )
             (ds_dir / f"{ds_name}.json").write_text(
                 json.dumps(ds, indent=4, ensure_ascii=False),

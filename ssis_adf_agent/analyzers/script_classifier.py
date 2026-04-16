@@ -10,7 +10,7 @@ Classification tiers
   basic branching.  Expressible as ADF expressions or Set Variable activities.
 - **moderate** (weight 13): File I/O, regex, basic HTTP, XML/JSON parsing.  Needs an
   Azure Function but the port is straightforward.
-- **complex**  (weight 20): Database connections, COM interop, threading, external
+- **complex**  (weight 25): Database connections, COM interop, threading, external
   libraries, heavy business logic.  Full manual effort required.
 
 When ``source_code`` is available the classifier inspects the C# / VB source text.
@@ -41,7 +41,7 @@ TIER_WEIGHTS: dict[ScriptComplexity, int] = {
     ScriptComplexity.TRIVIAL: 2,
     ScriptComplexity.SIMPLE: 6,
     ScriptComplexity.MODERATE: 13,
-    ScriptComplexity.COMPLEX: 20,
+    ScriptComplexity.COMPLEX: 25,
 }
 
 

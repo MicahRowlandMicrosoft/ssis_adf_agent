@@ -93,12 +93,12 @@ Run `az login` before deploying if using a developer machine.
 
 | Score | Label | Typical Effort |
 |---|---|---|
-| 0–20 | Low | < 1 day |
-| 21–50 | Medium | 1–3 days |
-| 51–75 | High | 3–5 days |
-| 76–100 | Very High | 1+ weeks |
+| 0–30 | Low | < 1 day |
+| 31–55 | Medium | 1–3 days |
+| 56–80 | High | 3–5 days |
+| 81–100 | Very High | 1–3 weeks |
 
-Score drivers: Script Tasks (+2 to +20, content-aware: trivial/simple/moderate/complex), Data Flow Tasks (+8 base, +1.5 per component), ForEach/ForLoop (+5 each), Event Handlers (+4 each), Nesting depth (+3 per level beyond 1), Unknown tasks (+10 each), Linked server references (+8 each), Cross-database references (+3 each).
+Score drivers: Script Tasks (+2 to +25, content-aware: trivial/simple/moderate/complex), Data Flow Tasks (+5 base, +1.5 per component), ForEach/ForLoop (+5 each), Event Handlers (+4 each), Nesting depth (+3 per level beyond 1), Unknown tasks (+10 each), Linked server references (+8 each), Cross-database references (+3 each).
 
 ---
 

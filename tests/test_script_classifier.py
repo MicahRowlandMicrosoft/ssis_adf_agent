@@ -359,7 +359,7 @@ public void Main()
             _make_script(source_code=complex_code),
         ])
         score = score_package(package)
-        # Weight = 20 (complex) → raw ~20 → ~57
+        # Weight = 25 (complex) → raw ~25 → ~61
         assert score.score >= 40
 
     def test_three_trivial_scripts_remain_low(self):
@@ -512,7 +512,7 @@ class TestTierWeights:
         assert TIER_WEIGHTS[ScriptComplexity.TRIVIAL] == 2
         assert TIER_WEIGHTS[ScriptComplexity.SIMPLE] == 6
         assert TIER_WEIGHTS[ScriptComplexity.MODERATE] == 13
-        assert TIER_WEIGHTS[ScriptComplexity.COMPLEX] == 20
+        assert TIER_WEIGHTS[ScriptComplexity.COMPLEX] == 25
 
     def test_trivial_is_cheapest(self):
         assert TIER_WEIGHTS[ScriptComplexity.TRIVIAL] < TIER_WEIGHTS[ScriptComplexity.SIMPLE]

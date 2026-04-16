@@ -11,10 +11,10 @@ Scoring model
 
 Score bands
 -----------
-0-20  → Low         (simple automation, mostly Execute SQL / File System)
-21-50 → Medium      (data flows, loops, parameters)
-51-75 → High        (Script Tasks, deep nesting, event handlers)
-76+   → Very High   (many Script Tasks, complex data flows, unsupported components)
+0-30  → Low         (simple automation, mostly Execute SQL / File System)
+31-55 → Medium      (data flows, loops, parameters)
+56-80 → High        (Script Tasks, deep nesting, event handlers)
+81+   → Very High   (many Script Tasks, complex data flows, unsupported components)
 """
 
 from __future__ import annotations
@@ -38,10 +38,10 @@ from .script_classifier import classify_script, ScriptClassificationResult
 # via the script_classifier module.
 _WEIGHTS: dict[TaskType, int] = {
     TaskType.EXECUTE_SQL: 2,
-    TaskType.DATA_FLOW: 8,
+    TaskType.DATA_FLOW: 5,
     TaskType.FILE_SYSTEM: 2,
     TaskType.FTP: 3,
-    TaskType.SEND_MAIL: 2,
+    TaskType.SEND_MAIL: 4,
     TaskType.EXECUTE_PACKAGE: 3,
     TaskType.EXECUTE_PROCESS: 4,
     TaskType.SEQUENCE: 1,
@@ -164,11 +164,11 @@ def _score_package_impl(package: SSISPackage) -> _ScoringResult:
     # Base: 200 raw points → score of 100
     score = min(100, int(math.log1p(raw_score) / math.log1p(200) * 100))
 
-    if score <= 20:
+    if score <= 30:
         effort = "Low"
-    elif score <= 50:
+    elif score <= 55:
         effort = "Medium"
-    elif score <= 75:
+    elif score <= 80:
         effort = "High"
     else:
         effort = "Very High"

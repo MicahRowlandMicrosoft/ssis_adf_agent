@@ -29,6 +29,7 @@ import mcp.types as types
 from mcp.server import Server
 
 from .warnings_collector import WarningsCollector
+from .path_safety import safe_resolve as _safe_resolve
 
 # ---------------------------------------------------------------------------
 # Server setup
@@ -339,6 +340,10 @@ async def _scan(args: dict[str, Any]) -> list[types.TextContent]:
     recursive = args.get("recursive", True)
     branch = args.get("git_branch", "main")
 
+    # Validate local paths against traversal
+    if source_type == "local":
+        _safe_resolve(path_or_conn, must_exist=True, label="path_or_connection")
+
     packages_info: list[dict[str, Any]] = []
 
     with WarningsCollector() as wc:
@@ -395,7 +400,7 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
     from .analyzers.similarity_analyzer import fingerprint_package
 
     with WarningsCollector() as wc:
-        path = Path(args["package_path"])
+        path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
         reader = LocalReader()
         package = reader.read(path)
 
@@ -410,6 +415,7 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
         esi_gaps: list = []
         esi_tables_path = args.get("esi_tables_path")
         if esi_tables_path:
+            _safe_resolve(esi_tables_path, must_exist=True, label="esi_tables_path")
             esi_config = load_esi_config(esi_tables_path)
             esi_gaps = analyze_esi_reuse(package, esi_config)
             gaps.extend(esi_gaps)
@@ -473,8 +479,8 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     from .analyzers.cdm_pattern_detector import detect_cdm_patterns
     from .analyzers.esi_reuse_analyzer import analyze_esi_reuse, load_esi_config
 
-    path = Path(args["package_path"])
-    output_dir = Path(args["output_dir"])
+    path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
+    output_dir = _safe_resolve(args["output_dir"], label="output_dir")
     gen_trigger = args.get("generate_trigger", True)
     llm_translate = args.get("llm_translate", False)
 
@@ -485,17 +491,19 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     kv_ls_name = args.get("kv_ls_name", "LS_KeyVault")
     kv_url = args.get("kv_url", "https://TODO.vault.azure.net/")
     pipeline_prefix = args.get("pipeline_prefix", "PL_")
-    shared_artifacts_dir = Path(args["shared_artifacts_dir"]) if args.get("shared_artifacts_dir") else None
+    shared_artifacts_dir = _safe_resolve(args["shared_artifacts_dir"], label="shared_artifacts_dir") if args.get("shared_artifacts_dir") else None
 
     # Load optional config files
     schema_remap: dict[str, str] | None = None
     schema_remap_path = args.get("schema_remap_path")
     if schema_remap_path:
-        schema_remap = json.loads(Path(schema_remap_path).read_text(encoding="utf-8"))
+        safe_remap = _safe_resolve(schema_remap_path, must_exist=True, label="schema_remap_path")
+        schema_remap = json.loads(safe_remap.read_text(encoding="utf-8"))
 
     esi_config: dict = {}
     esi_tables_path = args.get("esi_tables_path")
     if esi_tables_path:
+        _safe_resolve(esi_tables_path, must_exist=True, label="esi_tables_path")
         esi_config = load_esi_config(esi_tables_path)
 
     with WarningsCollector() as wc:
@@ -576,7 +584,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
 async def _validate(args: dict[str, Any]) -> list[types.TextContent]:
     from .deployer.adf_deployer import AdfDeployer
 
-    artifacts_dir = Path(args["artifacts_dir"])
+    artifacts_dir = _safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir")
     # Validation doesn't require Azure credentials
     deployer = AdfDeployer.__new__(AdfDeployer)
     issues = deployer.validate_artifacts(artifacts_dir)
@@ -599,7 +607,7 @@ async def _deploy(args: dict[str, Any]) -> list[types.TextContent]:
             factory_name=args["factory_name"],
         )
         results = deployer.deploy_all(
-            Path(args["artifacts_dir"]),
+            _safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir"),
             dry_run=args.get("dry_run", False),
             validate_first=args.get("validate_first", True),
         )
@@ -623,8 +631,8 @@ async def _consolidate(args: dict[str, Any]) -> list[types.TextContent]:
     from .analyzers.similarity_analyzer import group_similar_packages, fingerprint_package
     from .generators.consolidated_pipeline_generator import generate_consolidated_pipelines
 
-    package_paths = [Path(p) for p in args["package_paths"]]
-    output_dir = Path(args["output_dir"]) if args.get("output_dir") else None
+    package_paths = [_safe_resolve(p, must_exist=True, label="package_paths") for p in args["package_paths"]]
+    output_dir = _safe_resolve(args["output_dir"], label="output_dir") if args.get("output_dir") else None
     pipeline_prefix = args.get("pipeline_prefix", "PL_")
     analyze_only = args.get("analyze_only", False)
 

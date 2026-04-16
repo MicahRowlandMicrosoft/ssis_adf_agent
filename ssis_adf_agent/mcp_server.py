@@ -11,7 +11,6 @@ Exposes eight tools to GitHub Copilot (and any MCP-compatible client):
 6. consolidate_packages    — merge similar packages into parameterized pipelines
 7. deploy_function_stubs   — zip-deploy Azure Function stubs to an existing Function App
 8. provision_function_app  — create Azure resources (Storage, App Insights, Function App)
-8. provision_function_app  — create Azure resources (Storage, App Insights, Function App)
 
 Run as an MCP stdio server::
 

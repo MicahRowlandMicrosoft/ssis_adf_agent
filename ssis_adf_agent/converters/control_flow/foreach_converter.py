@@ -88,6 +88,10 @@ class ForEachConverter(BaseConverter):
             return self._build_get_metadata(task, depends_on)
         if task.enumerator_type == ForEachEnumeratorType.ADO:
             return self._build_lookup(task, depends_on)
+        if task.enumerator_type == ForEachEnumeratorType.ADO_NET_SCHEMA:
+            return self._build_schema_lookup(task, depends_on)
+        if task.enumerator_type == ForEachEnumeratorType.NODELIST:
+            return self._build_nodelist_lookup(task, depends_on)
         return None
 
     def _build_get_metadata(
@@ -185,6 +189,104 @@ class ForEachConverter(BaseConverter):
             },
         }
 
+    def _build_schema_lookup(
+        self,
+        task: ForEachLoopContainer,
+        depends_on: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Emit a Lookup that queries INFORMATION_SCHEMA for ADO.NET Schema enumerator."""
+        cfg = task.enumerator_config
+        safe = task.name.replace(" ", "_")
+        activity_name = f"Lookup_{safe}"
+
+        schema_type = cfg.get("SchemaRowsetName") or "Tables"
+        dataset_ref = cfg.get("DatasetRef") or f"DS_{safe}_Schema"
+
+        # Map common ADO.NET schema rowset types to INFORMATION_SCHEMA queries
+        _SCHEMA_QUERIES = {
+            "Tables": "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES",
+            "Columns": "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS",
+            "Views": "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS",
+        }
+        query = _SCHEMA_QUERIES.get(
+            schema_type,
+            f"/* TODO: ADO.NET schema rowset '{schema_type}' — replace with appropriate query */\n"
+            "SELECT 1 AS placeholder",
+        )
+
+        return {
+            "name": activity_name,
+            "type": "Lookup",
+            "dependsOn": depends_on,
+            "typeProperties": {
+                "source": {
+                    "type": "AzureSqlSource",
+                    "sqlReaderQuery": query,
+                },
+                "dataset": {
+                    "referenceName": dataset_ref,
+                    "type": "DatasetReference",
+                },
+                "firstRowOnly": False,
+            },
+            "policy": {
+                "timeout": "0.00:10:00",
+                "retry": 2,
+                "retryIntervalInSeconds": 30,
+            },
+        }
+
+    def _build_nodelist_lookup(
+        self,
+        task: ForEachLoopContainer,
+        depends_on: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Emit a Lookup for NODELIST (XML XPath) enumerator — requires manual adaptation."""
+        cfg = task.enumerator_config
+        safe = task.name.replace(" ", "_")
+        activity_name = f"Lookup_{safe}"
+
+        xpath = cfg.get("OuterXPathString") or cfg.get("XPath") or "/*"
+        source_var = cfg.get("VariableName") or ""
+        dataset_ref = cfg.get("DatasetRef") or f"DS_{safe}_XML"
+
+        from ...warnings_collector import warn
+        warn(
+            phase="convert", severity="warning", source="foreach_converter",
+            message=f"ForEach NODELIST enumerator (XPath: {xpath}) needs manual review",
+            task_name=task.name,
+            detail="ADF has no native XPath iteration — mapped to Lookup with TODO",
+        )
+
+        return {
+            "name": activity_name,
+            "type": "Lookup",
+            "dependsOn": depends_on,
+            "typeProperties": {
+                "source": {
+                    "type": "AzureSqlSource",
+                    "sqlReaderQuery": (
+                        f"-- TODO: NODELIST (XPath: {xpath})\n"
+                        f"-- Source variable: {source_var}\n"
+                        "-- ADF has no native XPath iteration.\n"
+                        "-- Options: pre-process XML in Azure Function, or\n"
+                        "-- load XML into SQL and query nodes via OPENXML.\n"
+                        "SELECT 1 AS placeholder"
+                    ),
+                },
+                "dataset": {
+                    "referenceName": dataset_ref,
+                    "type": "DatasetReference",
+                },
+                "firstRowOnly": False,
+            },
+            "policy": {
+                "timeout": "0.00:10:00",
+                "retry": 2,
+                "retryIntervalInSeconds": 30,
+            },
+        }
+
     # ------------------------------------------------------------------
     # Items expression
     # ------------------------------------------------------------------
@@ -194,7 +296,11 @@ class ForEachConverter(BaseConverter):
         if task.enumerator_type == ForEachEnumeratorType.FILE:
             safe = task.name.replace(" ", "_")
             return f"@activity('GetMetadata_{safe}').output.childItems"
-        elif task.enumerator_type == ForEachEnumeratorType.ADO:
+        elif task.enumerator_type in (
+            ForEachEnumeratorType.ADO,
+            ForEachEnumeratorType.ADO_NET_SCHEMA,
+            ForEachEnumeratorType.NODELIST,
+        ):
             safe = task.name.replace(" ", "_")
             return f"@activity('Lookup_{safe}').output.value"
         elif task.enumerator_type == ForEachEnumeratorType.ITEM:

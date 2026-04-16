@@ -47,6 +47,10 @@ class ConverterDispatcher:
             TaskType.SEQUENCE: _SequenceConverter(child_converter=self),
             TaskType.FOREACH_LOOP: foreach_converter,
             TaskType.FOR_LOOP: for_loop_converter,
+            TaskType.BULK_INSERT: _BulkInsertConverter(),
+            TaskType.WEB_SERVICE: _WebServiceConverter(),
+            TaskType.XML: _XMLConverter(),
+            TaskType.TRANSFER_SQL: _TransferSQLConverter(),
         }
         self._fallback = _FallbackConverter()
 
@@ -180,4 +184,152 @@ class _FallbackConverter(BaseConverter):
             "type": "Wait",
             "dependsOn": depends_on,
             "typeProperties": {"waitTimeInSeconds": 1},
+        }]
+
+
+# ---------------------------------------------------------------------------
+# Task-type converters for previously unsupported types
+# ---------------------------------------------------------------------------
+
+class _BulkInsertConverter(BaseConverter):
+    """BulkInsertTask → ADF Copy Activity (SQL source → SQL sink)."""
+
+    def convert(self, task, constraints, task_by_id):  # type: ignore[override]
+        depends_on = self._depends_on(task, constraints, task_by_id)
+        safe = task.name.replace(" ", "_")
+        conn_id = getattr(task, "connection_id", None) or "unknown"
+        table = getattr(task, "destination_table", None) or "TODO_TABLE"
+        source_file = getattr(task, "source_file", None) or ""
+        return [{
+            "name": task.name,
+            "description": (
+                "[MANUAL REVIEW] Bulk Insert mapped to Copy Activity. "
+                "Verify source dataset and sink table."
+            ),
+            "type": "Copy",
+            "dependsOn": depends_on,
+            "typeProperties": {
+                "source": {
+                    "type": "DelimitedTextSource",
+                    "storeSettings": {"type": "AzureBlobStorageReadSettings"},
+                    "formatSettings": {"type": "DelimitedTextReadSettings"},
+                },
+                "sink": {
+                    "type": "AzureSqlSink",
+                    "writeBehavior": "insert",
+                    "sqlWriterUseTableLock": True,
+                    "tableOption": "autoCreate",
+                },
+                "enableStaging": False,
+            },
+            "inputs": [{
+                "referenceName": f"DS_BulkSrc_{safe}",
+                "type": "DatasetReference",
+            }],
+            "outputs": [{
+                "referenceName": f"DS_BulkSink_{safe}",
+                "type": "DatasetReference",
+            }],
+        }]
+
+
+class _WebServiceConverter(BaseConverter):
+    """WebServiceTask → ADF Web Activity."""
+
+    def convert(self, task, constraints, task_by_id):  # type: ignore[override]
+        depends_on = self._depends_on(task, constraints, task_by_id)
+        url = getattr(task, "url", None) or getattr(task, "connection_string", None) or ""
+        method = getattr(task, "http_method", None) or "POST"
+        return [{
+            "name": task.name,
+            "description": (
+                "[MANUAL REVIEW] Web Service Task mapped to Web Activity. "
+                "Configure URL, authentication, and request body."
+            ),
+            "type": "WebActivity",
+            "dependsOn": depends_on,
+            "typeProperties": {
+                "method": method.upper() if method else "POST",
+                "url": url or "@pipeline().parameters.WebServiceUrl",
+                "body": "{}",
+                "authentication": {"type": "Anonymous"},
+            },
+        }]
+
+
+class _XMLConverter(BaseConverter):
+    """XMLTask → ADF Script Activity with TODO guidance."""
+
+    def convert(self, task, constraints, task_by_id):  # type: ignore[override]
+        depends_on = self._depends_on(task, constraints, task_by_id)
+        operation = getattr(task, "operation_type", None) or "Unknown"
+        warn(
+            phase="convert", severity="warning", source="dispatcher",
+            message=f"XML Task '{task.name}' (operation: {operation}) requires manual review",
+            task_name=task.name, task_id=task.id,
+            detail="XML operations (XSLT, XPath, Validate, Merge, Diff) have no direct ADF equivalent",
+        )
+        return [{
+            "name": task.name,
+            "description": (
+                f"[MANUAL REVIEW] XML Task (operation: {operation}) mapped to Script Activity. "
+                "Implement XML processing logic in the SQL script or move to Azure Function."
+            ),
+            "type": "Script",
+            "dependsOn": depends_on,
+            "linkedServiceName": {
+                "referenceName": "LS_AzureSQL",
+                "type": "LinkedServiceReference",
+            },
+            "typeProperties": {
+                "scripts": [{
+                    "type": "Query",
+                    "text": (
+                        f"-- TODO: Implement XML {operation} logic\n"
+                        "-- Consider using Azure Function for complex XML processing\n"
+                        "SELECT 1 AS placeholder"
+                    ),
+                }],
+            },
+        }]
+
+
+class _TransferSQLConverter(BaseConverter):
+    """TransferSQLServerObjectsTask → ADF Script Activity with migration script."""
+
+    def convert(self, task, constraints, task_by_id):  # type: ignore[override]
+        depends_on = self._depends_on(task, constraints, task_by_id)
+        src_conn = getattr(task, "source_connection_id", None) or "source"
+        dst_conn = getattr(task, "destination_connection_id", None) or "destination"
+        objects = getattr(task, "transfer_objects", None) or "Tables"
+        warn(
+            phase="convert", severity="warning", source="dispatcher",
+            message=f"Transfer SQL Server Objects Task '{task.name}' requires manual review",
+            task_name=task.name, task_id=task.id,
+            detail="Schema/data transfer between SQL Servers — use ADF Copy or database migration tools",
+        )
+        return [{
+            "name": task.name,
+            "description": (
+                f"[MANUAL REVIEW] Transfer SQL Server Objects ({objects}) "
+                f"from {src_conn} → {dst_conn}. "
+                "Replace with Copy Activity pipeline or Azure Database Migration Service."
+            ),
+            "type": "Script",
+            "dependsOn": depends_on,
+            "linkedServiceName": {
+                "referenceName": f"LS_{dst_conn}",
+                "type": "LinkedServiceReference",
+            },
+            "typeProperties": {
+                "scripts": [{
+                    "type": "Query",
+                    "text": (
+                        f"-- TODO: Transfer {objects} from {src_conn} to {dst_conn}\n"
+                        "-- Consider: Copy Activity, Azure Database Migration Service,\n"
+                        "-- or dacpac/bacpac deployment\n"
+                        "SELECT 1 AS placeholder"
+                    ),
+                }],
+            },
         }]

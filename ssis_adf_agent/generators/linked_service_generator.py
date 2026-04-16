@@ -509,6 +509,28 @@ def _generate_kv_linked_service(
     return ls
 
 
+def _resolve_ir_name(
+    cm: SSISConnectionManager,
+    on_prem: bool,
+    on_prem_ir_name: str,
+    cloud_ir_name: str,
+    ir_mapping: dict[str, str] | None,
+) -> str:
+    """Pick the Integration Runtime name for *cm*.
+
+    If *ir_mapping* is provided, check the connection manager's name against
+    each glob pattern (case-insensitive).  First match wins.  Falls back to
+    the binary on-prem / cloud default when no pattern matches.
+    """
+    if ir_mapping:
+        import fnmatch
+        cm_name_lower = (cm.name or "").lower()
+        for pattern, ir_name in ir_mapping.items():
+            if fnmatch.fnmatch(cm_name_lower, pattern.lower()):
+                return ir_name
+    return on_prem_ir_name if on_prem else cloud_ir_name
+
+
 def generate_linked_services(
     package: SSISPackage,
     output_dir: Path,
@@ -520,12 +542,21 @@ def generate_linked_services(
     kv_ls_name: str = "LS_KeyVault",
     kv_url: str = "https://TODO.vault.azure.net/",
     shared_artifacts_dir: Path | None = None,
+    ir_mapping: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Generate one ADF linked service JSON per unique Connection Manager in *package*.
 
     When *shared_artifacts_dir* is set, checks for existing linked service JSON files
     there before creating new ones (cross-package deduplication by server+database).
+
+    *ir_mapping* is an optional dict mapping connection-name glob patterns
+    (case-insensitive) to specific Integration Runtime names.  For example::
+
+        {"*_EU_*": "SHIR_Europe", "*_US_*": "SHIR_US", "LEGACY_*": "SHIR_Legacy"}
+
+    When a connection manager's name matches a pattern, that IR is used instead
+    of the default ``on_prem_ir_name`` / ``cloud_ir_name`` heuristic.
 
     Files are written to *output_dir*/linkedService/.
     Returns the list of linked service dicts.
@@ -570,7 +601,7 @@ def generate_linked_services(
             continue
 
         on_prem = _is_on_prem(cm)
-        ir_name = on_prem_ir_name if on_prem else cloud_ir_name
+        ir_name = _resolve_ir_name(cm, on_prem, on_prem_ir_name, cloud_ir_name, ir_mapping)
 
         builder = _BUILDERS.get(cm.type, _generic_ls)
         ls = builder(cm, ir_name, auth_type, use_key_vault, kv_ls_name)

@@ -125,15 +125,36 @@ def generate_pipeline(
             continue
         acts = dispatcher.convert_task(task, package.constraints, task_by_id)
 
-        # Apply schema remap to SQL text in Script activities
+        # Apply schema remap to SQL text in Script, Lookup, and StoredProcedure activities
         if schema_remap:
             from ..converters.control_flow.execute_sql_converter import apply_schema_remap
             for act in acts:
-                if act.get("type") == "Script":
-                    scripts = act.get("typeProperties", {}).get("scripts", [])
+                act_type = act.get("type", "")
+                tp = act.get("typeProperties", {})
+
+                # Script activities — remap SQL in scripts[].text
+                if act_type == "Script":
+                    scripts = tp.get("scripts", [])
                     for script in scripts:
                         if "text" in script:
                             script["text"] = apply_schema_remap(script["text"], schema_remap) or script["text"]
+
+                # Lookup activities — remap SQL in source.sqlReaderQuery
+                elif act_type == "Lookup":
+                    source = tp.get("source", {})
+                    if "sqlReaderQuery" in source:
+                        source["sqlReaderQuery"] = (
+                            apply_schema_remap(source["sqlReaderQuery"], schema_remap)
+                            or source["sqlReaderQuery"]
+                        )
+
+                # StoredProcedure activities — remap the procedure name
+                elif act_type == "SqlServerStoredProcedure":
+                    if "storedProcedureName" in tp:
+                        tp["storedProcedureName"] = (
+                            apply_schema_remap(tp["storedProcedureName"], schema_remap)
+                            or tp["storedProcedureName"]
+                        )
 
         activities.extend(acts)
 

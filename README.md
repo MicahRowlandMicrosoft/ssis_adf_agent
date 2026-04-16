@@ -234,12 +234,28 @@ Analyze C:\Projects\LegacyETL\LoadFactSales.dtsx with ESI tables config at C:\co
 
 | Score | Label | Typical Effort |
 |---|---|---|
-| 0–25 | Low | < 1 day |
-| 26–50 | Medium | 1–3 days |
+| 0–20 | Low | < 1 day |
+| 21–50 | Medium | 1–3 days |
 | 51–75 | High | 3–5 days |
 | 76–100 | Very High | 1+ weeks |
 
-Score drivers: Script Tasks (+20 each), Data Flow Tasks (+8 each), ForEach/ForLoop containers (+5 each), unknown task types (+10 each), linked server references (+8 each), cross-database references (+3 each).
+Score drivers (raw points are soft-capped to 0–100 via a logarithmic curve):
+
+| Driver | Weight | Notes |
+|---|---|---|
+| Script Task (trivial) | +2 | Variable assignment only — auto-converted to SetVariable |
+| Script Task (simple) | +6 | String/path manipulation, ADF-expressible |
+| Script Task (moderate) | +13 | File I/O, regex, HTTP, XML — needs Azure Function |
+| Script Task (complex) | +20 | DB connections, COM interop, threading |
+| Data Flow Task | +8 | Base weight per task |
+| Data Flow component | +1.5 | Per source/transform/destination inside a Data Flow |
+| ForEach / For Loop | +5 | Per loop container |
+| Event Handler | +4 | Per OnError / OnPostExecute handler |
+| Nesting depth | +3 | Per level beyond depth 1 |
+| Unknown task type | +10 | Unrecognised task — requires manual review |
+| Linked server reference | +8 | OPENQUERY, OPENROWSET, four-part names |
+| Cross-database reference | +3 | Three-part names (different database, same server) |
+| Execute SQL | +2 | Execute Package (+3), File System (+2), FTP (+3), Send Mail (+2), Execute Process (+4), Sequence (+1) |
 
 > **Supported task types:** Execute SQL, Data Flow, Execute Package, Script Task, ForEach Loop, For Loop, Sequence Container, File System, FTP, Send Mail, Execute Process, Bulk Insert, Web Service, XML Task, Transfer SQL Server Objects. Additional task types (Data Profiling, Transfer Database, Transfer Logins, etc.) are mapped to placeholder Wait activities with manual-review guidance.
 

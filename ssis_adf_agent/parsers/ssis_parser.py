@@ -316,6 +316,17 @@ _SHORT_FORM_TASK_MAP: dict[str, TaskType] = {
     "microsoft.sendmailtask": TaskType.SEND_MAIL,
     "microsoft.executepackagetask": TaskType.EXECUTE_PACKAGE,
     "microsoft.executeprocesstask": TaskType.EXECUTE_PROCESS,
+    "microsoft.executeprocess": TaskType.EXECUTE_PROCESS,
+    "microsoft.bulkinserttask": TaskType.BULK_INSERT,
+    "microsoft.webservicetask": TaskType.WEB_SERVICE,
+    "microsoft.xmltask": TaskType.XML,
+    "microsoft.transfersqlserverobjectstask": TaskType.TRANSFER_SQL,
+    "microsoft.dataprofilingtask": TaskType.UNKNOWN,
+    "microsoft.transferdatabasetask": TaskType.UNKNOWN,
+    "microsoft.transfererrormessagestask": TaskType.UNKNOWN,
+    "microsoft.transferjobstask": TaskType.UNKNOWN,
+    "microsoft.transferloginstask": TaskType.UNKNOWN,
+    "microsoft.transferstoredprocedurestask": TaskType.UNKNOWN,
     "stock:sequence": TaskType.SEQUENCE,
     "stock:foreach": TaskType.FOREACH_LOOP,
     "stock:forloop": TaskType.FOR_LOOP,
@@ -391,6 +402,10 @@ def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
         "Microsoft.SqlServer.Dts.Tasks.SendMailTask.SendMailTask": TaskType.SEND_MAIL,
         "Microsoft.SqlServer.Dts.Tasks.ExecutePackageTask.ExecutePackageTask": TaskType.EXECUTE_PACKAGE,
         "Microsoft.SqlServer.Dts.Tasks.ExecuteProcess.ExecuteProcessTask": TaskType.EXECUTE_PROCESS,
+        "Microsoft.SqlServer.Dts.Tasks.BulkInsertTask.BulkInsertTask": TaskType.BULK_INSERT,
+        "Microsoft.SqlServer.Dts.Tasks.WebServiceTask.WebServiceTask": TaskType.WEB_SERVICE,
+        "Microsoft.SqlServer.Dts.Tasks.XMLTask.XMLTask": TaskType.XML,
+        "Microsoft.SqlServer.Dts.Tasks.TransferSqlServerObjectsTask.TransferSqlServerObjectsTask": TaskType.TRANSFER_SQL,
         "Sequence": TaskType.SEQUENCE,
         "ForEachLoop": TaskType.FOREACH_LOOP,
         "ForLoop": TaskType.FOR_LOOP,
@@ -600,12 +615,15 @@ class SSISParser:
         params: list[SSISParameter] = []
         # Support both modern (PackageParameters/PackageParameter) and
         # legacy (Parameters/Parameter) formats
-        params_container = root.find(_dts("PackageParameters")) or root.find(_dts("Parameters"))
+        params_container = root.find(_dts("PackageParameters"))
+        if params_container is None:
+            params_container = root.find(_dts("Parameters"))
         if params_container is None:
             return params
 
-        p_elems = params_container.findall(_dts("PackageParameter")) \
-                  or params_container.findall(_dts("Parameter"))
+        p_elems = params_container.findall(_dts("PackageParameter"))
+        if not p_elems:
+            p_elems = params_container.findall(_dts("Parameter"))
         for p_elem in p_elems:
             # Modern format uses ObjectName; legacy uses Name
             name = _attr(p_elem, "ObjectName") or _attr(p_elem, "Name") or ""
@@ -685,6 +703,17 @@ class SSISParser:
             return self._parse_foreach(elem, base_kwargs)
         elif task_type == TaskType.FOR_LOOP:
             return self._parse_for_loop(elem, base_kwargs)
+        elif task_type in (
+            TaskType.BULK_INSERT,
+            TaskType.WEB_SERVICE,
+            TaskType.XML,
+            TaskType.TRANSFER_SQL,
+        ):
+            # Recognised task types without dedicated parsers — return
+            # a generic SSISTask with the correct task_type so the
+            # dispatcher routes them to the appropriate converter.
+            props = {etree.QName(k).localname: v for k, v in elem.attrib.items()}
+            return SSISTask(**base_kwargs, properties=props)
         else:
             warn(
                 phase="parse", severity="warning", source="ssis_parser",

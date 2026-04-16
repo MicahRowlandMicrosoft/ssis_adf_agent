@@ -614,11 +614,17 @@ export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
     DF_<DataFlowName>.json      ← Mapping Data Flow with READ_UNCOMMITTED + error handling
   trigger/
     TR_<PackageName>.json       ← ScheduleTrigger (Stopped state); accurate if SQL Agent schedule provided
-  stubs/
+  stubs/                        ← Deploy-ready Azure Functions project
+    host.json                   ← Functions runtime config (v2, 10-min timeout)
+    requirements.txt            ← Auto-detected Python dependencies
+    local.settings.json         ← Local dev settings (not deployed)
+    .funcignore                 ← Deployment exclusion list
     <FunctionName>/
       __init__.py               ← Python stub with TODO blocks
-      function.json             ← Azure Function binding definition
+      function.json             ← HTTP trigger binding definition
 ```
+
+> **Deploy-ready stubs:** The `stubs/` directory is a complete Azure Functions project. Deploy with `func azure functionapp publish <APP_NAME>` or zip-deploy via CI/CD. Run `func start` locally to test before deploying.
 
 ### Linked Service Format
 
@@ -684,7 +690,7 @@ Generated pipelines include automatic annotations based on detected patterns:
 After running `convert_ssis_package`, review the following checklist before deploying:
 
 - [ ] **Connection string passwords** — packages with `EncryptAllWithPassword` protection level may have missing passwords. When `use_key_vault=true`, linked services reference Key Vault secrets — verify the secret names exist and are populated. Otherwise fill in plaintext credentials.
-- [ ] **Script Task stubs** — each stub in `stubs/<FunctionName>/__init__.py` contains `TODO` comments. If `llm_translate=true` was used, the stub contains LLM-translated Python. Deploy the Function to Azure Functions before running the pipeline.
+- [ ] **Script Task stubs** — each stub in `stubs/<FunctionName>/` contains `TODO` comments and an HTTP trigger binding (`function.json`). If `llm_translate=true` was used, the stub contains LLM-translated Python. The `stubs/` directory is a complete Azure Functions project — deploy with `func azure functionapp publish <APP_NAME>` after implementing the TODO blocks.
 - [x] **XML Task stubs** *(automated)* — XML operations (XPATH, Merge, Validate, Diff, XSLT) now generate Azure Function stubs with operation-specific boilerplate (lxml examples for XPath, Merge, Validate, XSLT, Diff). Each stub includes `__init__.py` and `function.json`. Review and complete the `TODO` blocks, then deploy to Azure Functions.
 - [ ] **Bulk Insert / Web Service / Transfer SQL activities** — these are converted to Copy Activity, Web Activity, or Script Activity respectively with TODO guidance. Review the generated descriptions for migration advice.
 - [x] **Local file paths** *(automated with `file_path_map_path`)* — pass a JSON file mapping local/UNC prefixes to Azure Storage URLs (e.g. `{"C:\\Data\\Input": "https://blob/input"}`). The converter applies longest-prefix-match substitution across linked services, pipeline activities, and datasets. Remaining unmapped paths still need manual attention.

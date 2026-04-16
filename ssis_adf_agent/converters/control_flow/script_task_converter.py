@@ -245,6 +245,28 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     )
 '''
         stub_file.write_text(stub_content, encoding="utf-8")
+
+        # Write function.json (Azure Functions HTTP trigger binding)
+        import json as _json
+        func_json = stub_file.parent / "function.json"
+        func_json.write_text(_json.dumps({
+            "scriptFile": "__init__.py",
+            "bindings": [
+                {
+                    "authLevel": "function",
+                    "type": "httpTrigger",
+                    "direction": "in",
+                    "name": "req",
+                    "methods": ["post"],
+                },
+                {
+                    "type": "http",
+                    "direction": "out",
+                    "name": "$return",
+                },
+            ],
+        }, indent=2), encoding="utf-8")
+
         return stub_file
 
 

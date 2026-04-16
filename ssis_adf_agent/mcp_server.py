@@ -595,6 +595,12 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         # Find stub files
         stub_files = list(stubs_dir.rglob("*.py")) if stubs_dir.exists() else []
 
+        # Generate Azure Functions project files around the stubs
+        func_project_files: dict[str, str] = {}
+        if stub_files:
+            from .generators.func_project_generator import generate_func_project
+            func_project_files = generate_func_project(stubs_dir)
+
         # Auto-validate generated artifacts
         from .deployer.adf_deployer import AdfDeployer
         deployer = AdfDeployer.__new__(AdfDeployer)
@@ -622,6 +628,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
                 "data_flows": len(data_flows),
                 "triggers": len(triggers),
                 "azure_function_stubs": len(stub_files),
+                "func_project_files": func_project_files,
             },
             "validation": {
                 "status": "valid" if not validation_issues else "issues_found",

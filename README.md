@@ -240,6 +240,8 @@ Analyze C:\Projects\LegacyETL\LoadFactSales.dtsx with ESI tables config at C:\co
 
 Score drivers: Script Tasks (+20 each), Data Flow Tasks (+8 each), ForEach/ForLoop containers (+5 each), unknown task types (+10 each), linked server references (+8 each), cross-database references (+3 each).
 
+> **Supported task types:** Execute SQL, Data Flow, Execute Package, Script Task, ForEach Loop, For Loop, Sequence Container, File System, FTP, Send Mail, Execute Process, Bulk Insert, Web Service, XML Task, Transfer SQL Server Objects. Additional task types (Data Profiling, Transfer Database, Transfer Logins, etc.) are mapped to placeholder Wait activities with manual-review guidance.
+
 **Key output:**
 - Complexity score and effort label
 - Component inventory (task types, connection managers, parameters, variables)
@@ -346,6 +348,28 @@ These features were designed for large-scale enterprise SSIS migrations where pa
 
 On-prem connections are automatically detected (heuristics: `localhost`, IP addresses, non-`.database.windows.net` server names). These connections generate `SqlServer` linked services with a `connectVia` reference to a Self-Hosted Integration Runtime. Use `on_prem_ir_name` to override the default name `SelfHostedIR`.
 
+#### Multi-IR Mapping
+
+For environments with multiple Integration Runtimes (e.g. per-region or per-network-zone), pass an `ir_mapping` dictionary from glob patterns to IR names:
+
+```json
+{
+  "*-east-*": "IR_EastUS",
+  "*-west-*": "IR_WestUS",
+  "legacy*": "IR_Legacy"
+}
+```
+
+Connection names are matched against patterns (first match wins). Unmatched on-prem connections fall back to `on_prem_ir_name`.
+
+### Path Traversal Protection
+
+All MCP tool inputs that accept file/directory paths are validated against path traversal attacks. Null bytes and `..` segments are rejected. Optionally, set the `SSIS_ADF_ALLOWED_ROOT` environment variable to restrict all file operations to a specific directory tree.
+
+### Deployer Retry with Jitter
+
+The `deploy_to_adf` tool uses exponential backoff with jitter (±50%) and a 60-second cap for Azure API retries, preventing thundering herd problems during batch deployments across many packages.
+
 ### Azure Key Vault Secrets
 
 When `use_key_vault=true`, linked services reference Azure Key Vault secrets instead of embedding credentials:
@@ -385,7 +409,12 @@ When consolidating multiple on-prem databases into a single Azure SQL database, 
 }
 ```
 
-Keys are original database names; values are target schemas. Pass the file path via `schema_remap_path`. The converter replaces cross-database references in SQL text and qualified table names in datasets.
+Keys are original database names; values are target schemas. Pass the file path via `schema_remap_path`. The converter replaces cross-database references in:
+
+- **Script activities** — SQL text in `scripts[].text`
+- **Lookup activities** — `source.sqlReaderQuery`
+- **Stored Procedure activities** — `storedProcedureName`
+- **Dataset definitions** — qualified table names
 
 ### ESI Reuse Detection
 
@@ -537,19 +566,30 @@ export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
 | Execute SQL Task | Stored Procedure / Script / Lookup Activity | Depends on `ResultSetType` and SQL pattern |
 | Data Flow Task (simple) | Copy Activity | Single source → single destination. Sink pattern varies: `insert` (full load), `upsert` with keys (delta/merge). Retry policy: 2 retries, 60s interval. |
 | Data Flow Task (complex) | Execute Data Flow Activity (Mapping Data Flow) | Multiple sources, transformations, or fanout. `READ_UNCOMMITTED` isolation, `errorHandlingOption: stopOnFirstError`. |
-| Execute Package Task | Execute Pipeline Activity | Child pipeline must also be converted |
+| Execute Package Task | Execute Pipeline Activity | Child pipeline must also be converted. The referenced pipeline name uses the `pipeline_prefix` (default `PL_`). Supports project references and external package references, including parameter pass-through. |
 | Script Task (C# / VB) | Azure Function Activity | Stub generated at `stubs/<FunctionName>/__init__.py`. When `llm_translate=true`, C# source is extracted from the DTSX and translated to Python via Azure OpenAI; otherwise a `TODO` stub is generated. |
 | ForEach Loop Container | ForEach Activity | Expression varies by enumerator type |
 | For Loop Container | SetVariable (init) + Until Activity + SetVariable (increment) | Condition logic is inverted |
-| Sequence Container | Flattened into parent with `dependsOn` chaining | No ADF equivalent |
+| Sequence Container | Flattened into parent with `dependsOn` chaining | No ADF equivalent. Activity names are auto-deduplicated (suffixed `_2`, `_3`, …) to prevent ADF validation errors when multiple containers have identically-named tasks. |
 | File System Task | Copy Activity (Azure paths) or Web Activity → Azure Function | Local paths need Azure-path substitution |
 | Execute Process Task | Web Activity → Azure Function | Manual: wrap process call in a Function |
 | FTP Task | Copy Activity via FTP connector | Requires FTP linked service |
 | Send Mail Task | Logic App / Web Activity | No native ADF equivalent |
+| Bulk Insert Task | Copy Activity | DelimitedText source → AzureSqlSink. Generates linked service for the source file and SQL connection. |
+| Web Service Task | Web Activity | Configurable URL and HTTP method from the SSIS task properties. |
+| XML Task | Script Activity | Operation type (XPATH, Merge, Validate, Diff, XSLT) is extracted from the package and noted in the activity description. Manual implementation required. |
+| Transfer SQL Server Objects Task | Script Activity | Migration guidance in description. Recommends Copy Activity pipeline or Azure Database Migration Service. |
+| Execute Process Task | Web Activity → Azure Function | Manual: wrap process call in a Function |
 | Event Handler (`OnError`) | Pipeline fails path / error handling | Converted to sub-pipeline reference |
+| Event Handler (`OnWarning`) | Completed dependency path | Converted to sub-pipeline reference |
 | Event Handler (`OnPostExecute`) | Succeeded dependency path | Converted to sub-pipeline reference |
+| Event Handler (`OnInformation`, `OnProgress`) | Succeeded dependency path | Converted to sub-pipeline reference |
 | Connection Manager (Azure SQL) | Linked Service (`AzureSqlDatabase`) | Microsoft Recommended version: `server`/`database`/`authenticationType`. Default auth: `SystemAssignedManagedIdentity`. |
 | Connection Manager (on-prem SQL) | Linked Service (`SqlServer`) | Auto-detected. Uses Self-Hosted IR with `pooling: false`. |
+| Connection Manager (FILE / MULTIFILE) | Linked Service (`FileServer` or `AzureBlobStorage`) | UNC/drive paths → `FileServer` with Self-Hosted IR; other paths → `AzureBlobStorage` with TODO connection string. |
+| Connection Manager (FTP) | Linked Service (`FtpServer`) | Basic auth with SSL enabled. Password stored in Key Vault when `use_key_vault=true`. |
+| Connection Manager (HTTP) | Linked Service (`HttpServer`) | Anonymous auth by default. |
+| Connection Manager (SMTP) | Linked Service (`AzureFunction`) | Stub for Azure Communication Services or Logic App. No native ADF SMTP support. |
 | SQL Agent Job Schedule | Schedule Trigger | Mapped from `msdb` `freq_type`/`freq_interval`. Falls back to placeholder if unavailable. |
 
 ---
@@ -642,6 +682,8 @@ After running `convert_ssis_package`, review the following checklist before depl
 
 - [ ] **Connection string passwords** — packages with `EncryptAllWithPassword` protection level may have missing passwords. When `use_key_vault=true`, linked services reference Key Vault secrets — verify the secret names exist and are populated. Otherwise fill in plaintext credentials.
 - [ ] **Script Task stubs** — each stub in `stubs/<FunctionName>/__init__.py` contains `TODO` comments. If `llm_translate=true` was used, the stub contains LLM-translated Python. Deploy the Function to Azure Functions before running the pipeline.
+- [ ] **XML Task Script activities** — XML operations (XPATH, Merge, Validate, Diff, XSLT) are mapped to Script Activity placeholders. Implement the XML processing logic in SQL or move to an Azure Function.
+- [ ] **Bulk Insert / Web Service / Transfer SQL activities** — these are converted to Copy Activity, Web Activity, or Script Activity respectively with TODO guidance. Review the generated descriptions for migration advice.
 - [ ] **Local file paths** — File System Tasks that reference local paths have placeholder Azure Storage paths. Replace them with valid `abfss://` or `https://` URLs.
 - [ ] **Trigger schedules** — if no SQL Agent schedule was available, the trigger uses a placeholder daily-at-midnight schedule. Update it to match your production schedule. When SQL Agent metadata was provided, verify the mapped ADF recurrence matches the original.
 - [ ] **Cross-database / linked server references** — check the gap analysis for `manual_required` severity items. Replace linked server four-part names with Azure SQL elastic queries, external tables, or separate linked services. Remap three-part names if consolidating databases.
@@ -649,6 +691,9 @@ After running `convert_ssis_package`, review the following checklist before depl
 - [ ] **ESI reuse candidates** — if the pipeline has an `esi-reuse-candidate` annotation, review whether reading from the ESI Azure SQL layer is preferable to re-staging from the on-prem source via SHIR.
 - [ ] **Upsert key columns** — Copy Activities with `writeBehavior: "upsert"` include detected key columns. Verify these match the target table's unique key. Replace `TODO_KEY_COLUMN` placeholders where keys could not be auto-detected.
 - [ ] **Re-validate** — run `validate_adf_artifacts` again after all manual edits.
+- [ ] **Duplicate activity names** — when multiple Sequence Containers contain tasks with the same name, the generator auto-deduplicates by appending `_2`, `_3`, etc. Review renamed activities and their `dependsOn` references.
+- [ ] **FILE connection linked services** — FILE/MULTIFILE connection managers produce `FileServer` linked services for UNC/drive paths. Verify the host path and credentials, or migrate files to Azure Blob Storage.
+- [ ] **Execute Pipeline references** — `ExecutePipeline` activities reference child pipelines by name (e.g. `PL_ChildPackage`). Ensure the child package is also converted with the same `pipeline_prefix`.
 - [ ] **Activate triggers** — triggers are deployed in **Stopped** state. Activate them in ADF Studio only after a successful pipeline smoke-test.
 
 ---

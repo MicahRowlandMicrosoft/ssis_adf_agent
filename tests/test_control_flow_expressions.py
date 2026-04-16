@@ -218,8 +218,9 @@ class TestFunctionCalls:
         assert result == "empty(variables('X'))"
 
     def test_substring(self):
+        # SSIS SUBSTRING is 1-based; ADF substring is 0-based → sub(start, 1)
         result = translate_control_flow_expr("SUBSTRING(@[User::Name], 1, 5)")
-        assert result == "substring(variables('Name'), 1, 5)"
+        assert result == "substring(variables('Name'), sub(1, 1), 5)"
 
 
 # ---------------------------------------------------------------------------

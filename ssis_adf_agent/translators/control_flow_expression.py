@@ -58,6 +58,10 @@ class _Tk(Enum):
     OP_MUL = auto()     # *
     OP_DIV = auto()     # /
     OP_MOD = auto()     # %
+    OP_BITAND = auto()  # &  (bitwise AND — must check not &&)
+    OP_BITOR = auto()   # |  (bitwise OR — must check not ||)
+    OP_BITXOR = auto()  # ^  (bitwise XOR)
+    OP_BITNOT = auto()  # ~  (bitwise NOT)
     EOF = auto()
 
 
@@ -72,27 +76,51 @@ class _Token:
 # ---------------------------------------------------------------------------
 
 _FUNC_MAP: dict[str, str] = {
+    # Date/time
     "GETDATE": "utcNow",
     "GETUTCDATE": "utcNow",
     "DATEADD": "__dateadd__",   # special-cased
     "DATEDIFF": "__datediff__", # special-cased
+    "DATEPART": "__datepart__", # special-cased
+    "YEAR": "__datepart_year__",
+    "MONTH": "__datepart_month__",
+    "DAY": "__datepart_day__",
+    # String
     "LEN": "length",
     "UPPER": "toUpper",
     "LOWER": "toLower",
     "LTRIM": "trim",
     "RTRIM": "trim",
     "TRIM": "trim",
-    "SUBSTRING": "substring",
+    "SUBSTRING": "__substring__",  # special-cased: 1-based → 0-based
     "REPLACE": "replace",
-    "RIGHT": "/* TODO: RIGHT — no direct ADF equivalent */",
-    "LEFT": "/* TODO: LEFT — no direct ADF equivalent */",
-    "FINDSTRING": "indexOf",
+    "RIGHT": "__right__",          # special-cased
+    "LEFT": "__left__",            # special-cased
+    "FINDSTRING": "__findstring__", # special-cased: returns 1-based → 0-based
+    "CHARINDEX": "__findstring__",  # SQL-style alias
+    "PATINDEX": "__patindex__",     # special-cased
+    "REVERSE": "/* TODO: REVERSE — no direct ADF equivalent */",
+    # Null handling
     "ISNULL": "empty",
     "REPLACENULL": "coalesce",
-    "ABS": "/* TODO: ABS — use expression */",
-    "CEILING": "/* TODO: CEILING */",
-    "FLOOR": "/* TODO: FLOOR */",
-    "ROUND": "/* TODO: ROUND */",
+    # Type checking
+    "ISNUMERIC": "/* TODO: ISNUMERIC — validate manually */",
+    # Math
+    "ABS": "abs",
+    "CEILING": "ceil",
+    "FLOOR": "floor",
+    "ROUND": "round",
+    "POWER": "power",
+    "SQRT": "sqrt",
+    "SIGN": "sign",
+    # Type casting
+    "(DT_STR)": "string",
+    "(DT_WSTR)": "string",
+    "(DT_I4)": "int",
+    "(DT_I8)": "int",
+    "(DT_BOOL)": "bool",
+    "(DT_DECIMAL)": "decimal",
+    "(DT_DBTIMESTAMP)": "/* TODO: cast to datetime */",
 }
 
 _DATEADD_PART_MAP: dict[str, str] = {
@@ -116,6 +144,47 @@ _DATEADD_PART_MAP: dict[str, str] = {
     "year": "addToTime",
 }
 
+_DATEDIFF_PART_MAP: dict[str, str] = {
+    "dd": "dayOfYear",
+    "d": "dayOfYear",
+    "day": "dayOfYear",
+    "mm": "/* TODO: month diff */",
+    "m": "/* TODO: month diff */",
+    "month": "/* TODO: month diff */",
+    "hh": "/* TODO: hour diff */",
+    "h": "/* TODO: hour diff */",
+    "hour": "/* TODO: hour diff */",
+    "mi": "/* TODO: minute diff */",
+    "n": "/* TODO: minute diff */",
+    "minute": "/* TODO: minute diff */",
+    "ss": "/* TODO: second diff */",
+    "s": "/* TODO: second diff */",
+    "second": "/* TODO: second diff */",
+    "yy": "/* TODO: year diff */",
+    "yyyy": "/* TODO: year diff */",
+    "year": "/* TODO: year diff */",
+}
+
+_DATEPART_FUNC_MAP: dict[str, str] = {
+    "dd": "dayOfMonth",
+    "d": "dayOfMonth",
+    "day": "dayOfMonth",
+    "dw": "dayOfWeek",
+    "weekday": "dayOfWeek",
+    "dy": "dayOfYear",
+    "dayofyear": "dayOfYear",
+    "mm": "/* TODO: DATEPART month — use formatDateTime(expr, 'MM') */",
+    "m": "/* TODO: DATEPART month — use formatDateTime(expr, 'MM') */",
+    "month": "/* TODO: DATEPART month — use formatDateTime(expr, 'MM') */",
+    "yy": "/* TODO: DATEPART year — use formatDateTime(expr, 'yyyy') */",
+    "yyyy": "/* TODO: DATEPART year — use formatDateTime(expr, 'yyyy') */",
+    "year": "/* TODO: DATEPART year — use formatDateTime(expr, 'yyyy') */",
+    "hh": "/* TODO: DATEPART hour — use formatDateTime(expr, 'HH') */",
+    "hour": "/* TODO: DATEPART hour — use formatDateTime(expr, 'HH') */",
+    "mi": "/* TODO: DATEPART minute — use formatDateTime(expr, 'mm') */",
+    "minute": "/* TODO: DATEPART minute — use formatDateTime(expr, 'mm') */",
+}
+
 # ---------------------------------------------------------------------------
 # Comparison/boolean → ADF prefix function
 # ---------------------------------------------------------------------------
@@ -135,6 +204,9 @@ _ARITH_MAP: dict[_Tk, str] = {
     _Tk.OP_MUL: "mul",
     _Tk.OP_DIV: "div",
     _Tk.OP_MOD: "mod",
+    _Tk.OP_BITAND: "/* TODO: bitwise AND */",
+    _Tk.OP_BITOR: "/* TODO: bitwise OR */",
+    _Tk.OP_BITXOR: "/* TODO: bitwise XOR */",
 }
 
 
@@ -209,6 +281,10 @@ _OPERATORS: list[tuple[str, _Tk]] = [
     ("*", _Tk.OP_MUL),
     ("/", _Tk.OP_DIV),
     ("%", _Tk.OP_MOD),
+    ("&", _Tk.OP_BITAND),
+    ("|", _Tk.OP_BITOR),
+    ("^", _Tk.OP_BITXOR),
+    ("~", _Tk.OP_BITNOT),
     ("(", _Tk.LPAREN),
     (")", _Tk.RPAREN),
     (",", _Tk.COMMA),
@@ -402,7 +478,8 @@ class _Parser:
 
     def _multiplicative_expr(self) -> str:
         left = self._unary_expr()
-        while self.peek().kind in (_Tk.OP_MUL, _Tk.OP_DIV, _Tk.OP_MOD):
+        while self.peek().kind in (_Tk.OP_MUL, _Tk.OP_DIV, _Tk.OP_MOD,
+                                   _Tk.OP_BITAND, _Tk.OP_BITOR, _Tk.OP_BITXOR):
             op = self.advance()
             right = self._unary_expr()
             func = _ARITH_MAP[op.kind]
@@ -418,6 +495,10 @@ class _Parser:
             self.advance()
             operand = self._unary_expr()
             return f"sub(0, {operand})"
+        if self.peek().kind == _Tk.OP_BITNOT:
+            self.advance()
+            operand = self._unary_expr()
+            return f"/* TODO: bitwise NOT */({operand})"
         return self._atom()
 
     def _atom(self) -> str:
@@ -473,11 +554,43 @@ class _Parser:
 
         # Special-case DATEDIFF
         if func_name == "DATEDIFF" and len(args) >= 3:
-            return f"/* TODO: DATEDIFF({', '.join(args)}) — map manually */"
+            return _translate_datediff(args)
+
+        # Special-case DATEPART
+        if func_name == "DATEPART" and len(args) >= 2:
+            return _translate_datepart(args)
+
+        # Special-case YEAR / MONTH / DAY (single-arg date part extractors)
+        if func_name == "YEAR" and len(args) == 1:
+            return f"int(formatDateTime({args[0]}, 'yyyy'))"
+        if func_name == "MONTH" and len(args) == 1:
+            return f"int(formatDateTime({args[0]}, 'MM'))"
+        if func_name == "DAY" and len(args) == 1:
+            return f"int(formatDateTime({args[0]}, 'dd'))"
 
         # Special-case GETDATE with no args
         if func_name in ("GETDATE", "GETUTCDATE"):
             return "utcNow()"
+
+        # Special-case SUBSTRING: SSIS is 1-based, ADF is 0-based
+        if func_name == "SUBSTRING" and len(args) >= 3:
+            return f"substring({args[0]}, sub({args[1]}, 1), {args[2]})"
+
+        # Special-case RIGHT(str, n) → substring(str, sub(length(str), n), n)
+        if func_name == "RIGHT" and len(args) >= 2:
+            return f"substring({args[0]}, sub(length({args[0]}), {args[1]}), {args[1]})"
+
+        # Special-case LEFT(str, n) → substring(str, 0, n)
+        if func_name == "LEFT" and len(args) >= 2:
+            return f"substring({args[0]}, 0, {args[1]})"
+
+        # Special-case FINDSTRING / CHARINDEX: SSIS returns 1-based, ADF indexOf is 0-based
+        if func_name in ("FINDSTRING", "CHARINDEX") and len(args) >= 2:
+            return f"add(indexOf({args[0]}, {args[1]}), 1)"
+
+        # Special-case PATINDEX: pattern matching — no direct ADF equivalent
+        if func_name == "PATINDEX" and len(args) >= 2:
+            return f"/* TODO: PATINDEX */ indexOf({args[0]}, {args[1]})"
 
         adf_name = _FUNC_MAP.get(func_name, func_name)
         if adf_name.startswith("/*"):
@@ -498,6 +611,41 @@ def _translate_dateadd(args: list[str]) -> str:
     if adf_func.startswith("/*"):
         return f"{adf_func}({date_expr}, {amount})"
     return f"{adf_func}({date_expr}, {amount})"
+
+
+def _translate_datediff(args: list[str]) -> str:
+    """Translate DATEDIFF('part', start, end) → ADF expression.
+
+    ADF has ``ticks()`` but no direct ``dateDiff`` function.  For day-level
+    differences we use ``div(sub(ticks(end), ticks(start)), 864000000000)``
+    (ticks per day).  Other parts get a TODO marker with the closest approach.
+    """
+    part = args[0].strip("'\"").lower()
+    start = args[1]
+    end = args[2]
+
+    if part in ("dd", "d", "day"):
+        return f"div(sub(ticks({end}), ticks({start})), 864000000000)"
+    if part in ("hh", "h", "hour"):
+        return f"div(sub(ticks({end}), ticks({start})), 36000000000)"
+    if part in ("mi", "n", "minute"):
+        return f"div(sub(ticks({end}), ticks({start})), 600000000)"
+    if part in ("ss", "s", "second"):
+        return f"div(sub(ticks({end}), ticks({start})), 10000000)"
+
+    return f"/* TODO: DATEDIFF {part} */ div(sub(ticks({end}), ticks({start})), 864000000000)"
+
+
+def _translate_datepart(args: list[str]) -> str:
+    """Translate DATEPART('part', expr) → ADF dayOfMonth/dayOfWeek/dayOfYear or formatDateTime."""
+    part = args[0].strip("'\"").lower()
+    date_expr = args[1]
+    adf_func = _DATEPART_FUNC_MAP.get(part)
+    if adf_func is None:
+        return f"/* TODO: DATEPART({part}) */({date_expr})"
+    if adf_func.startswith("/*"):
+        return f"{adf_func}({date_expr})"
+    return f"{adf_func}({date_expr})"
 
 
 def _looks_stringy(expr: str) -> bool:

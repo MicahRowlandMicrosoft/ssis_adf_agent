@@ -10,6 +10,15 @@ Mapping rules
 - result_set_type == "Xml"        → WebActivity (not supported natively; flagged as warning)
 
 Supports optional schema remapping for database consolidation scenarios.
+
+Parameter bindings
+------------------
+The SSIS parser extracts ``direction`` (Input / Output / ReturnValue),
+``data_type`` (OLE DB type code), and ``parameter_name`` from each binding.
+This converter maps them to ADF stored-procedure parameter declarations with
+correct ``type`` and ``value`` fields.  Output parameters and return values are
+translated but annotated with ``/* OUTPUT */``—ADF stored procedure activities
+don't natively support OUT params, so the user may need to restructure.
 """
 from __future__ import annotations
 
@@ -23,6 +32,53 @@ _PROC_PATTERN = re.compile(
     r"^\s*(exec(?:ute)?\s+|call\s+)(?:\[?[\w\s]+\]?\.)?\[?[\w\s]+\]?",
     re.IGNORECASE,
 )
+
+# SSIS OLE DB type codes → ADF parameter type names
+# Reference: https://learn.microsoft.com/en-us/dotnet/api/system.data.oledb.oledbtype
+_SSIS_OLEDB_TYPE_MAP: dict[str, str] = {
+    # Integer types
+    "2": "Int16",      # SmallInt
+    "3": "Int32",      # Integer
+    "16": "Byte",      # TinyInt / SByte
+    "17": "Byte",      # UnsignedTinyInt
+    "18": "Int16",     # UnsignedSmallInt
+    "19": "Int32",     # UnsignedInt
+    "20": "Int64",     # BigInt
+    "21": "Int64",     # UnsignedBigInt
+    # Floating point
+    "4": "Single",     # Single
+    "5": "Double",     # Double
+    "6": "Decimal",    # Currency
+    "14": "Decimal",   # Decimal
+    "131": "Decimal",  # Numeric
+    # Boolean
+    "11": "Boolean",   # Boolean
+    # Date/time
+    "7": "DateTime",   # Date
+    "133": "DateTime", # DBDate
+    "134": "DateTime", # DBTime
+    "135": "DateTime", # DBTimeStamp
+    "64": "DateTime",  # FileTime
+    # String
+    "8": "String",     # BSTR
+    "129": "String",   # Char
+    "130": "String",   # WChar
+    "200": "String",   # VarChar
+    "201": "String",   # LongVarChar
+    "202": "String",   # VarWChar
+    "203": "String",   # LongVarWChar
+    # Binary
+    "128": "Byte",     # Binary
+    # GUID
+    "72": "Guid",      # Guid
+    # Default
+    "0": "String",     # Empty
+}
+
+
+def _oledb_type_to_adf(type_code: str) -> str:
+    """Map SSIS OLE DB type code string to ADF parameter type name."""
+    return _SSIS_OLEDB_TYPE_MAP.get(type_code, "String")
 
 
 def _is_stored_proc_call(sql: str | None) -> bool:
@@ -132,14 +188,7 @@ class ExecuteSQLConverter(BaseConverter):
         depends_on: list,
     ) -> dict[str, Any]:
         proc_name = _extract_proc_name(task.sql_statement or "")
-        parameters = {}
-        for pb in task.parameter_bindings:
-            var_raw = pb.get('variable', '')
-            var_name = var_raw.split('::')[-1] if '::' in var_raw else var_raw
-            parameters[pb.get("parameter_name", f"param{len(parameters)}")] = {
-                "value": f"@variables('{var_name}')",
-                "type": "String",
-            }
+        parameters = _build_sp_parameters(task.parameter_bindings)
         return {
             "name": task.name,
             "description": task.description or "",
@@ -158,6 +207,14 @@ class ExecuteSQLConverter(BaseConverter):
         ls_ref: dict,
         depends_on: list,
     ) -> dict[str, Any]:
+        # Build script parameters from input bindings
+        script_params = _build_script_parameters(task.parameter_bindings)
+        scripts_block: dict[str, Any] = {
+            "type": "Query",
+            "text": task.sql_statement or "",
+        }
+        if script_params:
+            scripts_block["parameters"] = script_params
         return {
             "name": task.name,
             "description": task.description or "",
@@ -165,14 +222,69 @@ class ExecuteSQLConverter(BaseConverter):
             "dependsOn": depends_on,
             "linkedServiceName": ls_ref,
             "typeProperties": {
-                "scripts": [
-                    {
-                        "type": "Query",
-                        "text": task.sql_statement or "",
-                    }
-                ],
+                "scripts": [scripts_block],
                 "logSettings": {
                     "logDestination": "ActivityOutput",
                 },
             },
         }
+
+
+# ---------------------------------------------------------------------------
+# Parameter binding helpers
+# ---------------------------------------------------------------------------
+
+def _build_sp_parameters(bindings: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build ADF storedProcedureParameters from SSIS parameter bindings.
+
+    Handles Input, Output, and ReturnValue directions.
+    Maps SSIS OLE DB type codes to ADF type names.
+    """
+    parameters: dict[str, Any] = {}
+    for idx, pb in enumerate(bindings):
+        var_raw = pb.get("variable", "")
+        var_name = var_raw.split("::")[-1] if "::" in var_raw else var_raw
+        direction = (pb.get("direction") or "Input").strip()
+        type_code = pb.get("data_type", "0")
+        adf_type = _oledb_type_to_adf(type_code)
+        param_name = pb.get("parameter_name") or f"param{idx}"
+
+        value_expr = f"@variables('{var_name}')" if var_name else "null"
+
+        entry: dict[str, Any] = {
+            "value": value_expr,
+            "type": adf_type,
+        }
+
+        if direction.lower() in ("output", "returnvalue"):
+            entry["direction"] = "Output"
+            entry["value"] = (
+                f"/* OUTPUT — ADF SP activities don't natively support OUT params; "
+                f"capture via Lookup + result binding instead */ {value_expr}"
+            )
+
+        parameters[param_name] = entry
+
+    return parameters
+
+
+def _build_script_parameters(bindings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build ADF Script activity parameters from SSIS bindings (input only)."""
+    params: list[dict[str, Any]] = []
+    for idx, pb in enumerate(bindings):
+        direction = (pb.get("direction") or "Input").strip()
+        if direction.lower() not in ("input",):
+            continue  # Script activity only supports input parameters
+        var_raw = pb.get("variable", "")
+        var_name = var_raw.split("::")[-1] if "::" in var_raw else var_raw
+        type_code = pb.get("data_type", "0")
+        adf_type = _oledb_type_to_adf(type_code)
+        param_name = pb.get("parameter_name") or f"param{idx}"
+
+        params.append({
+            "name": param_name,
+            "value": f"@variables('{var_name}')" if var_name else "null",
+            "type": adf_type,
+            "direction": "Input",
+        })
+    return params

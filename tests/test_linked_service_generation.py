@@ -117,6 +117,33 @@ class TestExtractComponents:
         assert _extract_user(parts) is None
         assert _extract_password(parts) is None
 
+    # --- Quoted-value tests (semicolons inside passwords / values) ----------
+
+    def test_double_quoted_password_with_semicolons(self):
+        cs = 'Server=mysvr;Password="p;w;d";Database=mydb'
+        parts = parse_connection_string(cs)
+        assert parts["server"] == "mysvr"
+        assert parts["password"] == "p;w;d"
+        assert parts["database"] == "mydb"
+
+    def test_single_quoted_password_with_semicolons(self):
+        cs = "Server=mysvr;Password='a;b;c';Database=mydb"
+        parts = parse_connection_string(cs)
+        assert parts["password"] == "a;b;c"
+        assert parts["database"] == "mydb"
+
+    def test_quoted_value_with_equals_and_semicolons(self):
+        cs = 'AccountName=act;AccountKey="abc=;xyz=";EndpointSuffix=core.windows.net'
+        parts = parse_connection_string(cs)
+        assert parts["accountname"] == "act"
+        assert parts["accountkey"] == "abc=;xyz="
+        assert parts["endpointsuffix"] == "core.windows.net"
+
+    def test_unquoted_value_still_splits_on_semicolons(self):
+        cs = "Server=svr;Database=db"
+        parts = parse_connection_string(cs)
+        assert parts["server"] == "svr"
+        assert parts["database"] == "db"
 
 # ---------------------------------------------------------------------------
 # IR selection heuristic

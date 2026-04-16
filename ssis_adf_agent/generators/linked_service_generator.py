@@ -59,23 +59,62 @@ def parse_connection_string(cs: str | None) -> dict[str, str]:
     Handles OLE DB, ADO.NET, and Azure Storage connection strings.
     Keys are normalised to lower-case for consistent lookup.
 
+    Correctly handles values wrapped in single or double quotes, so that
+    semicolons embedded in quoted passwords (e.g. ``Password="a;b"``) are
+    not treated as delimiters.
+
     Examples::
 
         "Server=mysvr;Database=mydb;User ID=sa;Password=secret"
+        "Server=mysvr;Password=\"p;wd\";Database=mydb"
         "DefaultEndpointsProtocol=https;AccountName=act;AccountKey=k;..."
-        "BlobEndpoint=https://act.blob.core.windows.net;SharedAccessSignature=sv=..."
     """
     if not cs:
         return {}
     parts: dict[str, str] = {}
-    for segment in cs.split(";"):
+    # Tokenise respecting quoted segments
+    segments = _split_connection_string(cs)
+    for segment in segments:
         segment = segment.strip()
         if "=" not in segment:
             continue
         key, _, value = segment.partition("=")
-        # Value may itself contain '=' (e.g. base64 AccountKey)
-        parts[key.strip().lower()] = value.strip()
+        # Strip surrounding quotes from values if present
+        value = value.strip()
+        if len(value) >= 2 and value[0] in ('"', "'") and value[-1] == value[0]:
+            value = value[1:-1]
+        parts[key.strip().lower()] = value
     return parts
+
+
+def _split_connection_string(cs: str) -> list[str]:
+    """Split a connection string on semicolons, respecting quoted values.
+
+    Quotes (single or double) protect embedded semicolons.  A backslash does
+    **not** act as an escape character — OLE DB / ADO.NET connection strings
+    use doubled quotes for escaping, which this routine handles transparently.
+    """
+    segments: list[str] = []
+    current: list[str] = []
+    in_quote: str | None = None
+
+    for ch in cs:
+        if in_quote is not None:
+            current.append(ch)
+            if ch == in_quote:
+                in_quote = None
+        elif ch in ('"', "'"):
+            in_quote = ch
+            current.append(ch)
+        elif ch == ";":
+            segments.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+
+    if current:
+        segments.append("".join(current))
+    return segments
 
 
 # Key aliases in connection strings

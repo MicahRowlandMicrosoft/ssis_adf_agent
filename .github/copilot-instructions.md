@@ -21,6 +21,7 @@ via the MCP server; use them in the order that makes sense for the task.
 | `validate_adf_artifacts` | Structural validation of generated JSON before deploying |
 | `deploy_to_adf` | Push artifacts to Azure Data Factory via SDK |
 | `deploy_function_stubs` | Zip-deploy generated Azure Function stubs to an existing Function App |
+| `provision_function_app` | Create Azure resources (Storage, App Insights, Plan, Function App) for hosting stubs |
 
 ---
 

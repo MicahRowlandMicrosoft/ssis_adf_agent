@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes seven tools to GitHub Copilot (and any MCP-compatible client):
+Exposes eight tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages      — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package    — complexity + gap analysis of a single package
@@ -10,6 +10,8 @@ Exposes seven tools to GitHub Copilot (and any MCP-compatible client):
 5. deploy_to_adf           — deploy artifacts to Azure Data Factory
 6. consolidate_packages    — merge similar packages into parameterized pipelines
 7. deploy_function_stubs   — zip-deploy Azure Function stubs to an existing Function App
+8. provision_function_app  — create Azure resources (Storage, App Insights, Function App)
+8. provision_function_app  — create Azure resources (Storage, App Insights, Function App)
 
 Run as an MCP stdio server::
 
@@ -359,6 +361,63 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["stubs_dir", "subscription_id", "resource_group", "function_app_name"],
             },
         ),
+        types.Tool(
+            name="provision_function_app",
+            description=(
+                "Provision Azure infrastructure for hosting Function stubs: "
+                "Storage Account, Application Insights (optional), Consumption App Service Plan, "
+                "and a Python Linux Function App. All resources are created in the specified "
+                "resource group and location. Uses DefaultAzureCredential for authentication. "
+                "Run this BEFORE deploy_function_stubs if no Function App exists yet."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "function_app_name": {
+                        "type": "string",
+                        "description": "Globally unique name for the Function App.",
+                    },
+                    "subscription_id": {
+                        "type": "string",
+                        "description": "Azure subscription ID.",
+                    },
+                    "resource_group": {
+                        "type": "string",
+                        "description": "Azure resource group (must already exist).",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Azure region (e.g. 'eastus2', 'westeurope').",
+                    },
+                    "storage_account_name": {
+                        "type": "string",
+                        "description": (
+                            "Override the auto-derived storage account name. "
+                            "Must be 3-24 lowercase alphanumeric characters."
+                        ),
+                    },
+                    "skip_app_insights": {
+                        "type": "boolean",
+                        "description": "Skip creating Application Insights. Default: false.",
+                        "default": False,
+                    },
+                    "python_version": {
+                        "type": "string",
+                        "description": "Python runtime version. Default: '3.11'.",
+                        "default": "3.11",
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, report what would be created without provisioning. "
+                            "Default: false."
+                        ),
+                        "default": False,
+                    },
+                },
+                "required": ["function_app_name", "subscription_id", "resource_group", "location"],
+            },
+        ),
     ]
 
 
@@ -383,6 +442,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _consolidate(arguments)
         elif name == "deploy_function_stubs":
             return await _deploy_stubs(arguments)
+        elif name == "provision_function_app":
+            return await _provision_func_app(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -794,6 +855,37 @@ async def _deploy_stubs(args: dict[str, Any]) -> list[types.TextContent]:
         "functions_deployed": result.functions_deployed,
         "zip_size_bytes": result.zip_size_bytes,
         "scm_url": result.scm_url,
+        "error": result.error,
+    }
+    return [types.TextContent(type="text", text=json.dumps(summary, indent=2))]
+
+
+async def _provision_func_app(args: dict[str, Any]) -> list[types.TextContent]:
+    from .deployer.func_provisioner import FuncProvisioner
+
+    provisioner = FuncProvisioner(
+        subscription_id=args["subscription_id"],
+        resource_group=args["resource_group"],
+        location=args["location"],
+    )
+    result = provisioner.provision(
+        function_app_name=args["function_app_name"],
+        storage_account_name=args.get("storage_account_name"),
+        skip_app_insights=args.get("skip_app_insights", False),
+        python_version=args.get("python_version", "3.11"),
+        dry_run=args.get("dry_run", False),
+    )
+
+    summary = {
+        "success": result.success,
+        "function_app_name": result.function_app_name,
+        "resource_group": result.resource_group,
+        "location": result.location,
+        "storage_account_name": result.storage_account_name,
+        "app_insights_name": result.app_insights_name,
+        "app_service_plan_name": result.app_service_plan_name,
+        "function_app_url": result.function_app_url,
+        "resources_created": result.resources_created,
         "error": result.error,
     }
     return [types.TextContent(type="text", text=json.dumps(summary, indent=2))]

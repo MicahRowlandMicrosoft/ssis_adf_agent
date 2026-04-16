@@ -80,10 +80,10 @@ def _make_429_error(retry_after: float = 0.05) -> HttpResponseError:
 # ---------------------------------------------------------------------------
 
 class TestRetryDelay:
-    def test_exponential_backoff(self):
-        assert _retry_delay(0, 2.0) == 2.0
-        assert _retry_delay(1, 2.0) == 4.0
-        assert _retry_delay(2, 2.0) == 8.0
+    def test_exponential_backoff_no_jitter(self):
+        assert _retry_delay(0, 2.0, jitter=0) == 2.0
+        assert _retry_delay(1, 2.0, jitter=0) == 4.0
+        assert _retry_delay(2, 2.0, jitter=0) == 8.0
 
     def test_respects_retry_after_header(self):
         exc = _make_429_error(retry_after=10.0)
@@ -91,7 +91,31 @@ class TestRetryDelay:
 
     def test_falls_back_without_retry_after(self):
         exc = _make_http_error(500)
-        assert _retry_delay(1, 2.0, exc) == 4.0
+        # With jitter the value is approximate; disable jitter for exact check
+        assert _retry_delay(1, 2.0, exc, jitter=0) == 4.0
+
+    def test_jitter_produces_variation(self):
+        """With default jitter, repeated calls should produce different delays."""
+        delays = {_retry_delay(1, 2.0) for _ in range(20)}
+        assert len(delays) > 1, "jitter should produce varying delays"
+
+    def test_jitter_stays_in_range(self):
+        """Jittered delay should be within ±50% of the base exponential value."""
+        for _ in range(50):
+            d = _retry_delay(2, 2.0, jitter=0.5)
+            # base = min(2 * 2^2, 60) = 8; range = [4.0, 12.0]
+            assert 4.0 <= d <= 12.0, f"delay {d} out of jitter range"
+
+    def test_backoff_cap(self):
+        """Delay should never exceed max_delay (even before jitter)."""
+        d = _retry_delay(20, 2.0, max_delay=30.0, jitter=0)
+        assert d == 30.0
+
+    def test_cap_with_jitter(self):
+        """Capped delay with jitter should be at most max_delay * 1.5."""
+        for _ in range(50):
+            d = _retry_delay(20, 2.0, max_delay=30.0, jitter=0.5)
+            assert d <= 45.0  # 30 * 1.5
 
 
 # ---------------------------------------------------------------------------

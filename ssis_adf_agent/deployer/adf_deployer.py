@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,6 +51,8 @@ _TRANSIENT_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 # Default retry configuration
 _DEFAULT_MAX_RETRIES = 3
 _DEFAULT_BASE_DELAY = 2.0  # seconds
+_DEFAULT_MAX_DELAY = 60.0  # cap to avoid excessively long waits
+_DEFAULT_JITTER = 0.5  # ±50% randomisation
 
 
 @dataclass
@@ -61,17 +64,29 @@ class DeployResult:
     retries: int = 0
 
 
-def _retry_delay(attempt: int, base_delay: float, exc: Exception | None = None) -> float:
+def _retry_delay(
+    attempt: int,
+    base_delay: float,
+    exc: Exception | None = None,
+    *,
+    max_delay: float = _DEFAULT_MAX_DELAY,
+    jitter: float = _DEFAULT_JITTER,
+) -> float:
     """Return the delay (in seconds) before the next retry.
 
     Respects the ``Retry-After`` header for 429 responses when available,
-    otherwise falls back to exponential back-off: *base_delay* × 2^attempt.
+    otherwise falls back to exponential back-off: *base_delay* × 2^attempt,
+    capped at *max_delay* and randomised by +/- *jitter* (0-1 fraction).
     """
     if exc is not None:
         retry_after = getattr(exc, "retry_after_seconds", None)
         if retry_after is not None:
             return float(retry_after)
-    return base_delay * (2 ** attempt)
+    delay = min(base_delay * (2 ** attempt), max_delay)
+    # Apply jitter: multiply by a random factor in [1 - jitter, 1 + jitter]
+    if jitter > 0:
+        delay *= 1.0 + random.uniform(-jitter, jitter)
+    return max(delay, 0.0)
 
 
 class AdfDeployer:
@@ -250,7 +265,7 @@ class AdfDeployer:
             except (ServiceResponseError, ConnectionError, TimeoutError) as exc:
                 last_error = str(exc)
                 if attempt < max_retries:
-                    delay = retry_base_delay * (2 ** attempt)
+                    delay = _retry_delay(attempt, retry_base_delay)
                     logger.warning(
                         "Connection error deploying %s %s, "
                         "retrying in %.1fs (attempt %d/%d): %s",

@@ -490,6 +490,15 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     use_key_vault = args.get("use_key_vault", False)
     kv_ls_name = args.get("kv_ls_name", "LS_KeyVault")
     kv_url = args.get("kv_url", "https://TODO.vault.azure.net/")
+    if use_key_vault and "TODO" in kv_url:
+        from .warnings_collector import warn
+        warn(
+            phase="convert", severity="warning", source="mcp_server",
+            message=(
+                "Key Vault URL is still the placeholder 'https://TODO.vault.azure.net/'. "
+                "Set the kv_url parameter to your actual Azure Key Vault URL."
+            ),
+        )
     pipeline_prefix = args.get("pipeline_prefix", "PL_")
     shared_artifacts_dir = _safe_resolve(args["shared_artifacts_dir"], label="shared_artifacts_dir") if args.get("shared_artifacts_dir") else None
 

@@ -88,17 +88,18 @@ class TestWebServiceConverter:
 
 
 class TestXMLConverter:
-    def test_emits_script_activity(self):
-        t = _task("XMLTask", name="TransformXML", operation_type="XSLT")
-        dispatcher = ConverterDispatcher()
+    def test_emits_azure_function_activity(self, tmp_path):
+        t = _task("XMLTask", name="TransformXML", operation_type="XSLT",
+                  properties={"OperationType": "XSLT"})
+        dispatcher = ConverterDispatcher(stubs_dir=tmp_path / "stubs")
         acts = dispatcher.convert_task(t, [], {})
         assert len(acts) == 1
-        assert acts[0]["type"] == "Script"
+        assert acts[0]["type"] == "AzureFunction"
         assert "XSLT" in acts[0]["description"]
 
-    def test_default_operation_type(self):
+    def test_default_operation_type(self, tmp_path):
         t = _task("XMLTask", name="ProcessXML")
-        dispatcher = ConverterDispatcher()
+        dispatcher = ConverterDispatcher(stubs_dir=tmp_path / "stubs")
         acts = dispatcher.convert_task(t, [], {})
         assert "Unknown" in acts[0]["description"]
 

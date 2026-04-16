@@ -200,6 +200,14 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Prefix for pipeline names. Default: 'PL_'.",
                         "default": "PL_",
                     },
+                    "file_path_map_path": {
+                        "type": "string",
+                        "description": (
+                            "Optional path to a JSON file mapping local/UNC path prefixes to Azure Storage URLs. "
+                            "Format: {\"C:\\\\Data\\\\Input\": \"https://mystorage.blob.core.windows.net/input\"}. "
+                            "Applies to linked services, pipeline activities, and datasets."
+                        ),
+                    },
                 },
                 "required": ["package_path", "output_dir"],
             },
@@ -515,6 +523,12 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         _safe_resolve(esi_tables_path, must_exist=True, label="esi_tables_path")
         esi_config = load_esi_config(esi_tables_path)
 
+    file_path_map: dict[str, str] | None = None
+    file_path_map_path = args.get("file_path_map_path")
+    if file_path_map_path:
+        safe_fpm = _safe_resolve(file_path_map_path, must_exist=True, label="file_path_map_path")
+        file_path_map = json.loads(safe_fpm.read_text(encoding="utf-8"))
+
     with WarningsCollector() as wc:
         reader = LocalReader()
         package = reader.read(path)
@@ -552,8 +566,44 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         )
         triggers = generate_triggers(package, output_dir) if gen_trigger else []
 
+        # Apply file path mapping (rewrite local/UNC paths to Azure Storage URLs)
+        path_rewrites = 0
+        if file_path_map:
+            from .generators.file_path_mapper import apply_file_path_map
+            path_rewrites = apply_file_path_map(
+                {
+                    "linked_services": linked_services,
+                    "pipeline": pipeline,
+                    "datasets": datasets,
+                },
+                file_path_map,
+            )
+            # Re-write the modified pipeline JSON to disk
+            pipeline_file = output_dir / "pipeline" / f"{pipeline['name']}.json"
+            pipeline_file.write_text(
+                json.dumps(pipeline, indent=4, ensure_ascii=False), encoding="utf-8",
+            )
+            # Re-write linked services
+            ls_dir = output_dir / "linkedService"
+            for ls_obj in linked_services:
+                ls_file = ls_dir / f"{ls_obj['name']}.json"
+                if ls_file.exists():
+                    ls_file.write_text(
+                        json.dumps(ls_obj, indent=4, ensure_ascii=False), encoding="utf-8",
+                    )
+
         # Find stub files
         stub_files = list(stubs_dir.rglob("*.py")) if stubs_dir.exists() else []
+
+        # Auto-validate generated artifacts
+        from .deployer.adf_deployer import AdfDeployer
+        deployer = AdfDeployer.__new__(AdfDeployer)
+        validation_issues = deployer.validate_artifacts(output_dir)
+
+        # Check for unresolved ExecutePipeline references
+        pipeline_refs = _check_execute_pipeline_refs(
+            pipeline, output_dir, shared_artifacts_dir,
+        )
 
         # Collect warnings from pipeline activities
         conversion_warnings = [
@@ -573,6 +623,13 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
                 "triggers": len(triggers),
                 "azure_function_stubs": len(stub_files),
             },
+            "validation": {
+                "status": "valid" if not validation_issues else "issues_found",
+                "issue_count": len(validation_issues),
+                "issues": validation_issues[:10],
+            },
+            "unresolved_pipeline_refs": pipeline_refs,
+            "file_path_rewrites": path_rewrites,
             "manual_review_required": len(conversion_warnings),
             "cdm_patterns_flagged": len(cdm_gaps),
             "esi_reuse_candidates": len(esi_gaps),
@@ -588,6 +645,35 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         }
 
     return [types.TextContent(type="text", text=json.dumps(summary, indent=2))]
+
+
+def _check_execute_pipeline_refs(
+    pipeline: dict[str, Any],
+    output_dir: Path,
+    shared_artifacts_dir: Path | None,
+) -> list[str]:
+    """Return a list of ExecutePipeline reference names that have no matching
+    pipeline JSON in *output_dir* or *shared_artifacts_dir*."""
+    # Collect all available pipeline names on disk
+    available: set[str] = set()
+    for search_dir in (output_dir, shared_artifacts_dir):
+        if search_dir is None:
+            continue
+        pl_dir = search_dir / "pipeline"
+        if pl_dir.exists():
+            for f in pl_dir.glob("*.json"):
+                available.add(f.stem)
+
+    # Also include the current pipeline name itself
+    available.add(pipeline.get("name", ""))
+
+    unresolved: list[str] = []
+    for act in pipeline.get("properties", {}).get("activities", []):
+        if act.get("type") == "ExecutePipeline":
+            ref = act.get("typeProperties", {}).get("pipeline", {}).get("referenceName", "")
+            if ref and ref not in available:
+                unresolved.append(ref)
+    return unresolved
 
 
 async def _validate(args: dict[str, Any]) -> list[types.TextContent]:

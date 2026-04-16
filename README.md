@@ -279,6 +279,7 @@ Convert C:\Projects\LegacyETL\LoadFactSales.dtsx to ADF artifacts and write them
 | `schema_remap_path` | No | Path to schema remap JSON for database consolidation |
 | `shared_artifacts_dir` | No | Shared directory for cross-package linked service/dataset deduplication |
 | `pipeline_prefix` | No | Prefix for pipeline names (default: `PL_`) |
+| `file_path_map_path` | No | Path to a JSON file mapping local/UNC path prefixes to Azure Storage URLs for automatic path rewriting |
 
 Sub-folders are created automatically inside `output_dir`. See [Generated Artifact Structure](#generated-artifact-structure).
 
@@ -289,6 +290,8 @@ Sub-folders are created automatically inside `output_dir`. See [Generated Artifa
 **Tool:** `validate_adf_artifacts`
 
 Checks the generated JSON files for structural correctness (required fields, valid activity references) before touching Azure. Always validate before deploying.
+
+> **Note:** `convert_ssis_package` now runs validation automatically after generation. The response summary includes `"validation"` (status + issues) and `"unresolved_pipeline_refs"` (ExecutePipeline cross-reference check). Run `validate_adf_artifacts` again after any manual edits.
 
 **Example prompt:**
 
@@ -577,7 +580,7 @@ export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
 | Send Mail Task | Logic App / Web Activity | No native ADF equivalent |
 | Bulk Insert Task | Copy Activity | DelimitedText source → AzureSqlSink. Generates linked service for the source file and SQL connection. |
 | Web Service Task | Web Activity | Configurable URL and HTTP method from the SSIS task properties. |
-| XML Task | Script Activity | Operation type (XPATH, Merge, Validate, Diff, XSLT) is extracted from the package and noted in the activity description. Manual implementation required. |
+| XML Task | Azure Function Activity | Operation type (XPATH, Merge, Validate, Diff, XSLT) extracted from the package. Azure Function stub with operation-specific boilerplate generated at `stubs/<FuncName>/`. |
 | Transfer SQL Server Objects Task | Script Activity | Migration guidance in description. Recommends Copy Activity pipeline or Azure Database Migration Service. |
 | Execute Process Task | Web Activity → Azure Function | Manual: wrap process call in a Function |
 | Event Handler (`OnError`) | Pipeline fails path / error handling | Converted to sub-pipeline reference |
@@ -682,18 +685,18 @@ After running `convert_ssis_package`, review the following checklist before depl
 
 - [ ] **Connection string passwords** — packages with `EncryptAllWithPassword` protection level may have missing passwords. When `use_key_vault=true`, linked services reference Key Vault secrets — verify the secret names exist and are populated. Otherwise fill in plaintext credentials.
 - [ ] **Script Task stubs** — each stub in `stubs/<FunctionName>/__init__.py` contains `TODO` comments. If `llm_translate=true` was used, the stub contains LLM-translated Python. Deploy the Function to Azure Functions before running the pipeline.
-- [ ] **XML Task Script activities** — XML operations (XPATH, Merge, Validate, Diff, XSLT) are mapped to Script Activity placeholders. Implement the XML processing logic in SQL or move to an Azure Function.
+- [x] **XML Task stubs** *(automated)* — XML operations (XPATH, Merge, Validate, Diff, XSLT) now generate Azure Function stubs with operation-specific boilerplate (lxml examples for XPath, Merge, Validate, XSLT, Diff). Each stub includes `__init__.py` and `function.json`. Review and complete the `TODO` blocks, then deploy to Azure Functions.
 - [ ] **Bulk Insert / Web Service / Transfer SQL activities** — these are converted to Copy Activity, Web Activity, or Script Activity respectively with TODO guidance. Review the generated descriptions for migration advice.
-- [ ] **Local file paths** — File System Tasks that reference local paths have placeholder Azure Storage paths. Replace them with valid `abfss://` or `https://` URLs.
+- [x] **Local file paths** *(automated with `file_path_map_path`)* — pass a JSON file mapping local/UNC prefixes to Azure Storage URLs (e.g. `{"C:\\Data\\Input": "https://blob/input"}`). The converter applies longest-prefix-match substitution across linked services, pipeline activities, and datasets. Remaining unmapped paths still need manual attention.
 - [ ] **Trigger schedules** — if no SQL Agent schedule was available, the trigger uses a placeholder daily-at-midnight schedule. Update it to match your production schedule. When SQL Agent metadata was provided, verify the mapped ADF recurrence matches the original.
 - [ ] **Cross-database / linked server references** — check the gap analysis for `manual_required` severity items. Replace linked server four-part names with Azure SQL elastic queries, external tables, or separate linked services. Remap three-part names if consolidating databases.
 - [ ] **CDM review items** — if the pipeline has a `cdm-review-required` annotation, coordinate with the CDM team to decide whether the transformation logic should migrate as-is or be replaced by existing CDM-layer entities.
 - [ ] **ESI reuse candidates** — if the pipeline has an `esi-reuse-candidate` annotation, review whether reading from the ESI Azure SQL layer is preferable to re-staging from the on-prem source via SHIR.
 - [ ] **Upsert key columns** — Copy Activities with `writeBehavior: "upsert"` include detected key columns. Verify these match the target table's unique key. Replace `TODO_KEY_COLUMN` placeholders where keys could not be auto-detected.
-- [ ] **Re-validate** — run `validate_adf_artifacts` again after all manual edits.
+- [x] **Auto-validate** *(automated)* — `convert_ssis_package` now automatically runs `validate_adf_artifacts` after generation and includes results in the response summary under `"validation"`. Re-run manually after any manual edits.
 - [ ] **Duplicate activity names** — when multiple Sequence Containers contain tasks with the same name, the generator auto-deduplicates by appending `_2`, `_3`, etc. Review renamed activities and their `dependsOn` references.
 - [ ] **FILE connection linked services** — FILE/MULTIFILE connection managers produce `FileServer` linked services for UNC/drive paths. Verify the host path and credentials, or migrate files to Azure Blob Storage.
-- [ ] **Execute Pipeline references** — `ExecutePipeline` activities reference child pipelines by name (e.g. `PL_ChildPackage`). Ensure the child package is also converted with the same `pipeline_prefix`.
+- [x] **Execute Pipeline references** *(automated)* — the converter now cross-checks all `ExecutePipeline` activity references against pipeline JSON files in the output directory (and shared artifacts directory). Unresolved references are reported in the response summary under `"unresolved_pipeline_refs"`.
 - [ ] **Activate triggers** — triggers are deployed in **Stopped** state. Activate them in ADF Studio only after a successful pipeline smoke-test.
 
 ---

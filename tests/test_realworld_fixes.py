@@ -353,23 +353,22 @@ class TestXMLTaskOperationType:
         assert props["Source"] == "Inventory.xml"
         assert props["XPathOperation"] == "NodeList"
 
-    def test_xml_converter_uses_operation_type(self):
+    def test_xml_converter_uses_operation_type(self, tmp_path):
         """XMLConverter should read OperationType from task.properties."""
         from ssis_adf_agent.converters.dispatcher import ConverterDispatcher
-        d = ConverterDispatcher()
-        task = _task("XMLTask", name="Merge Docs",
+        d = ConverterDispatcher(stubs_dir=tmp_path / "stubs")
+        task = _task("XMLTask", name="Merge_Docs",
                      properties={"OperationType": "Merge", "Source": "a.xml"})
         acts = d.convert_task(task, [], {})
         assert len(acts) == 1
         assert "Merge" in acts[0]["description"]
-        # Should appear in the script text too
-        script_text = acts[0]["typeProperties"]["scripts"][0]["text"]
-        assert "Merge" in script_text
+        assert acts[0]["type"] == "AzureFunction"
+        assert acts[0]["typeProperties"]["body"]["operation"] == "Merge"
 
-    def test_xml_converter_fallback_unknown(self):
+    def test_xml_converter_fallback_unknown(self, tmp_path):
         """Without OperationType in properties, defaults to Unknown."""
         from ssis_adf_agent.converters.dispatcher import ConverterDispatcher
-        d = ConverterDispatcher()
+        d = ConverterDispatcher(stubs_dir=tmp_path / "stubs")
         task = _task("XMLTask", name="NoOp", properties={})
         acts = d.convert_task(task, [], {})
         assert "Unknown" in acts[0]["description"]

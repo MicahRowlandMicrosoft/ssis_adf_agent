@@ -706,13 +706,22 @@ class SSISParser:
         elif task_type in (
             TaskType.BULK_INSERT,
             TaskType.WEB_SERVICE,
-            TaskType.XML,
             TaskType.TRANSFER_SQL,
         ):
             # Recognised task types without dedicated parsers — return
             # a generic SSISTask with the correct task_type so the
             # dispatcher routes them to the appropriate converter.
             props = {etree.QName(k).localname: v for k, v in elem.attrib.items()}
+            return SSISTask(**base_kwargs, properties=props)
+        elif task_type == TaskType.XML:
+            # Parse XMLTaskData attributes from ObjectData
+            props = {etree.QName(k).localname: v for k, v in elem.attrib.items()}
+            if object_data is not None:
+                for child in object_data:
+                    local = etree.QName(child.tag).localname
+                    if "XMLTask" in local or "XmlTask" in local:
+                        for attr_name, attr_val in child.attrib.items():
+                            props[attr_name] = attr_val
             return SSISTask(**base_kwargs, properties=props)
         else:
             warn(
@@ -911,20 +920,57 @@ class SSISParser:
         conn_id = None
         use_project = False
         project_pkg_name = None
+        param_assignments: list[dict[str, str]] = []
 
         if object_data is not None:
             for child in object_data:
                 local = etree.QName(child.tag).localname
                 if "ExecutePackageTask" in local:
+                    # Read from attributes first (older SSIS format)
                     pkg_path = child.get("PackageName") or child.get("PackagePath")
                     conn_id = _clean_id(child.get("Connection") or "")
                     use_project = (child.get("UseProjectReference") or "False").lower() == "true"
                     project_pkg_name = child.get("PackageName")
 
+                    # Override with sub-element text (newer SSIS format)
+                    for sub in child:
+                        sub_local = etree.QName(sub.tag).localname
+                        sub_text = (sub.text or "").strip()
+                        if sub_local == "PackageName" and sub_text:
+                            pkg_path = sub_text
+                            project_pkg_name = sub_text
+                        elif sub_local == "PackagePath" and sub_text:
+                            pkg_path = sub_text
+                        elif sub_local == "Connection" and sub_text:
+                            conn_id = _clean_id(sub_text)
+                        elif sub_local == "UseProjectReference" and sub_text:
+                            use_project = sub_text.lower() == "true"
+                        elif sub_local == "ParameterAssignment":
+                            pa = self._parse_param_assignment(sub)
+                            if pa:
+                                param_assignments.append(pa)
+
         return ExecutePackageTask(**base, package_path=pkg_path,
                                   package_connection_id=conn_id,
                                   use_project_reference=use_project,
-                                  project_package_name=project_pkg_name)
+                                  project_package_name=project_pkg_name,
+                                  parameter_assignments=param_assignments)
+
+    @staticmethod
+    def _parse_param_assignment(elem: etree._Element) -> dict[str, str] | None:
+        """Parse a single <ParameterAssignment> element."""
+        param_name = None
+        var_name = None
+        for sub in elem:
+            local = etree.QName(sub.tag).localname
+            text = (sub.text or "").strip()
+            if local == "ParameterName" and text:
+                param_name = text
+            elif local == "BindedVariableOrParameterName" and text:
+                var_name = text
+        if param_name and var_name:
+            return {"parameter": param_name, "variable": var_name}
+        return None
 
     def _parse_execute_process(
         self, elem: etree._Element, object_data: etree._Element | None, base: dict

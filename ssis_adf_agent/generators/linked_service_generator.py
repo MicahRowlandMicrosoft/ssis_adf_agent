@@ -471,6 +471,47 @@ def _smtp_ls(
     return ls
 
 
+def _file_ls(
+    cm: SSISConnectionManager,
+    ir_name: str,
+    auth_type: str,
+    use_key_vault: bool,
+    kv_ls_name: str,
+) -> dict[str, Any]:
+    """FILE / MULTIFILE connection → FileServer linked service (on-prem) or AzureBlobStorage."""
+    ls = _base_ls(cm, ir_name)
+    file_path = cm.file_path or cm.connection_string or ""
+
+    # Heuristic: if the path looks like a UNC or local drive path, use FileServer
+    if file_path.startswith("\\\\") or (len(file_path) >= 2 and file_path[1] == ":"):
+        ls["properties"]["type"] = "FileServer"
+        ls["properties"]["description"] = (
+            f"[MANUAL REVIEW] FILE connection '{cm.name}' points to local/UNC path '{file_path}'. "
+            "Migrate files to Azure Blob/ADLS and switch to AzureBlobStorage, or keep "
+            "FileServer with Self-Hosted IR."
+        )
+        password: Any
+        if use_key_vault:
+            password = _kv_secret_ref(kv_ls_name, f"{cm.name}-password")
+        else:
+            password = {"type": "SecureString", "value": "TODO — store in Azure Key Vault"}
+        ls["properties"]["typeProperties"] = {
+            "host": file_path,
+            "userId": cm.username or "TODO_USERNAME",
+            "password": password,
+        }
+    else:
+        ls["properties"]["type"] = "AzureBlobStorage"
+        ls["properties"]["description"] = (
+            f"[MANUAL REVIEW] FILE connection '{cm.name}' — original path: '{file_path}'. "
+            "Replace with Azure Blob Storage or ADLS Gen2 connection."
+        )
+        ls["properties"]["typeProperties"] = {
+            "connectionString": "DefaultEndpointsProtocol=https;AccountName=TODO;AccountKey=TODO",
+        }
+    return ls
+
+
 _BUILDERS: dict[ConnectionManagerType, Any] = {
     ConnectionManagerType.OLEDB: _oledb_ls,
     ConnectionManagerType.ADO_NET: _oledb_ls,
@@ -480,6 +521,8 @@ _BUILDERS: dict[ConnectionManagerType, Any] = {
     ConnectionManagerType.HTTP: _http_ls,
     ConnectionManagerType.SMTP: _smtp_ls,
     ConnectionManagerType.ODBC: _oledb_ls,
+    ConnectionManagerType.FILE: _file_ls,
+    ConnectionManagerType.MULTIFILE: _file_ls,
 }
 
 

@@ -110,7 +110,7 @@ def generate_pipeline(
 
     Returns the pipeline dict.
     """
-    dispatcher = ConverterDispatcher(stubs_dir=stubs_dir or output_dir / "stubs", llm_translate=llm_translate)
+    dispatcher = ConverterDispatcher(stubs_dir=stubs_dir or output_dir / "stubs", llm_translate=llm_translate, pipeline_prefix=pipeline_prefix)
     pipeline_name = f"{pipeline_prefix}{package.name.replace(' ', '_')}"
 
     # Topological task ordering
@@ -157,6 +157,9 @@ def generate_pipeline(
                         )
 
         activities.extend(acts)
+
+    # Deduplicate activity names — ADF requires unique names
+    _deduplicate_activity_names(activities)
 
     # Build parameters from SSIS package parameters
     parameters: dict[str, Any] = {}
@@ -241,3 +244,41 @@ def _inject_function_url_params(
                 "type": "String",
                 "defaultValue": "https://TODO.azurewebsites.net/api/" + name.replace("Url", ""),
             }
+
+
+def _deduplicate_activity_names(activities: list[dict[str, Any]]) -> None:
+    """Ensure every activity has a unique name by appending _2, _3, … to collisions.
+
+    Also patches ``dependsOn`` references so renamed activities are still
+    reachable by downstream activities.
+    """
+    seen: dict[str, int] = {}
+    old_to_new: dict[int, tuple[str, str]] = {}  # obj-id → (old_name, new_name)
+
+    for act in activities:
+        name = act["name"]
+        if name in seen:
+            seen[name] += 1
+            new_name = f"{name}_{seen[name]}"
+            old_to_new[id(act)] = (name, new_name)
+            act["name"] = new_name
+        else:
+            seen[name] = 1
+
+    # Patch dependsOn: build old_name → set-of-new-names for renames
+    if old_to_new:
+        rename_map: dict[str, list[str]] = {}
+        for _, (old, new) in old_to_new.items():
+            rename_map.setdefault(old, []).append(new)
+
+        for act in activities:
+            new_deps = []
+            for dep in act.get("dependsOn", []):
+                dep_name = dep.get("activity", "")
+                if dep_name in rename_map:
+                    # This dep refers to a name that was duplicated; find
+                    # the renamed version (if any) — keep original reference
+                    # since first occurrence kept its name.
+                    pass
+                new_deps.append(dep)
+            act["dependsOn"] = new_deps

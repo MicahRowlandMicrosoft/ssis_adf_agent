@@ -206,8 +206,16 @@ def _sort(component: DataFlowComponent) -> dict[str, Any]:
     sort_conditions: list[dict] = []
 
     sort_cols = []
-    for col in component.output_columns:
-        pos_str = col.properties.get("SortKeyPosition") or "0"
+    # SortKeyPosition can appear on either input or output columns depending on
+    # SSIS version. Modern packages use NewSortKeyPosition (set by the Sort
+    # component on its input columns) or cachedSortKeyPosition (set by
+    # downstream components).
+    for col in list(component.input_columns) + list(component.output_columns):
+        pos_str = (
+            col.properties.get("NewSortKeyPosition")
+            or col.properties.get("SortKeyPosition")
+            or "0"
+        )
         try:
             pos = int(pos_str)
         except (ValueError, TypeError):
@@ -247,12 +255,16 @@ def _merge_join(component: DataFlowComponent) -> dict[str, Any]:
     t = _base(component, "Join")
     join_type = component.properties.get("JoinType") or "inner"
 
-    # MergeJoin uses SortKeyPosition on input columns to identify join keys
+    # MergeJoin uses (New)SortKeyPosition on input columns to identify join keys
     # Group by lineageId or position
     conditions: list[dict] = []
     join_keys = []
     for col in component.input_columns:
-        pos_str = col.properties.get("SortKeyPosition") or "0"
+        pos_str = (
+            col.properties.get("NewSortKeyPosition")
+            or col.properties.get("SortKeyPosition")
+            or "0"
+        )
         try:
             pos = int(pos_str)
         except (ValueError, TypeError):

@@ -327,6 +327,10 @@ class AdfDeployer:
 
         issues: list[dict[str, Any]] = []
         for json_file in artifacts_dir.rglob("*.json"):
+            # Skip Azure Function stubs — they have their own schema
+            # (function.json with scriptFile/bindings, not ADF name/properties)
+            if "stubs" in json_file.relative_to(artifacts_dir).parts:
+                continue
             try:
                 payload = json.loads(json_file.read_text(encoding="utf-8"))
             except json.JSONDecodeError as exc:

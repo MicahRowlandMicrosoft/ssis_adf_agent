@@ -213,6 +213,76 @@ def _resolve_component_connection_refs(tasks, connection_managers) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Project.params loader
+# ---------------------------------------------------------------------------
+
+# DataType code → SSIS type name (subset; covers common scalar types)
+# Codes per Microsoft.SqlServer.Dts.Runtime.TypeCode
+_PROJECT_PARAM_DATA_TYPE_MAP = {
+    "2": "Int16",
+    "3": "Int32",
+    "6": "Single",
+    "7": "Double",
+    "8": "String",       # legacy
+    "11": "Boolean",
+    "13": "Object",
+    "14": "Decimal",
+    "16": "SByte",
+    "17": "Byte",
+    "18": "String",      # most common (DataType=18 is String/wstr)
+    "20": "Int64",
+    "21": "UInt64",
+}
+
+_SSIS_NS = "{www.microsoft.com/SqlServer/SSIS}"
+
+
+def parse_project_params(path: Path) -> list[SSISParameter]:
+    """Parse a Project.params file and return its parameters.
+
+    Project.params uses a different schema from package-level parameters:
+    the SSIS namespace (`www.microsoft.com/SqlServer/SSIS`) and a
+    `<SSIS:Properties><SSIS:Property SSIS:Name="...">value</SSIS:Property>`
+    structure rather than DTS attribute-based form.
+    """
+    if not path.exists():
+        return []
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        root = etree.fromstring(raw.encode("utf-8"))
+    except Exception as exc:  # pragma: no cover - defensive
+        warn(
+            phase="parse", severity="warning", source="parse_project_params",
+            message=f"Failed to parse {path}: {exc}",
+        )
+        return []
+
+    params: list[SSISParameter] = []
+    for p_elem in root.findall(f"{_SSIS_NS}Parameter"):
+        name = p_elem.get(f"{_SSIS_NS}Name") or ""
+        props_container = p_elem.find(f"{_SSIS_NS}Properties")
+        if props_container is None:
+            continue
+        prop_map: dict[str, str | None] = {}
+        for prop in props_container.findall(f"{_SSIS_NS}Property"):
+            pname = prop.get(f"{_SSIS_NS}Name") or ""
+            prop_map[pname] = prop.text
+        data_type_code = (prop_map.get("DataType") or "18").strip()
+        data_type = _PROJECT_PARAM_DATA_TYPE_MAP.get(data_type_code, "String")
+        required = (prop_map.get("Required") or "0").strip() != "0"
+        sensitive = (prop_map.get("Sensitive") or "0").strip() != "0"
+        value = prop_map.get("Value")
+        params.append(SSISParameter(
+            name=name,
+            data_type=data_type,
+            value=value,
+            required=required,
+            sensitive=sensitive,
+        ))
+    return params
+
+
+# ---------------------------------------------------------------------------
 # Cross-database / linked server detection regexes
 # ---------------------------------------------------------------------------
 

@@ -388,6 +388,9 @@ class SSISPackage(BaseModel):
     connection_managers: list[SSISConnectionManager] = Field(default_factory=list)
     variables: list[SSISVariable] = Field(default_factory=list)
     parameters: list[SSISParameter] = Field(default_factory=list)
+    # Project-level parameters loaded from a sibling Project.params file.
+    # Referenced in SSIS expressions as @[$Project::ParamName].
+    project_parameters: list[SSISParameter] = Field(default_factory=list)
     tasks: list[SSISTask] = Field(default_factory=list)  # top-level control-flow items
     constraints: list[PrecedenceConstraint] = Field(default_factory=list)
     event_handlers: list[EventHandler] = Field(default_factory=list)

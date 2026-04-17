@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+import re as _re
 
 from ..parsers.models import DataFlowComponent, DataFlowPath, DataFlowTask, DataType, SSISPackage, TaskType
 from ..converters.data_flow.source_converter import convert_source
@@ -51,6 +52,29 @@ _DATATYPE_TO_DSL: dict[DataType, str] = {
     DataType.GUID: "string",
     DataType.EMPTY: "string",
 }
+
+# ---------------------------------------------------------------------------
+# Mapping Data Flow DSL identifier quoting
+# ---------------------------------------------------------------------------
+
+# Bare DSL identifiers must match [A-Za-z_][A-Za-z0-9_]*. Anything else
+# (spaces, hyphens, special chars, leading digits) needs to be wrapped in
+# curly braces, e.g. {Posting Fiscal Month}. Embedded '}' must be escaped.
+_BARE_IDENT_RE = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _q(name: str) -> str:
+    """Quote a column / stream name for ADF Mapping Data Flow DSL.
+
+    Returns the bare name when it's a valid identifier, otherwise wraps it
+    in curly braces with embedded '}' escaped.
+    """
+    if not name:
+        return "{}"
+    if _BARE_IDENT_RE.match(name):
+        return name
+    return "{" + name.replace("}", "\\}") + "}"
+
 
 _SOURCE_TYPES = frozenset({
     "OleDbSource", "FlatFileSource", "ExcelSource", "OdbcSource",
@@ -272,7 +296,7 @@ def _emit_source(lines: list[str], s: dict) -> None:
     cols = s.get("_output_columns", [])
     if cols:
         col_defs = ",\n        ".join(
-            f"{c.name} as {_DATATYPE_TO_DSL.get(c.data_type, 'string')}" for c in cols
+            f"{_q(c.name)} as {_DATATYPE_TO_DSL.get(c.data_type, 'string')}" for c in cols
         )
         lines.append(f"source(output(")
         lines.append(f"        {col_defs}")
@@ -292,7 +316,7 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
     if ttype == "DerivedColumn":
         cols = type_props.get("columns", [])
         if cols:
-            col_exprs = ", ".join(f"{c['name']} = {c['expression']}" for c in cols)
+            col_exprs = ", ".join(f"{_q(c['name'])} = {c['expression']}" for c in cols)
             lines.append(f"{upstream} derive({col_exprs}) ~> {t['name']}")
         else:
             lines.append(f"{upstream} derive(/* TODO: add expressions */) ~> {t['name']}")
@@ -301,7 +325,7 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
         conds = type_props.get("conditions", [])
         if conds and conds[0].get("leftColumn", "").startswith("/*") is False:
             cond_str = " && ".join(
-                f"{c['leftColumn']} == {c['rightColumn']}" for c in conds
+                f"{_q(c['leftColumn'])} == {_q(c['rightColumn'])}" for c in conds
             )
             lines.append(f"{upstream}, lookup({cond_str}) ~> {t['name']}")
         else:
@@ -319,10 +343,10 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
     elif ttype == "Aggregate":
         group_by = type_props.get("groupBy", [])
         aggs = type_props.get("aggregations", [])
-        gb_str = ", ".join(group_by) if group_by else "/* TODO */"
+        gb_str = ", ".join(_q(g) for g in group_by) if group_by else "/* TODO */"
         agg_strs = []
         for a in aggs:
-            agg_strs.append(f"{a['column']} = {a['function']}({a['column']})")
+            agg_strs.append(f"{_q(a['column'])} = {a['function']}({_q(a['column'])})")
         agg_str = ", ".join(agg_strs) if agg_strs else "/* TODO */"
         lines.append(f"{upstream} aggregate(groupBy({gb_str}),")
         lines.append(f"    {agg_str}) ~> {t['name']}")
@@ -331,7 +355,7 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
         conds = type_props.get("sortConditions", [])
         if conds and not conds[0].get("column", "").startswith("/*"):
             sort_str = ", ".join(
-                f"{c['order']}({c['column']})" for c in conds
+                f"{c['order']}({_q(c['column'])})" for c in conds
             )
             lines.append(f"{upstream} sort({sort_str}) ~> {t['name']}")
         else:
@@ -345,7 +369,7 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
         conds = type_props.get("conditions", [])
         if conds and not conds[0].get("leftColumn", "").startswith("/*"):
             cond_str = " && ".join(
-                f"{c['leftColumn']} == {c['rightColumn']}" for c in conds
+                f"{_q(c['leftColumn'])} == {_q(c['rightColumn'])}" for c in conds
             )
             lines.append(f"{upstream} join({cond_str},")
             lines.append(f"    joinType: '{join_type}') ~> {t['name']}")
@@ -356,7 +380,7 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
     elif ttype == "Cast":
         cols = type_props.get("columns", [])
         if cols:
-            cast_str = ", ".join(f"{c['name']} as {c.get('type', 'string')}" for c in cols)
+            cast_str = ", ".join(f"{_q(c['name'])} as {c.get('type', 'string')}" for c in cols)
             lines.append(f"{upstream} cast({cast_str}) ~> {t['name']}")
         else:
             lines.append(f"{upstream} cast(/* TODO */) ~> {t['name']}")
@@ -375,7 +399,7 @@ def _emit_sink(
     # Emit column mapping from input column metadata
     input_cols = sk.get("_input_columns", [])
     if input_cols:
-        col_mappings = ", ".join(c.name for c in input_cols)
+        col_mappings = ", ".join(_q(c.name) for c in input_cols)
         lines.append(f"{upstream} select(mapColumn(")
         lines.append(f"        {col_mappings}")
         lines.append(f"    )) ~> {sk['name']}_mapped")

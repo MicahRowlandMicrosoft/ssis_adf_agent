@@ -182,7 +182,8 @@ def _build_parent_pipeline(
                         },
                         "activities": [
                             {
-                                "name": f"Execute_{child_name}",
+                                # ADF activity name limit is 55 chars.
+                                "name": f"Execute_{child_name}"[:55].rstrip("_"),
                                 "type": "ExecutePipeline",
                                 "typeProperties": {
                                     "pipeline": {

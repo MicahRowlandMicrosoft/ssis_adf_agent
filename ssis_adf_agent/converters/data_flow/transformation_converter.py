@@ -13,6 +13,7 @@ from typing import Any
 from ...parsers.models import DataFlowComponent
 from ...translators.ssis_expression_translator import translate_expression
 from ...warnings_collector import warn
+from ._naming import safe_node_name
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +68,7 @@ def convert_transformation(component: DataFlowComponent) -> dict[str, Any] | Non
 
 def _base(component: DataFlowComponent, transform_type: str) -> dict[str, Any]:
     return {
-        "name": component.name.replace(" ", "_"),
+        "name": safe_node_name(component.name, fallback="Transform"),
         "description": f"SSIS {component.component_type}: {component.name}",
         "type": transform_type,
         "typeProperties": {},
@@ -151,7 +152,7 @@ def _conditional_split(component: DataFlowComponent) -> dict[str, Any]:
             # Skip default output (no expression)
             if adf_expr:
                 conditions.append({
-                    "name": output_name.replace(" ", "_"),
+                    "name": safe_node_name(output_name, fallback="Branch"),
                     "expression": adf_expr,
                 })
     else:
@@ -376,7 +377,7 @@ def _generic(component: DataFlowComponent) -> dict[str, Any]:
         detail="Emitting empty DerivedColumn placeholder — manual review needed",
     )
     return {
-        "name": component.name.replace(" ", "_"),
+        "name": safe_node_name(component.name, fallback="Transform"),
         "description": f"[Unknown component type: {component.component_type}] — manual review needed.",
         "type": "DerivedColumn",
         "typeProperties": {"columns": []},

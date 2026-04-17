@@ -8,6 +8,7 @@ from typing import Any
 
 from ...parsers.models import DataFlowComponent
 from ...warnings_collector import warn
+from ._naming import safe_node_name
 
 _SINK_DATASET_TYPE: dict[str, str] = {
     "OleDbDestination": "AzureSqlTable",
@@ -37,7 +38,10 @@ def convert_destination(component: DataFlowComponent) -> dict[str, Any]:
     comp_type = component.component_type
     ds_type = _SINK_DATASET_TYPE.get(comp_type, "AzureSqlTable")
     write_behavior = _WRITE_BEHAVIOR.get(comp_type, "upsert")
-    safe_name = component.name.replace(" ", "_")
+    # ADF Mapping Data Flow node names must be alphanumeric only.
+    safe_name = safe_node_name(component.name, fallback="Sink")
+    # Dataset resource names allow underscores; keep the underscore form for refs.
+    ds_ref_name = component.name.replace(" ", "_")
 
     # Guard: only allow upsert if the component has key columns defined
     has_keys = bool(component.key_columns)
@@ -56,7 +60,7 @@ def convert_destination(component: DataFlowComponent) -> dict[str, Any]:
         "name": safe_name,
         "description": f"Sink from SSIS {comp_type}: {component.name}",
         "dataset": {
-            "referenceName": f"DS_{safe_name}",
+            "referenceName": f"DS_{ds_ref_name}",
             "type": "DatasetReference",
         },
         "linkedService": {

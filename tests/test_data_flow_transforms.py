@@ -317,7 +317,8 @@ class TestConditionalSplitConverter:
         result = convert_transformation(self._make_split(conds))
         split_conds = result["typeProperties"]["conditions"]
         assert len(split_conds) == 2
-        assert split_conds[0]["name"] == "Active_Records"
+        # ADF Mapping Data Flow node names must be alphanumeric only.
+        assert split_conds[0]["name"] == "ActiveRecords"
         assert "Status" in split_conds[0]["expression"]
         assert "[" not in split_conds[0]["expression"]
 

@@ -302,7 +302,7 @@ def _emit_source(lines: list[str], s: dict) -> None:
         lines.append(f"        {col_defs}")
         lines.append(f"    ),")
     else:
-        lines.append(f"source(output(/* TODO: declare output schema */),")
+        lines.append(f"source(output(_ssis_todo as string),")
     lines.append(f"    allowSchemaDrift: true,")
     lines.append(f"    validateSchema: false,")
     lines.append(f"    isolationLevel: 'READ_UNCOMMITTED',")
@@ -319,7 +319,9 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
             col_exprs = ", ".join(f"{_q(c['name'])} = {c['expression']}" for c in cols)
             lines.append(f"{upstream} derive({col_exprs}) ~> {t['name']}")
         else:
-            lines.append(f"{upstream} derive(/* TODO: add expressions */) ~> {t['name']}")
+            # ADF DSL rejects comment-only operator bodies. Emit a passthrough
+            # placeholder column so the data flow loads; replace before running.
+            lines.append(f"{upstream} derive(_ssis_todo = '') ~> {t['name']}")
 
     elif ttype == "Lookup":
         conds = type_props.get("conditions", [])
@@ -329,7 +331,8 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
             )
             lines.append(f"{upstream}, lookup({cond_str}) ~> {t['name']}")
         else:
-            lines.append(f"{upstream}, lookup(/* TODO: join conditions */) ~> {t['name']}")
+            # Placeholder condition keeps the DSL parseable; replace before running.
+            lines.append(f"{upstream}, lookup(_ssis_todo == _ssis_todo) ~> {t['name']}")
 
     elif ttype == "ConditionalSplit":
         conds = type_props.get("conditions", [])
@@ -338,16 +341,17 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
             lines.append(f"{upstream} split({cond_str},")
             lines.append(f"    disjoint: true) ~> {t['name']}")
         else:
-            lines.append(f"{upstream} split(/* TODO: conditions */) ~> {t['name']}")
+            lines.append(f"{upstream} split(ssis_todo: (true()),")
+            lines.append(f"    disjoint: true) ~> {t['name']}")
 
     elif ttype == "Aggregate":
         group_by = type_props.get("groupBy", [])
         aggs = type_props.get("aggregations", [])
-        gb_str = ", ".join(_q(g) for g in group_by) if group_by else "/* TODO */"
+        gb_str = ", ".join(_q(g) for g in group_by) if group_by else "_ssis_todo"
         agg_strs = []
         for a in aggs:
             agg_strs.append(f"{_q(a['column'])} = {a['function']}({_q(a['column'])})")
-        agg_str = ", ".join(agg_strs) if agg_strs else "/* TODO */"
+        agg_str = ", ".join(agg_strs) if agg_strs else "_ssis_todo = count(1)"
         lines.append(f"{upstream} aggregate(groupBy({gb_str}),")
         lines.append(f"    {agg_str}) ~> {t['name']}")
 
@@ -359,7 +363,7 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
             )
             lines.append(f"{upstream} sort({sort_str}) ~> {t['name']}")
         else:
-            lines.append(f"{upstream} sort(/* TODO: sort columns */) ~> {t['name']}")
+            lines.append(f"{upstream} sort(asc(_ssis_todo, true)) ~> {t['name']}")
 
     elif ttype == "Union":
         lines.append(f"{upstream} union(byName: true) ~> {t['name']}")
@@ -374,7 +378,7 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
             lines.append(f"{upstream} join({cond_str},")
             lines.append(f"    joinType: '{join_type}') ~> {t['name']}")
         else:
-            lines.append(f"{upstream} join(/* TODO: join conditions */,")
+            lines.append(f"{upstream} join(_ssis_todo == _ssis_todo,")
             lines.append(f"    joinType: '{join_type}') ~> {t['name']}")
 
     elif ttype == "Cast":
@@ -383,10 +387,11 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
             cast_str = ", ".join(f"{_q(c['name'])} as {c.get('type', 'string')}" for c in cols)
             lines.append(f"{upstream} cast({cast_str}) ~> {t['name']}")
         else:
-            lines.append(f"{upstream} cast(/* TODO */) ~> {t['name']}")
+            lines.append(f"{upstream} cast(_ssis_todo as string) ~> {t['name']}")
 
     else:
-        lines.append(f"{upstream} derive(/* TODO: {ttype} */) ~> {t['name']}")
+        # Unknown SSIS transform — emit a parseable passthrough so the DF loads.
+        lines.append(f"{upstream} derive(_ssis_todo_{ttype} = '') ~> {t['name']}")
 
 
 def _emit_sink(

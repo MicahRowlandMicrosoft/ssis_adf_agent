@@ -777,7 +777,9 @@ class TestSourceOutputColumns:
         )
         source = convert_source(comp)
         script = _build_dsl_script([source], [], [{"name": "sink1"}])
-        assert "/* TODO: declare output schema */" in script
+        # ADF DSL rejects comment-only operator bodies, so a placeholder column
+        # is emitted instead of a bare TODO comment.
+        assert "_ssis_todo as string" in script
 
 
 class TestSinkColumnMapping:

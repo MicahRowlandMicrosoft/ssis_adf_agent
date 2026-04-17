@@ -1,0 +1,28 @@
+{
+    "name": "DS_OLE_DB_Destination",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_FB9BE233-A648-4C61-9C37-7ABDBB9978B9",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: OLE DB Destination",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "AzureSqlTable",
+        "typeProperties": {
+            "schema": "dbo",
+            "table": "ImportColumnDemo"
+        },
+        "schema": [
+            {
+                "name": "ImagePath",
+                "type": "string"
+            },
+            {
+                "name": "EmployeeImage",
+                "type": "string"
+            }
+        ]
+    }
+}

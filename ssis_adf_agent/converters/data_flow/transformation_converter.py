@@ -13,6 +13,7 @@ from typing import Any
 from ...parsers.models import DataFlowComponent
 from ...translators.ssis_expression_translator import translate_expression
 from ...warnings_collector import warn
+from ._naming import safe_node_name
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +68,7 @@ def convert_transformation(component: DataFlowComponent) -> dict[str, Any] | Non
 
 def _base(component: DataFlowComponent, transform_type: str) -> dict[str, Any]:
     return {
-        "name": component.name.replace(" ", "_"),
+        "name": safe_node_name(component.name, fallback="Transform"),
         "description": f"SSIS {component.component_type}: {component.name}",
         "type": transform_type,
         "typeProperties": {},
@@ -151,7 +152,7 @@ def _conditional_split(component: DataFlowComponent) -> dict[str, Any]:
             # Skip default output (no expression)
             if adf_expr:
                 conditions.append({
-                    "name": output_name.replace(" ", "_"),
+                    "name": safe_node_name(output_name, fallback="Branch"),
                     "expression": adf_expr,
                 })
     else:
@@ -206,8 +207,16 @@ def _sort(component: DataFlowComponent) -> dict[str, Any]:
     sort_conditions: list[dict] = []
 
     sort_cols = []
-    for col in component.output_columns:
-        pos_str = col.properties.get("SortKeyPosition") or "0"
+    # SortKeyPosition can appear on either input or output columns depending on
+    # SSIS version. Modern packages use NewSortKeyPosition (set by the Sort
+    # component on its input columns) or cachedSortKeyPosition (set by
+    # downstream components).
+    for col in list(component.input_columns) + list(component.output_columns):
+        pos_str = (
+            col.properties.get("NewSortKeyPosition")
+            or col.properties.get("SortKeyPosition")
+            or "0"
+        )
         try:
             pos = int(pos_str)
         except (ValueError, TypeError):
@@ -247,12 +256,16 @@ def _merge_join(component: DataFlowComponent) -> dict[str, Any]:
     t = _base(component, "Join")
     join_type = component.properties.get("JoinType") or "inner"
 
-    # MergeJoin uses SortKeyPosition on input columns to identify join keys
+    # MergeJoin uses (New)SortKeyPosition on input columns to identify join keys
     # Group by lineageId or position
     conditions: list[dict] = []
     join_keys = []
     for col in component.input_columns:
-        pos_str = col.properties.get("SortKeyPosition") or "0"
+        pos_str = (
+            col.properties.get("NewSortKeyPosition")
+            or col.properties.get("SortKeyPosition")
+            or "0"
+        )
         try:
             pos = int(pos_str)
         except (ValueError, TypeError):
@@ -364,7 +377,7 @@ def _generic(component: DataFlowComponent) -> dict[str, Any]:
         detail="Emitting empty DerivedColumn placeholder — manual review needed",
     )
     return {
-        "name": component.name.replace(" ", "_"),
+        "name": safe_node_name(component.name, fallback="Transform"),
         "description": f"[Unknown component type: {component.component_type}] — manual review needed.",
         "type": "DerivedColumn",
         "typeProperties": {"columns": []},

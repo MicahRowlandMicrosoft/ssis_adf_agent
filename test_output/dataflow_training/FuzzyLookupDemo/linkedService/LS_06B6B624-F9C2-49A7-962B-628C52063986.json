@@ -1,0 +1,18 @@
+{
+    "name": "LS_06B6B624-F9C2-49A7-962B-628C52063986",
+    "properties": {
+        "description": "Auto-generated from SSIS Connection Manager: Flat File Connection Manager",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "connectVia": {
+            "referenceName": "SelfHostedIR",
+            "type": "IntegrationRuntimeReference"
+        },
+        "type": "AzureBlobStorage",
+        "typeProperties": {
+            "connectionString": "DefaultEndpointsProtocol=https;AccountName=TODO;AccountKey=TODO",
+            "note": "Original flat file path: C:\\Outputs\\Fuzzy\\FuzzyLookup.txt. Replace with Azure Blob Storage or ADLS Gen2 connection string."
+        }
+    }
+}

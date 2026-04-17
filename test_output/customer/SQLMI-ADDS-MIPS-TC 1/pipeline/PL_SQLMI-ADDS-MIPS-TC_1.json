@@ -1,0 +1,165 @@
+{
+    "name": "PL_SQLMI-ADDS-MIPS-TC_1",
+    "properties": {
+        "description": "Auto-generated from SSIS package: C:\\Users\\rowlandmicah\\Downloads\\Project\\SQLMI-ADDS-MIPS-TC 1.dtsx. Review flagged activities before deploying.",
+        "activities": [
+            {
+                "name": "Copy Template",
+                "description": "[CONVERTED FROM FileSystemTask — operation: CopyFile] File System Task",
+                "type": "WebActivity",
+                "dependsOn": [],
+                "typeProperties": {
+                    "method": "POST",
+                    "url": "@pipeline().parameters.FileSystemFunctionUrl",
+                    "body": {
+                        "operation": "CopyFile",
+                        "source": "",
+                        "destination": "",
+                        "overwrite": false
+                    },
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "https://management.azure.com/"
+                    }
+                }
+            },
+            {
+                "name": "Data Flow Task",
+                "description": "Data Flow Task",
+                "type": "ExecuteDataFlow",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "1.00:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 60,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "dataflow": {
+                        "referenceName": "DF_Data_Flow_Task",
+                        "type": "DataFlowReference"
+                    },
+                    "compute": {
+                        "coreCount": 8,
+                        "computeType": "General"
+                    },
+                    "traceLevel": "None"
+                }
+            },
+            {
+                "name": "Rename File",
+                "description": "[CONVERTED FROM FileSystemTask — operation: CopyFile] File System Task",
+                "type": "WebActivity",
+                "dependsOn": [],
+                "typeProperties": {
+                    "method": "POST",
+                    "url": "@pipeline().parameters.FileSystemFunctionUrl",
+                    "body": {
+                        "operation": "CopyFile",
+                        "source": "",
+                        "destination": "",
+                        "overwrite": false
+                    },
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "https://management.azure.com/"
+                    }
+                }
+            },
+            {
+                "name": "Set Attributes",
+                "description": "[CONVERTED FROM FileSystemTask — operation: CopyFile] File System Task",
+                "type": "WebActivity",
+                "dependsOn": [],
+                "typeProperties": {
+                    "method": "POST",
+                    "url": "@pipeline().parameters.FileSystemFunctionUrl",
+                    "body": {
+                        "operation": "CopyFile",
+                        "source": "",
+                        "destination": "",
+                        "overwrite": false
+                    },
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "https://management.azure.com/"
+                    }
+                }
+            }
+        ],
+        "parameters": {
+            "Database": {
+                "type": "String",
+                "defaultValue": "Insert_DB_Name_Here"
+            },
+            "DatabaseServer": {
+                "type": "String",
+                "defaultValue": "Insert_SQL_Server_Name_Here"
+            },
+            "DBUserID": {
+                "type": "String",
+                "defaultValue": "Insert_DB_User_Name_Here"
+            },
+            "DBPassword": {
+                "type": "String",
+                "defaultValue": "This_is_not_the_password"
+            },
+            "Environment": {
+                "type": "String",
+                "defaultValue": "TEST"
+            },
+            "FileServer": {
+                "type": "String",
+                "defaultValue": "FileServerName.FQDN"
+            },
+            "FileSystemFunctionUrl": {
+                "type": "String",
+                "defaultValue": "https://TODO.azurewebsites.net/api/FileSystemFunction"
+            }
+        },
+        "variables": {
+            "biennium": {
+                "type": "String",
+                "defaultValue": "2027"
+            },
+            "csv_file_template": {
+                "type": "String",
+                "defaultValue": "ADDS - MIPS-TC_Template.txt"
+            },
+            "dest_wrk_path": {
+                "type": "String",
+                "defaultValue": "\\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\MIPS"
+            },
+            "FileServerShare": {
+                "type": "String",
+                "defaultValue": "NOT_PROD_SHARE\\1"
+            },
+            "mail_msg": {
+                "type": "String",
+                "defaultValue": "Test Email"
+            },
+            "Package": {
+                "type": "String",
+                "defaultValue": "ADDS - MIPS-TC"
+            },
+            "ReNameFile": {
+                "type": "String",
+                "defaultValue": "\\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\MIPS\\transaction_control.txt"
+            },
+            "SetAttribute": {
+                "type": "String",
+                "defaultValue": "\\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\MIPS\\ADDS - MIPS-TC_Template.txt"
+            },
+            "src_wrk_path": {
+                "type": "String",
+                "defaultValue": "\\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\Templates\\ADDS - MIPS-TC_Template.txt"
+            }
+        },
+        "annotations": [
+            "ssis-adf-agent",
+            "source-package:SQLMI-ADDS-MIPS-TC 1",
+            "has-cross-db-references"
+        ]
+    }
+}

@@ -41,6 +41,7 @@ class _Tk(Enum):
     STRING = auto()
     BOOL = auto()
     VARIABLE = auto()   # resolved to variables('Name')
+    PARAMETER = auto()  # resolved to pipeline().parameters.Name (project/package params)
     IDENT = auto()      # bare identifier
     FUNC = auto()       # function name (followed by LPAREN)
     LPAREN = auto()
@@ -270,6 +271,9 @@ def strip_variable_namespace(var_ref: str) -> str:
 # ---------------------------------------------------------------------------
 
 # Variable patterns (order matters — longest match first)
+# Project/package parameters use a leading '$' before the namespace,
+# e.g. @[$Project::Database] or @[$Package::FileServer]
+_PARAM_BRACKET_RE = re.compile(r"@\[\s*\$(?:Project|Package)::(\w+)\s*\]")
 _VAR_BRACKET_RE = re.compile(r"@\[\s*([\w:]+)\s*\]")      # @[User::Var]
 _VAR_PAREN_RE = re.compile(r"@\(\s*([\w:]+)\s*\)")         # @(User::Var)
 _VAR_BARE_RE = re.compile(r"@(\w+::\w+)")                   # @User::Var
@@ -310,6 +314,13 @@ def _tokenize(expr: str) -> list[_Token]:
         # Skip whitespace
         if expr[i].isspace():
             i += 1
+            continue
+
+        # Project/Package parameter: @[$Project::X] or @[$Package::X]
+        m = _PARAM_BRACKET_RE.match(expr, i)
+        if m:
+            tokens.append(_Token(_Tk.PARAMETER, m.group(1)))
+            i = m.end()
             continue
 
         # Variable: @[User::X], @(User::X), @User::X
@@ -531,6 +542,10 @@ class _Parser:
         if tok.kind == _Tk.VARIABLE:
             self.advance()
             return f"variables('{tok.value}')"
+
+        if tok.kind == _Tk.PARAMETER:
+            self.advance()
+            return f"pipeline().parameters.{tok.value}"
 
         if tok.kind == _Tk.IDENT:
             self.advance()

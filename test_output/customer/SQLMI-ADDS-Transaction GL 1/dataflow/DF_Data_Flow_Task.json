@@ -1,0 +1,92 @@
+{
+    "name": "DF_Data_Flow_Task",
+    "properties": {
+        "description": "Mapping Data Flow for SSIS Data Flow Task: Data Flow Task",
+        "type": "MappingDataFlow",
+        "typeProperties": {
+            "sources": [
+                {
+                    "name": "Data_Source",
+                    "description": "Source from SSIS OleDbSource: Data Source",
+                    "dataset": {
+                        "referenceName": "DS_Data_Source",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_57BD6F3A-2833-4081-B80C-517AD0B7E27A",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "AzureSqlTable"
+                        },
+                        "query": "--GL\n\n/****** Script for Transaction GL  ******/\n\n-- [GLAccountCR1]\nSELECT \n      [Agency]\n      ,[SubAgency]\n\t  ,[Biennium]\n      --[PostingFiscalMonth]\n\t  ,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE [PostingFiscalMonth]\n\t   END AS [Posting Fiscal Month]\n\t  --[Posting Adjust Month]\n\t,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,[AfrsDailyTransAddsId] AS [ADDS Transaction Key] \n\t  ,[GLAccountCR1] AS [GL Account]\n\t  ,'CR' AS [Dr Cr Ind]\n\t  ,IIF([SubsidiaryAccountA] <> '', [SubsidiaryAccountA], IIF([SubsidiaryAccountB] <> '', [SubsidiaryAccountB], '')) AS [Subsidiary Account]\n\t  ,IIF([ReverseInd] = 'R', [TransactionAmount],  -[TransactionAmount]) AS [GL Amount]\n\n FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS]\n WHERE [Agency] = 235\t\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND [PostingFiscalMonth] <> 00\t\t\t\t\t\t--Fiscal Posting Month not equal 00\n\t--AND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n\tAND [ProcessDate] >= '3-23-2026'\n\tAND [GLAccountCR1] <> ''\n\nUNION ALL\n\n-- [GLAccountDR1]\nSELECT \n      [Agency]\n      ,[SubAgency]\n\t  ,[Biennium]\n      --[PostingFiscalMonth]\n\t  ,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE [PostingFiscalMonth]\n\t   END AS [Posting Fiscal Month]\n\t  --[Posting Adjust Month]\n\t,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,[AfrsDailyTransAddsId] AS [ADDS Transaction Key] \n\t  ,[GLAccountDR1] AS [GL Account]\n\t  ,'DR' AS [Dr Cr Ind]\n\t  ,IIF([SubsidiaryAccountA] <> '', [SubsidiaryAccountA], IIF([SubsidiaryAccountB] <> '', [SubsidiaryAccountB], '')) AS [Subsidiary Account]\n\t  ,IIF([ReverseInd] = 'R', -[TransactionAmount],  [TransactionAmount]) AS [GL Amount]\n\n FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS]\n WHERE [Agency] = 235\t\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND [PostingFiscalMonth] <> 00\t\t\t\t\t\t--Fiscal Posting Month not equal 00\n\t--AND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n\tAND [ProcessDate] >= '3-23-2026'\n\tAND [GLAccountCR1] <> ''\n\nUNION ALL\n\n---- [GLAccountCR2]\nSELECT \n      [Agency]\n      ,[SubAgency]\n\t  ,[Biennium]\n      --[PostingFiscalMonth]\n\t  ,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE [PostingFiscalMonth]\n\t   END AS [Posting Fiscal Month]\n\t  --[Posting Adjust Month]\n\t,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,[AfrsDailyTransAddsId] AS [ADDS Transaction Key] \n\t  ,[GLAccountCR2] AS [GL Account]\n\t  ,'CR' AS [Dr Cr Ind]\n\t  ,IIF([SubsidiaryAccountA] <> '', [SubsidiaryAccountA], IIF([SubsidiaryAccountB] <> '', [SubsidiaryAccountB], '')) AS [Subsidiary Account]\n\t  ,IIF([ReverseInd] = 'R', [TransactionAmount],  -[TransactionAmount]) AS [GL Amount]\n\n FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS]\n WHERE [Agency] = 235\t\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND [PostingFiscalMonth] <> 00\t\t\t\t\t\t--Fiscal Posting Month not equal 00\n\t--AND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n\tAND [ProcessDate] >= '3-23-2026'\n\tAND [GLAccountCR1] <> ''\n\nUNION ALL\n\n-- [GLAccountDR2]\nSELECT \n      [Agency]\n      ,[SubAgency]\n\t  ,[Biennium]\n      --[PostingFiscalMonth]\n\t  ,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE [PostingFiscalMonth]\n\t   END AS [Posting Fiscal Month]\n\t  --[Posting Adjust Month]\n\t,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,[AfrsDailyTransAddsId] AS [ADDS Transaction Key] \n\t  ,[GLAccountDR2] AS [GL Account]\n\t  ,'DR' AS [Dr Cr Ind]\n\t  ,IIF([SubsidiaryAccountA] <> '', [SubsidiaryAccountA], IIF([SubsidiaryAccountB] <> '', [SubsidiaryAccountB], '')) AS [Subsidiary Account]\n\t  ,IIF([ReverseInd] = 'R', -[TransactionAmount],  [TransactionAmount]) AS [GL Amount]\n FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS]\n WHERE [Agency] = 235\t\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND [PostingFiscalMonth] <> 00\t\t\t\t\t\t--Fiscal Posting Month not equal 00\n\t--AND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n\tAND [ProcessDate] >= '3-23-2026'\n\tAND [GLAccountCR1] <> ''\n\nUNION ALL \n\n---- [GLAccountCR3]\nSELECT \n      [Agency]\n      ,[SubAgency]\n\t  ,[Biennium]\n      --[PostingFiscalMonth]\n\t  ,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE [PostingFiscalMonth]\n\t   END AS [Posting Fiscal Month]\n\t  --[Posting Adjust Month]\n\t,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,[AfrsDailyTransAddsId] AS [ADDS Transaction Key] \n\t  ,[GLAccountCR3] AS [GL Account]\n\t  ,'CR' AS [Dr Cr Ind]\n\t  ,IIF([SubsidiaryAccountA] <> '', [SubsidiaryAccountA], IIF([SubsidiaryAccountB] <> '', [SubsidiaryAccountB], '')) AS [Subsidiary Account]\n\t  ,IIF([ReverseInd] = 'R', [TransactionAmount],  -[TransactionAmount]) AS [GL Amount]\n\n FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS]\n WHERE [Agency] = 235\t\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND [PostingFiscalMonth] <> 00\t\t\t\t\t\t--Fiscal Posting Month not equal 00\n\t--AND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n\tAND [ProcessDate] >= '3-23-2026'\n\tAND [GLAccountCR1] <> ''\n\nUNION ALL\n\n---- [GLAccountDR3]\nSELECT \n      [Agency]\n      ,[SubAgency]\n\t  ,[Biennium]\n      --[PostingFiscalMonth]\n\t  ,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE [PostingFiscalMonth]\n\t   END AS [Posting Fiscal Month]\n\t  --[Posting Adjust Month]\n\t,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,[AfrsDailyTransAddsId] AS [ADDS Transaction Key] \n\t  ,[GLAccountDR3] AS [GL Account]\n\t  ,'DR' AS [Dr Cr Ind]\n\t  ,IIF([SubsidiaryAccountA] <> '', [SubsidiaryAccountA], IIF([SubsidiaryAccountB] <> '', [SubsidiaryAccountB], '')) AS [Subsidiary Account]\n\t  ,IIF([ReverseInd] = 'R', -[TransactionAmount],  [TransactionAmount]) AS [GL Amount]\n FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS]\n WHERE [Agency] = 235\t\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND [PostingFiscalMonth] <> 00\t\t\t\t\t\t--Fiscal Posting Month not equal 00\n\t--AND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n\tAND [ProcessDate] >= '3-23-2026'\n\tAND [GLAccountCR1] <> ''\n\nUNION ALL\n\n---- [GLAccountCR4]\nSELECT \n      [Agency]\n      ,[SubAgency]\n\t  ,[Biennium]\n      --[PostingFiscalMonth]\n\t  ,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE [PostingFiscalMonth]\n\t   END AS [Posting Fiscal Month]\n\t  --[Posting Adjust Month]\n\t,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,[AfrsDailyTransAddsId] AS [ADDS Transaction Key] \n\t  ,[GLAccountCR4] AS [GL Account]\n\t  ,'CR' AS [Dr Cr Ind]\n\t  ,IIF([SubsidiaryAccountA] <> '', [SubsidiaryAccountA], IIF([SubsidiaryAccountB] <> '', [SubsidiaryAccountB], '')) AS [Subsidiary Account]\n\t  ,IIF([ReverseInd] = 'R', [TransactionAmount],  -[TransactionAmount]) AS [GL Amount]\n\n FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS]\n WHERE [Agency] = 235\t\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND [PostingFiscalMonth] <> 00\t\t\t\t\t\t--Fiscal Posting Month not equal 00\n\t--AND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n\tAND [ProcessDate] >= '3-23-2026'\n\tAND [GLAccountCR1] <> ''\n\nUNION ALL\n\n---- [GLAccountDR4]\nSELECT \n      [Agency]\n      ,[SubAgency]\n\t  ,[Biennium]\n      --[PostingFiscalMonth]\n\t  ,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE [PostingFiscalMonth]\n\t   END AS [Posting Fiscal Month]\n\t  --[Posting Adjust Month]\n\t,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,[AfrsDailyTransAddsId] AS [ADDS Transaction Key] \n\t  ,[GLAccountDR4] AS [GL Account]\n\t  ,'DR' AS [Dr Cr Ind]\n\t  ,IIF([SubsidiaryAccountA] <> '', [SubsidiaryAccountA], IIF([SubsidiaryAccountB] <> '', [SubsidiaryAccountB], '')) AS [Subsidiary Account]\n\t  ,IIF([TransactionAmount] >= 0, [TransactionAmount], '' ) AS [GL Amount]\n FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS]\n WHERE [Agency] = 235\t\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND [PostingFiscalMonth] <> 00\t\t\t\t\t\t--Fiscal Posting Month not equal 00\n\t--AND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n\tAND [ProcessDate] >= '3-23-2026'\n\tAND [GLAccountCR1] <> ''\nORDER BY [AfrsDailyTransAddsId]"
+                    }
+                }
+            ],
+            "sinks": [
+                {
+                    "name": "CSV_Output",
+                    "description": "Sink from SSIS FlatFileDestination: CSV Output",
+                    "dataset": {
+                        "referenceName": "DS_CSV_Output",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_15FE9290-09E5-447B-B6A4-3A24FB896654",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "DelimitedText"
+                        },
+                        "allowUpsert": false
+                    }
+                }
+            ],
+            "transformations": [
+                {
+                    "name": "Derived_Column",
+                    "description": "SSIS DerivedColumn: Derived Column",
+                    "type": "DerivedColumn",
+                    "typeProperties": {
+                        "columns": []
+                    }
+                }
+            ],
+            "script": "source(output(\n        Biennium as string,\n        Agency as string,\n        SubAgency as string,\n        Posting Fiscal Month as string,\n        Posting Adjust Month as integer,\n        ADDS Transaction Key as integer,\n        GL Account as string,\n        Dr Cr Ind as string,\n        Subsidiary Account as string,\n        GL Amount as decimal\n    ),\n    allowSchemaDrift: true,\n    validateSchema: false,\n    isolationLevel: 'READ_UNCOMMITTED',\n    errorHandlingOption: 'stopOnFirstError') ~> Data_Source\nData_Source derive(/* TODO: add expressions */) ~> Derived_Column\nDerived_Column select(mapColumn(\n        Biennium, Agency, SubAgency, Posting Fiscal Month, Posting Adjust Month, ADDS Transaction Key, GL Account, Dr Cr Ind, Subsidiary Account, GL Amount\n    )) ~> CSV_Output_mapped\nCSV_Output_mapped sink(allowSchemaDrift: true,\n    validateSchema: false,\n    errorHandlingOption: 'stopOnFirstError',\n    deletable: false,\n    insertable: true,\n    updateable: false,\n    upsertable: false) ~> CSV_Output",
+            "scriptLines": [
+                "source(output(",
+                "        Biennium as string,",
+                "        Agency as string,",
+                "        SubAgency as string,",
+                "        Posting Fiscal Month as string,",
+                "        Posting Adjust Month as integer,",
+                "        ADDS Transaction Key as integer,",
+                "        GL Account as string,",
+                "        Dr Cr Ind as string,",
+                "        Subsidiary Account as string,",
+                "        GL Amount as decimal",
+                "    ),",
+                "    allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    isolationLevel: 'READ_UNCOMMITTED',",
+                "    errorHandlingOption: 'stopOnFirstError') ~> Data_Source",
+                "Data_Source derive(/* TODO: add expressions */) ~> Derived_Column",
+                "Derived_Column select(mapColumn(",
+                "        Biennium, Agency, SubAgency, Posting Fiscal Month, Posting Adjust Month, ADDS Transaction Key, GL Account, Dr Cr Ind, Subsidiary Account, GL Amount",
+                "    )) ~> CSV_Output_mapped",
+                "CSV_Output_mapped sink(allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    errorHandlingOption: 'stopOnFirstError',",
+                "    deletable: false,",
+                "    insertable: true,",
+                "    updateable: false,",
+                "    upsertable: false) ~> CSV_Output"
+            ]
+        },
+        "annotations": [
+            "ssis-adf-agent"
+        ]
+    }
+}

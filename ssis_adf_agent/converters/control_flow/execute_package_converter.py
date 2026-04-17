@@ -48,7 +48,8 @@ class ExecutePackageConverter(BaseConverter):
             }
 
         return [{
-            "name": task.name,
+            # ADF activity name limit is 55 chars.
+            "name": task.name[:55].rstrip("_"),
             "description": task.description or "",
             "type": "ExecutePipeline",
             "dependsOn": depends_on,

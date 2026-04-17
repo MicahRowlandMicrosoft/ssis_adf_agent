@@ -1,0 +1,364 @@
+{
+    "name": "DS_Data_Source",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_D0EC7691-66FF-4ECD-8873-1BDEBB324C92",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: Data Source",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "AzureSqlTable",
+        "typeProperties": {
+            "schema": "dbo",
+            "table": "activity"
+        },
+        "schema": [
+            {
+                "name": "Biennium",
+                "type": "string",
+                "length": 4
+            },
+            {
+                "name": "Agency",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "SubAgency",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Posting Fiscal Month",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "Posting Adjust Month",
+                "type": "int32"
+            },
+            {
+                "name": "ADDS Transaction Key",
+                "type": "int32"
+            },
+            {
+                "name": "Account",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "Account Detail",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Organization Index",
+                "type": "string",
+                "length": 4
+            },
+            {
+                "name": "Expenditure Authority Index",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "Program Index",
+                "type": "string",
+                "length": 5
+            },
+            {
+                "name": "PrePurge Project",
+                "type": "string",
+                "length": 4
+            },
+            {
+                "name": "PrePurge SubProject",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "PrePurge Project Phase",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "PrePurge Project Type",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Transaction Code",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "Modifier",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Reverse Code",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Master Index",
+                "type": "string",
+                "length": 8
+            },
+            {
+                "name": "OMWBE Pay Type",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Master Index Percentage",
+                "type": "int32"
+            },
+            {
+                "name": "Variable GL Account",
+                "type": "string",
+                "length": 4
+            },
+            {
+                "name": "Input Fiscal Month",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "Input Adjusting Month",
+                "type": "int32"
+            },
+            {
+                "name": "Major Source",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "Source",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "SubSource",
+                "type": "string",
+                "length": 6
+            },
+            {
+                "name": "Object",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "SubObject",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "SubsubObject",
+                "type": "string",
+                "length": 4
+            },
+            {
+                "name": "Vendor Num",
+                "type": "string",
+                "length": 10
+            },
+            {
+                "name": "Vendor Num Suffix",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "Vendor Name",
+                "type": "string",
+                "length": 32
+            },
+            {
+                "name": "Contract Num",
+                "type": "string",
+                "length": 11
+            },
+            {
+                "name": "IRS Box",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Use Tax",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Agency Flag",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "Vendor Trailer",
+                "type": "string",
+                "length": 4000
+            },
+            {
+                "name": "Current Document Num",
+                "type": "string",
+                "length": 8
+            },
+            {
+                "name": "Current Document Num Suffix",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "Doc Date",
+                "type": "string",
+                "length": 30
+            },
+            {
+                "name": "Reference Doc Num",
+                "type": "string",
+                "length": 8
+            },
+            {
+                "name": "Reference Doc Num Suffix",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "Invoice Num",
+                "type": "string",
+                "length": 30
+            },
+            {
+                "name": "Invoice Date",
+                "type": "string",
+                "length": 30
+            },
+            {
+                "name": "Order Num",
+                "type": "string",
+                "length": 10
+            },
+            {
+                "name": "Workclass",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "Budget Unit",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "City",
+                "type": "string",
+                "length": 4
+            },
+            {
+                "name": "County",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "Month Of Service",
+                "type": "int32"
+            },
+            {
+                "name": "Allocation",
+                "type": "string",
+                "length": 4
+            },
+            {
+                "name": "Submit Agency",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "Submit Subagency",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Batch Date",
+                "type": "string",
+                "length": 30
+            },
+            {
+                "name": "Batch Type",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "Batch Num",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "Batch Sequence Num",
+                "type": "string",
+                "length": 5
+            },
+            {
+                "name": "Dup Rec Ind",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Warrant Num",
+                "type": "string",
+                "length": 7
+            },
+            {
+                "name": "Warrant Register Num",
+                "type": "int32"
+            },
+            {
+                "name": "Prompt Pay Date",
+                "type": "string",
+                "length": 8
+            },
+            {
+                "name": "Warrant Batch Fiscal Month",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Warrant Batch Type",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Warrant Batch Num",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Process Date",
+                "type": "string",
+                "length": 16
+            },
+            {
+                "name": "TAPS Origin",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "TAPS Status",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "TAPS Packet Num",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Account Num",
+                "type": "string",
+                "length": 30
+            }
+        ]
+    }
+}

@@ -186,6 +186,18 @@ def generate_pipeline(
             **({"defaultValue": p.value} if p.value is not None else {}),
         }
 
+    # Project-level parameters (from Project.params) are exposed as pipeline
+    # parameters so SSIS expressions like @[$Project::Database] (translated to
+    # pipeline().parameters.Database) resolve at runtime. Sensitive params get
+    # no defaultValue so the deployer must inject a value (Key Vault, etc.).
+    for p in package.project_parameters:
+        if p.name in parameters:
+            continue
+        entry: dict[str, Any] = {"type": _map_param_type(p.data_type)}
+        if p.value is not None and not p.sensitive:
+            entry["defaultValue"] = p.value
+        parameters[p.name] = entry
+
     # Add implicit parameters for function URLs (referenced by File System / Send Mail converters)
     _inject_function_url_params(parameters, activities)
 

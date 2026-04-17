@@ -1,0 +1,168 @@
+{
+    "name": "PL_SQLMI-ADDS-Transaction-Control",
+    "properties": {
+        "description": "Auto-generated from SSIS package: C:\\Users\\rowlandmicah\\Downloads\\Project\\SQLMI-ADDS-Transaction-Control.dtsx. Review flagged activities before deploying.",
+        "activities": [
+            {
+                "name": "Copy Template",
+                "description": "[CONVERTED FROM FileSystemTask — operation: CopyFile] File System Task",
+                "type": "WebActivity",
+                "dependsOn": [],
+                "typeProperties": {
+                    "method": "POST",
+                    "url": "@pipeline().parameters.FileSystemFunctionUrl",
+                    "body": {
+                        "operation": "CopyFile",
+                        "source": "",
+                        "destination": "",
+                        "overwrite": false
+                    },
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "https://management.azure.com/"
+                    }
+                }
+            },
+            {
+                "name": "Data Flow Task",
+                "description": "Data Flow Task",
+                "type": "ExecuteDataFlow",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "1.00:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 60,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "dataflow": {
+                        "referenceName": "DF_Data_Flow_Task",
+                        "type": "DataFlowReference"
+                    },
+                    "compute": {
+                        "coreCount": 8,
+                        "computeType": "General"
+                    },
+                    "traceLevel": "None"
+                }
+            },
+            {
+                "name": "Rename File",
+                "description": "[CONVERTED FROM FileSystemTask — operation: CopyFile] File System Task",
+                "type": "WebActivity",
+                "dependsOn": [],
+                "typeProperties": {
+                    "method": "POST",
+                    "url": "@pipeline().parameters.FileSystemFunctionUrl",
+                    "body": {
+                        "operation": "CopyFile",
+                        "source": "",
+                        "destination": "",
+                        "overwrite": false
+                    },
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "https://management.azure.com/"
+                    }
+                }
+            },
+            {
+                "name": "Set Attributes",
+                "description": "[CONVERTED FROM FileSystemTask — operation: CopyFile] File System Task",
+                "type": "WebActivity",
+                "dependsOn": [],
+                "typeProperties": {
+                    "method": "POST",
+                    "url": "@pipeline().parameters.FileSystemFunctionUrl",
+                    "body": {
+                        "operation": "CopyFile",
+                        "source": "",
+                        "destination": "",
+                        "overwrite": false
+                    },
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "https://management.azure.com/"
+                    }
+                }
+            }
+        ],
+        "parameters": {
+            "cs": {
+                "type": "String"
+            },
+            "Database": {
+                "type": "String",
+                "defaultValue": "Insert_DB_Name_Here"
+            },
+            "DatabaseServer": {
+                "type": "String",
+                "defaultValue": "Insert_SQL_Server_Name_Here"
+            },
+            "DBUserID": {
+                "type": "String",
+                "defaultValue": "Insert_DB_User_Name_Here"
+            },
+            "DBPassword": {
+                "type": "String",
+                "defaultValue": "This_is_not_the_password"
+            },
+            "Environment": {
+                "type": "String",
+                "defaultValue": "TEST"
+            },
+            "FileServer": {
+                "type": "String",
+                "defaultValue": "FileServerName.FQDN"
+            },
+            "FileSystemFunctionUrl": {
+                "type": "String",
+                "defaultValue": "https://TODO.azurewebsites.net/api/FileSystemFunction"
+            }
+        },
+        "variables": {
+            "biennium": {
+                "type": "String",
+                "defaultValue": "2027"
+            },
+            "csv_file_template": {
+                "type": "String",
+                "defaultValue": "ADDS - Transaction Control_Template.csv"
+            },
+            "dest_wrk_path": {
+                "type": "String",
+                "defaultValue": "\\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\2027"
+            },
+            "FileServerShare": {
+                "type": "String",
+                "defaultValue": "NOT_PROD_SHARE\\1"
+            },
+            "mail_msg": {
+                "type": "String",
+                "defaultValue": "Test Email"
+            },
+            "Package": {
+                "type": "String",
+                "defaultValue": "ADDS - Transaction Control"
+            },
+            "ReNameFile": {
+                "type": "String",
+                "defaultValue": "\\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\2027\\ADDS - Transaction Control.csv"
+            },
+            "SetAttribute": {
+                "type": "String",
+                "defaultValue": "\\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\2027\\ADDS - Transaction Control_Template.csv"
+            },
+            "src_wrk_path": {
+                "type": "String",
+                "defaultValue": "\\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\Templates\\ADDS - Transaction Control_Template.csv"
+            }
+        },
+        "annotations": [
+            "ssis-adf-agent",
+            "source-package:SQLMI-ADDS-Transaction-Control",
+            "has-cross-db-references"
+        ]
+    }
+}

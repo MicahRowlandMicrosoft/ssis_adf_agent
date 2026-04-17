@@ -1,0 +1,68 @@
+{
+    "name": "DS_Flat_File_Source",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_4F901A4F-BEF0-4040-B254-1C263316BA25",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: Flat File Source",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "DelimitedText",
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobStorageLocation",
+                "fileName": "C:\\Outputs\\Pivot\\Unpivot Source.txt",
+                "folderPath": "TODO_folder",
+                "container": "TODO_container"
+            },
+            "columnDelimiter": ",",
+            "rowDelimiter": "\n",
+            "firstRowAsHeader": true,
+            "quoteChar": "\""
+        },
+        "schema": [
+            {
+                "name": "Month",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "Sunday",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "Monday",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "Tuesday",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "Wednesday",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "Thrusday",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "Friday",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "Saturday",
+                "type": "string",
+                "length": 50
+            }
+        ]
+    }
+}

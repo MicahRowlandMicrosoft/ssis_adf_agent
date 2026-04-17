@@ -1,0 +1,55 @@
+{
+    "name": "DF_Data_Flow_Task",
+    "properties": {
+        "description": "Mapping Data Flow for SSIS Data Flow Task: Data Flow Task",
+        "type": "MappingDataFlow",
+        "typeProperties": {
+            "sources": [
+                {
+                    "name": "Flat_File_Source",
+                    "description": "Source from SSIS FlatFileSource: Flat File Source",
+                    "dataset": {
+                        "referenceName": "DS_Flat_File_Source",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_2B2B49AE-7CA3-4DF8-96B5-36BA66F30A0C",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "DelimitedText"
+                        }
+                    }
+                }
+            ],
+            "sinks": [],
+            "transformations": [
+                {
+                    "name": "Pivot",
+                    "description": "[Unknown component type: Pivot] — manual review needed.",
+                    "type": "DerivedColumn",
+                    "typeProperties": {
+                        "columns": []
+                    }
+                }
+            ],
+            "script": "source(output(\n        Month as string,\n        DayOfWeek as string,\n        Expenses as string\n    ),\n    allowSchemaDrift: true,\n    validateSchema: false,\n    isolationLevel: 'READ_UNCOMMITTED',\n    errorHandlingOption: 'stopOnFirstError') ~> Flat_File_Source\nFlat_File_Source derive(/* TODO: add expressions */) ~> Pivot",
+            "scriptLines": [
+                "source(output(",
+                "        Month as string,",
+                "        DayOfWeek as string,",
+                "        Expenses as string",
+                "    ),",
+                "    allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    isolationLevel: 'READ_UNCOMMITTED',",
+                "    errorHandlingOption: 'stopOnFirstError') ~> Flat_File_Source",
+                "Flat_File_Source derive(/* TODO: add expressions */) ~> Pivot"
+            ]
+        },
+        "annotations": [
+            "ssis-adf-agent"
+        ]
+    }
+}

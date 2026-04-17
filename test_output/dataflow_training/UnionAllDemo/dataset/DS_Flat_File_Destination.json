@@ -1,0 +1,48 @@
+{
+    "name": "DS_Flat_File_Destination",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_24B6B615-F5F7-432E-8835-D8A09175C513",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: Flat File Destination",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "DelimitedText",
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobStorageLocation",
+                "fileName": "C:\\Outputs\\UnionAllDemo.csv",
+                "folderPath": "TODO_folder",
+                "container": "TODO_container"
+            },
+            "columnDelimiter": ",",
+            "rowDelimiter": "\n",
+            "firstRowAsHeader": true,
+            "quoteChar": "\""
+        },
+        "schema": [
+            {
+                "name": "StateProvinceID",
+                "type": "int32"
+            },
+            {
+                "name": "StateProvinceCode",
+                "type": "string"
+            },
+            {
+                "name": "CountryRegionCode",
+                "type": "string"
+            },
+            {
+                "name": "Name",
+                "type": "string"
+            },
+            {
+                "name": "TerritoryID",
+                "type": "int32"
+            }
+        ]
+    }
+}

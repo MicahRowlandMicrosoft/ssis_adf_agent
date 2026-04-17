@@ -1,0 +1,43 @@
+{
+    "name": "DS_Flat_File_Source",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_0A266AB1-94EC-4C38-AB02-B429AE76655B",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: Flat File Source",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "DelimitedText",
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobStorageLocation",
+                "fileName": "C:\\Outputs\\Fuzzy\\FuzzyLookup.txt",
+                "folderPath": "TODO_folder",
+                "container": "TODO_container"
+            },
+            "columnDelimiter": ",",
+            "rowDelimiter": "\n",
+            "firstRowAsHeader": true,
+            "quoteChar": "\""
+        },
+        "schema": [
+            {
+                "name": "LASTNAME",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "FIRSTNAME",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "TITLE",
+                "type": "string",
+                "length": 50
+            }
+        ]
+    }
+}

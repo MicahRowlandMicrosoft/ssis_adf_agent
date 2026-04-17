@@ -100,6 +100,55 @@ CLSID_MAP: dict[str, str] = {
     "{ACA08B87-CCDE-4BA4-BFBF-09AC42891D56}": "SqlServerDestination",
 }
 
+# Modern SSIS (2012+) uses string-based componentClassIDs instead of GUIDs.
+# Map them to the same short names used in CLSID_MAP so converters and
+# generators see consistent component_type values.
+CLASSNAME_MAP: dict[str, str] = {
+    "Microsoft.OLEDBSource": "OleDbSource",
+    "Microsoft.OLEDBDestination": "OleDbDestination",
+    "Microsoft.OLEDBCommand": "OleDbCommand",
+    "Microsoft.FlatFileSource": "FlatFileSource",
+    "Microsoft.FlatFileDestination": "FlatFileDestination",
+    "Microsoft.ExcelSource": "ExcelSource",
+    "Microsoft.ExcelDestination": "ExcelDestination",
+    "Microsoft.OdbcSource": "OdbcSource",
+    "Microsoft.OdbcDestination": "OdbcDestination",
+    "Microsoft.ADONETSource": "ADONetSource",
+    "Microsoft.ADONETDestination": "ADONetDestination",
+    "Microsoft.SqlServerDestination": "SqlServerDestination",
+    "Microsoft.RawFileSource": "RawFileSource",
+    "Microsoft.RawFileDestination": "RawFileDestination",
+    "Microsoft.RecordsetDestination": "RecordsetDestination",
+    "Microsoft.Lookup": "Lookup",
+    "Microsoft.DerivedColumn": "DerivedColumn",
+    "Microsoft.ConditionalSplit": "ConditionalSplit",
+    "Microsoft.Multicast": "Multicast",
+    "Microsoft.UnionAll": "UnionAll",
+    "Microsoft.Aggregate": "Aggregate",
+    "Microsoft.Sort": "Sort",
+    "Microsoft.MergeJoin": "MergeJoin",
+    "Microsoft.Merge": "Merge",
+    "Microsoft.DataConvert": "DataConversion",
+    "Microsoft.CharacterMap": "CharacterMap",
+    "Microsoft.RowCount": "RowCount",
+    "Microsoft.ManagedComponentHost": "ScriptComponent",  # Script Component host
+    "Microsoft.ScriptComponentHost": "ScriptComponent",
+    "Microsoft.TermExtraction": "TermExtraction",
+    "Microsoft.TermLookup": "TermLookup",
+    "Microsoft.FuzzyLookup": "FuzzyLookup",
+    "Microsoft.FuzzyGrouping": "FuzzyGrouping",
+    "Microsoft.Extractor": "ExportColumn",   # SSIS Export Column
+    "Microsoft.Inserter": "ImportColumn",    # SSIS Import Column
+    "Microsoft.Cache": "Cache",
+    "Microsoft.Pivot": "Pivot",
+    "Microsoft.UnPivot": "Unpivot",
+    "Microsoft.PctSampling": "PercentSampling",
+    "Microsoft.RowSampling": "RowSampling",
+    "Microsoft.SCD": "SlowlyChangingDimension",
+    "Microsoft.AuditOp": "Audit",
+    "Microsoft.CopyMap": "CopyColumn",
+}
+
 
 def _tag(ns: str, local: str) -> str:
     return f"{{{ns}}}{local}"
@@ -132,6 +181,105 @@ def _clean_id(raw: str | None) -> str:
     if not raw:
         return str(uuid.uuid4())
     return raw.strip("{}").upper()
+
+
+def _resolve_component_connection_refs(tasks, connection_managers) -> None:
+    """Walk all data-flow components and resolve connection_id (which may be a
+    bracket-name reference like 'Excel Connection Manager') to the matching
+    connection manager's id (DTSID). Modifies tasks in place.
+    """
+    if not connection_managers:
+        return
+    # Build name → id map (case-insensitive)
+    name_to_id = {(cm.name or "").upper(): cm.id for cm in connection_managers}
+    valid_ids = {cm.id for cm in connection_managers}
+
+    def _walk(items):
+        for t in items:
+            comps = getattr(t, "components", None)
+            if comps:
+                for c in comps:
+                    cid = c.connection_id
+                    if cid and cid not in valid_ids:
+                        # Try resolving as a bracket name (already cleaned/uppercased)
+                        resolved = name_to_id.get(cid.upper())
+                        if resolved:
+                            c.connection_id = resolved
+            sub = getattr(t, "tasks", None)
+            if sub:
+                _walk(sub)
+
+    _walk(tasks)
+
+
+# ---------------------------------------------------------------------------
+# Project.params loader
+# ---------------------------------------------------------------------------
+
+# DataType code → SSIS type name (subset; covers common scalar types)
+# Codes per Microsoft.SqlServer.Dts.Runtime.TypeCode
+_PROJECT_PARAM_DATA_TYPE_MAP = {
+    "2": "Int16",
+    "3": "Int32",
+    "6": "Single",
+    "7": "Double",
+    "8": "String",       # legacy
+    "11": "Boolean",
+    "13": "Object",
+    "14": "Decimal",
+    "16": "SByte",
+    "17": "Byte",
+    "18": "String",      # most common (DataType=18 is String/wstr)
+    "20": "Int64",
+    "21": "UInt64",
+}
+
+_SSIS_NS = "{www.microsoft.com/SqlServer/SSIS}"
+
+
+def parse_project_params(path: Path) -> list[SSISParameter]:
+    """Parse a Project.params file and return its parameters.
+
+    Project.params uses a different schema from package-level parameters:
+    the SSIS namespace (`www.microsoft.com/SqlServer/SSIS`) and a
+    `<SSIS:Properties><SSIS:Property SSIS:Name="...">value</SSIS:Property>`
+    structure rather than DTS attribute-based form.
+    """
+    if not path.exists():
+        return []
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        root = etree.fromstring(raw.encode("utf-8"))
+    except Exception as exc:  # pragma: no cover - defensive
+        warn(
+            phase="parse", severity="warning", source="parse_project_params",
+            message=f"Failed to parse {path}: {exc}",
+        )
+        return []
+
+    params: list[SSISParameter] = []
+    for p_elem in root.findall(f"{_SSIS_NS}Parameter"):
+        name = p_elem.get(f"{_SSIS_NS}Name") or ""
+        props_container = p_elem.find(f"{_SSIS_NS}Properties")
+        if props_container is None:
+            continue
+        prop_map: dict[str, str | None] = {}
+        for prop in props_container.findall(f"{_SSIS_NS}Property"):
+            pname = prop.get(f"{_SSIS_NS}Name") or ""
+            prop_map[pname] = prop.text
+        data_type_code = (prop_map.get("DataType") or "18").strip()
+        data_type = _PROJECT_PARAM_DATA_TYPE_MAP.get(data_type_code, "String")
+        required = (prop_map.get("Required") or "0").strip() != "0"
+        sensitive = (prop_map.get("Sensitive") or "0").strip() != "0"
+        value = prop_map.get("Value")
+        params.append(SSISParameter(
+            name=name,
+            data_type=data_type,
+            value=value,
+            required=required,
+            sensitive=sensitive,
+        ))
+    return params
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +625,9 @@ class SSISParser:
         parameters = self._parse_parameters(root)
         tasks, constraints = self._parse_executables(root)
         event_handlers = self._parse_event_handlers(root)
+
+        # Post-process: resolve component connection refs (bracket-names) to CM DTSIDs
+        _resolve_component_connection_refs(tasks, connection_managers)
 
         return SSISPackage(
             id=pkg_id,
@@ -1062,7 +1213,13 @@ class SSISParser:
                 if components_elem is not None:
                     for comp in components_elem.findall(f"{pipeline_ns}component") + \
                                 components_elem.findall("component"):
-                        dfc = self._parse_df_component(comp, pipeline_ns)
+                        # Detect actual namespace from this element (modern SSIS may
+                        # omit the pipeline namespace on inner elements)
+                        actual_ns = ""
+                        qname = etree.QName(comp.tag)
+                        if qname.namespace:
+                            actual_ns = f"{{{qname.namespace}}}"
+                        dfc = self._parse_df_component(comp, actual_ns)
                         if dfc:
                             components.append(dfc)
 
@@ -1105,15 +1262,26 @@ class SSISParser:
         comp_id = comp.get("id") or str(uuid.uuid4())
         comp_name = comp.get("name") or comp_id
         class_id = comp.get("classID") or comp.get("componentClassID") or ""
-        comp_type = CLSID_MAP.get(class_id.strip("{}").upper(), class_id)
+        # Try GUID-based map first, then string-based map (modern SSIS), then raw
+        comp_type = CLSID_MAP.get(class_id.strip("{}").upper())
+        if not comp_type:
+            comp_type = CLASSNAME_MAP.get(class_id, class_id)
         if not comp_type:
             comp_type = comp.get("componentName") or "Unknown"
 
         conn_id: str | None = None
         # Connection managers for this component
         for cm_ref in comp.iter(f"{ns}connection"):
-            if cm_ref.get("id"):
-                conn_id = _clean_id(cm_ref.get("componentId") or cm_ref.get("id"))
+            # Modern SSIS uses connectionManagerID/connectionManagerRefId attributes
+            # which contain a refId like "Package.ConnectionManagers[Excel Connection Manager]"
+            ref = (cm_ref.get("connectionManagerID")
+                   or cm_ref.get("connectionManagerRefId")
+                   or cm_ref.get("componentId")
+                   or cm_ref.get("id"))
+            if ref:
+                # Extract the bracket name as the conn_id (matches CM ObjectName)
+                m = re.search(r"\[([^\[\]]+)\]\s*$", ref)
+                conn_id = _clean_id(m.group(1) if m else ref)
                 break
 
         # Component-level properties only (direct <properties> child, not recursive)
@@ -1177,7 +1345,7 @@ class SSISParser:
         )
 
     def _parse_df_column(self, col: etree._Element, ns: str = "") -> DataFlowColumn:
-        dt_str = col.get("dataType") or "wstr"
+        dt_str = col.get("dataType") or col.get("cachedDataType") or "wstr"
         try:
             dt = DataType(dt_str)
         except ValueError:
@@ -1186,7 +1354,7 @@ class SSISParser:
         # Extract column-level properties (Expression, JoinToReferenceColumn,
         # AggregationType, SortKeyPosition, etc.)
         col_props: dict[str, Any] = {}
-        props_container = col.find(f"{ns}properties") if ns else None
+        props_container = col.find(f"{ns}properties")
         if props_container is not None:
             for prop in props_container.findall(f"{ns}property"):
                 pname = prop.get("name")
@@ -1198,8 +1366,26 @@ class SSISParser:
         if lineage_id:
             col_props["_lineageId"] = lineage_id
 
+        # Modern SSIS exposes some properties as cached* attributes on the column
+        # element itself (cachedSortKeyPosition, cachedComparisonFlags, etc.)
+        # Surface them under their canonical property name so converters that
+        # look for "SortKeyPosition" / "ComparisonFlags" find them.
+        for attr_name, attr_val in col.attrib.items():
+            if attr_name.startswith("cached") and len(attr_name) > 6:
+                canonical = attr_name[6].upper() + attr_name[7:]
+                col_props.setdefault(canonical, attr_val)
+
+        # Resolve column name: prefer name → cachedName → extract from refId/lineageId
+        col_name = col.get("name") or col.get("cachedName")
+        if not col_name:
+            ref = col.get("refId") or col.get("externalMetadataColumnId") or lineage_id or ""
+            # Extract trailing [Name] segment from the refId
+            import re as _re
+            m = _re.search(r"\[([^\[\]]+)\]\s*$", ref)
+            col_name = m.group(1) if m else (ref.rsplit(".", 1)[-1] if ref else "column")
+
         return DataFlowColumn(
-            name=col.get("name") or col.get("externalMetadataColumnId") or "column",
+            name=col_name,
             data_type=dt,
             length=int(col.get("length") or "0"),
             precision=int(col.get("precision") or "0"),

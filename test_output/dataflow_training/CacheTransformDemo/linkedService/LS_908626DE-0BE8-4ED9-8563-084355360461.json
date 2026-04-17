@@ -1,0 +1,21 @@
+{
+    "name": "LS_908626DE-0BE8-4ED9-8563-084355360461",
+    "properties": {
+        "description": "[MANUAL REVIEW] Unknown connection type 'Unknown' for 'Cache Connection Manager'. Update type and typeProperties.",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "connectVia": {
+            "referenceName": "SelfHostedIR",
+            "type": "IntegrationRuntimeReference"
+        },
+        "type": "AzureSqlDatabase",
+        "typeProperties": {
+            "server": "TODO_SERVER",
+            "database": "TODO_DATABASE",
+            "encrypt": "mandatory",
+            "trustServerCertificate": false,
+            "authenticationType": "SystemAssignedManagedIdentity"
+        }
+    }
+}

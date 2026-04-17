@@ -141,9 +141,9 @@ def _build_dataset(
         props["typeProperties"] = {
             "location": {
                 "type": "AzureBlobStorageLocation",
-                "fileName": file_path or "TODO_filename.csv",
-                "folderPath": "TODO_folder",
-                "container": "TODO_container",
+                "fileName": file_path or "todo-filename.csv",
+                "folderPath": "todo-folder",
+                "container": "todo-container",
             },
             "columnDelimiter": ",",
             "rowDelimiter": "\n",
@@ -155,8 +155,8 @@ def _build_dataset(
         props["typeProperties"] = {
             "location": {
                 "type": "AzureBlobStorageLocation",
-                "fileName": file_path or "TODO_file.xlsx",
-                "container": "TODO_container",
+                "fileName": file_path or "todo-file.xlsx",
+                "container": "todo-container",
             },
             "sheetIndex": 0,
             "firstRowAsHeader": True,

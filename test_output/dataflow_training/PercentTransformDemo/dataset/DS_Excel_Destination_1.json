@@ -1,0 +1,41 @@
+{
+    "name": "DS_Excel_Destination_1",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_40838050-5E3F-44FC-A844-7E437AA44E71",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: Excel Destination 1",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "Excel",
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobStorageLocation",
+                "fileName": "TODO_file.xlsx",
+                "container": "TODO_container"
+            },
+            "sheetIndex": 0,
+            "firstRowAsHeader": true
+        },
+        "schema": [
+            {
+                "name": "Title",
+                "type": "string"
+            },
+            {
+                "name": "FirstName",
+                "type": "string"
+            },
+            {
+                "name": "MiddleName",
+                "type": "string"
+            },
+            {
+                "name": "LastName",
+                "type": "string"
+            }
+        ]
+    }
+}

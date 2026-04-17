@@ -1,0 +1,18 @@
+{
+    "name": "LS_83BC83D9-0964-4E95-AD1A-D90C7CFACFA6",
+    "properties": {
+        "description": "Auto-generated from SSIS Connection Manager: Flat File Connection Manager",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "connectVia": {
+            "referenceName": "SelfHostedIR",
+            "type": "IntegrationRuntimeReference"
+        },
+        "type": "AzureBlobStorage",
+        "typeProperties": {
+            "connectionString": "DefaultEndpointsProtocol=https;AccountName=TODO;AccountKey=TODO",
+            "note": "Original flat file path: \\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\2027\\ADDS - Transaction Control.csv. Replace with Azure Blob Storage or ADLS Gen2 connection string."
+        }
+    }
+}

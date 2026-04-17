@@ -1,0 +1,102 @@
+{
+    "name": "DF_Data_Flow_Task",
+    "properties": {
+        "description": "Mapping Data Flow for SSIS Data Flow Task: Data Flow Task",
+        "type": "MappingDataFlow",
+        "typeProperties": {
+            "sources": [
+                {
+                    "name": "Flat_File_Source",
+                    "description": "Source from SSIS FlatFileSource: Flat File Source",
+                    "dataset": {
+                        "referenceName": "DS_Flat_File_Source",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_0A266AB1-94EC-4C38-AB02-B429AE76655B",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "DelimitedText"
+                        }
+                    }
+                }
+            ],
+            "sinks": [
+                {
+                    "name": "OLE_DB_Destination",
+                    "description": "Sink from SSIS OleDbDestination: OLE DB Destination",
+                    "dataset": {
+                        "referenceName": "DS_OLE_DB_Destination",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_296BF73E-80B8-4A3E-9854-764E4F3C2655",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "AzureSqlTable"
+                        },
+                        "allowUpsert": false,
+                        "tableName": "[dbo].[Occupation]"
+                    }
+                }
+            ],
+            "transformations": [
+                {
+                    "name": "Conditional_Split",
+                    "description": "SSIS ConditionalSplit: Conditional Split",
+                    "type": "ConditionalSplit",
+                    "typeProperties": {
+                        "conditions": [
+                            {
+                                "name": "Perfect_Match",
+                                "expression": "#{Package\\Data Flow Task\\Fuzzy Grouping.OutputsFuzzy Grouping Output.Columns_key_in} == #{Package\\Data Flow Task\\Fuzzy Grouping.OutputsFuzzy Grouping Output.Columns_key_out}"
+                            },
+                            {
+                                "name": "Conditional_Split_Default_Output",
+                                "expression": "/* TODO: condition for Conditional Split Default Output */"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Fuzzy_Grouping",
+                    "description": "[UNSUPPORTED — FuzzyGrouping] Manual implementation required. This component has no ADF Mapping Data Flow equivalent.",
+                    "type": "Wait",
+                    "typeProperties": {}
+                }
+            ],
+            "script": "source(output(\n        LASTNAME as string,\n        FIRSTNAME as string,\n        TITLE as string\n    ),\n    allowSchemaDrift: true,\n    validateSchema: false,\n    isolationLevel: 'READ_UNCOMMITTED',\n    errorHandlingOption: 'stopOnFirstError') ~> Flat_File_Source\nFlat_File_Source split(Perfect_Match: (#{Package\\Data Flow Task\\Fuzzy Grouping.OutputsFuzzy Grouping Output.Columns_key_in} == #{Package\\Data Flow Task\\Fuzzy Grouping.OutputsFuzzy Grouping Output.Columns_key_out}), Conditional_Split_Default_Output: (/* TODO: condition for Conditional Split Default Output */),\n    disjoint: true) ~> Conditional_Split\nConditional_Split derive(/* TODO: Wait */) ~> Fuzzy_Grouping\nFuzzy_Grouping select(mapColumn(\n        TITLE_clean\n    )) ~> OLE_DB_Destination_mapped\nOLE_DB_Destination_mapped sink(allowSchemaDrift: true,\n    validateSchema: false,\n    errorHandlingOption: 'stopOnFirstError',\n    deletable: false,\n    insertable: true,\n    updateable: false,\n    upsertable: false) ~> OLE_DB_Destination",
+            "scriptLines": [
+                "source(output(",
+                "        LASTNAME as string,",
+                "        FIRSTNAME as string,",
+                "        TITLE as string",
+                "    ),",
+                "    allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    isolationLevel: 'READ_UNCOMMITTED',",
+                "    errorHandlingOption: 'stopOnFirstError') ~> Flat_File_Source",
+                "Flat_File_Source split(Perfect_Match: (#{Package\\Data Flow Task\\Fuzzy Grouping.OutputsFuzzy Grouping Output.Columns_key_in} == #{Package\\Data Flow Task\\Fuzzy Grouping.OutputsFuzzy Grouping Output.Columns_key_out}), Conditional_Split_Default_Output: (/* TODO: condition for Conditional Split Default Output */),",
+                "    disjoint: true) ~> Conditional_Split",
+                "Conditional_Split derive(/* TODO: Wait */) ~> Fuzzy_Grouping",
+                "Fuzzy_Grouping select(mapColumn(",
+                "        TITLE_clean",
+                "    )) ~> OLE_DB_Destination_mapped",
+                "OLE_DB_Destination_mapped sink(allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    errorHandlingOption: 'stopOnFirstError',",
+                "    deletable: false,",
+                "    insertable: true,",
+                "    updateable: false,",
+                "    upsertable: false) ~> OLE_DB_Destination"
+            ]
+        },
+        "annotations": [
+            "ssis-adf-agent"
+        ]
+    }
+}

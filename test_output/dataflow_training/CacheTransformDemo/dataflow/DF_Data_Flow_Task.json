@@ -1,0 +1,99 @@
+{
+    "name": "DF_Data_Flow_Task",
+    "properties": {
+        "description": "Mapping Data Flow for SSIS Data Flow Task: Data Flow Task",
+        "type": "MappingDataFlow",
+        "typeProperties": {
+            "sources": [
+                {
+                    "name": "OLE_DB_Source",
+                    "description": "Source from SSIS OleDbSource: OLE DB Source",
+                    "dataset": {
+                        "referenceName": "DS_OLE_DB_Source",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_B291C121-8D3D-4E1D-953A-784D7ACA2279",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "AzureSqlTable"
+                        },
+                        "query": "[Sales].[SalesOrderDetail]"
+                    }
+                }
+            ],
+            "sinks": [
+                {
+                    "name": "Excel_Destination",
+                    "description": "Sink from SSIS ExcelDestination: Excel Destination",
+                    "dataset": {
+                        "referenceName": "DS_Excel_Destination",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_1531DD18-5B64-48B2-B238-B584F22FEB6D",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "Excel"
+                        },
+                        "allowUpsert": false,
+                        "tableName": "Excel_Destination"
+                    }
+                }
+            ],
+            "transformations": [
+                {
+                    "name": "Lookup",
+                    "description": "SSIS Lookup: Lookup",
+                    "type": "Lookup",
+                    "typeProperties": {
+                        "lookupTable": {
+                            "referenceName": "DS_Lookup_lookup",
+                            "type": "DatasetReference"
+                        },
+                        "existsOrNotExists": "exists",
+                        "matchMultipleRows": false,
+                        "conditions": [
+                            {
+                                "leftColumn": "ProductID",
+                                "rightColumn": "ProductID"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "script": "source(output(\n        SalesOrderID as integer,\n        SalesOrderDetailID as integer,\n        OrderQty as short,\n        ProductID as integer,\n        LineTotal as decimal\n    ),\n    allowSchemaDrift: true,\n    validateSchema: false,\n    isolationLevel: 'READ_UNCOMMITTED',\n    errorHandlingOption: 'stopOnFirstError') ~> OLE_DB_Source\nOLE_DB_Source, lookup(ProductID == ProductID) ~> Lookup\nLookup select(mapColumn(\n        SalesOrderID, SalesOrderDetailID, OrderQty, ProductID, LineTotal, Name, ProductNumber, Color, ListPrice\n    )) ~> Excel_Destination_mapped\nExcel_Destination_mapped sink(allowSchemaDrift: true,\n    validateSchema: false,\n    errorHandlingOption: 'stopOnFirstError',\n    deletable: false,\n    insertable: true,\n    updateable: false,\n    upsertable: false) ~> Excel_Destination",
+            "scriptLines": [
+                "source(output(",
+                "        SalesOrderID as integer,",
+                "        SalesOrderDetailID as integer,",
+                "        OrderQty as short,",
+                "        ProductID as integer,",
+                "        LineTotal as decimal",
+                "    ),",
+                "    allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    isolationLevel: 'READ_UNCOMMITTED',",
+                "    errorHandlingOption: 'stopOnFirstError') ~> OLE_DB_Source",
+                "OLE_DB_Source, lookup(ProductID == ProductID) ~> Lookup",
+                "Lookup select(mapColumn(",
+                "        SalesOrderID, SalesOrderDetailID, OrderQty, ProductID, LineTotal, Name, ProductNumber, Color, ListPrice",
+                "    )) ~> Excel_Destination_mapped",
+                "Excel_Destination_mapped sink(allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    errorHandlingOption: 'stopOnFirstError',",
+                "    deletable: false,",
+                "    insertable: true,",
+                "    updateable: false,",
+                "    upsertable: false) ~> Excel_Destination"
+            ]
+        },
+        "annotations": [
+            "ssis-adf-agent"
+        ]
+    }
+}

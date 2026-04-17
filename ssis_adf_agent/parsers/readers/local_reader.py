@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..ssis_parser import SSISParser
+from ..ssis_parser import SSISParser, parse_project_params
 from ..models import SSISPackage
 from ...warnings_collector import warn
 
@@ -33,11 +33,26 @@ class LocalReader:
         return sorted(root.glob(pattern))
 
     def read(self, path: str | Path) -> SSISPackage:
-        """Parse and return a single .dtsx file."""
+        """Parse and return a single .dtsx file.
+
+        If a sibling ``Project.params`` file exists in the same directory,
+        its parameters are loaded onto ``package.project_parameters``.
+        """
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Package file not found: {p}")
-        return self._parser.parse(p)
+        pkg = self._parser.parse(p)
+        # Auto-load Project.params from the same directory (SSIS project layout)
+        params_file = p.parent / "Project.params"
+        if params_file.exists():
+            try:
+                pkg.project_parameters = parse_project_params(params_file)
+            except Exception as exc:  # pragma: no cover - defensive
+                warn(
+                    phase="parse", severity="warning", source="local_reader",
+                    message=f"Failed to load Project.params for {p.name}: {exc}",
+                )
+        return pkg
 
     def read_all(self, directory: str | Path, recursive: bool = True) -> list[SSISPackage]:
         """Scan *directory* and parse every .dtsx file found."""

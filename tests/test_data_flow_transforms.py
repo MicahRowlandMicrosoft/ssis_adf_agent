@@ -317,7 +317,8 @@ class TestConditionalSplitConverter:
         result = convert_transformation(self._make_split(conds))
         split_conds = result["typeProperties"]["conditions"]
         assert len(split_conds) == 2
-        assert split_conds[0]["name"] == "Active_Records"
+        # ADF Mapping Data Flow node names must be alphanumeric only.
+        assert split_conds[0]["name"] == "ActiveRecords"
         assert "Status" in split_conds[0]["expression"]
         assert "[" not in split_conds[0]["expression"]
 
@@ -777,13 +778,19 @@ class TestSourceOutputColumns:
         )
         source = convert_source(comp)
         script = _build_dsl_script([source], [], [{"name": "sink1"}])
-        assert "/* TODO: declare output schema */" in script
+        # ADF DSL rejects comment-only operator bodies, so a placeholder column
+        # is emitted instead of a bare TODO comment.
+        assert "_ssis_todo as string" in script
 
 
 class TestSinkColumnMapping:
     """Sink should emit select/mapColumn from input columns."""
 
-    def test_sink_with_input_columns_emits_map(self):
+    def test_sink_with_input_columns_does_not_emit_orphan_select(self):
+        # Implicit `select(mapColumn(...)) ~> <sink>_mapped` would create a node
+        # that is not declared in typeProperties.transformations, causing ADF
+        # to reject the data flow with "Unable to parse". The sink relies on
+        # allowSchemaDrift to pass columns through instead.
         sink_dict = {
             "name": "sink1",
             "_input_columns": [
@@ -795,9 +802,9 @@ class TestSinkColumnMapping:
         script = _build_dsl_script(
             [{"name": "src1"}], [], [sink_dict]
         )
-        assert "select(mapColumn(" in script
-        assert "ID" in script
-        assert "Amount" in script
+        assert "select(mapColumn(" not in script
+        assert "_mapped" not in script
+        assert "allowSchemaDrift: true" in script
 
     def test_sink_without_input_columns_no_map(self):
         sink_dict = {"name": "sink1", "_input_columns": [], "_key_columns": []}
@@ -1050,8 +1057,8 @@ class TestDataFlowGeneratorIntegration:
         for s in df["properties"]["typeProperties"]["sinks"]:
             assert "_input_columns" not in s
             assert "_key_columns" not in s
-        # Script should include the typed source schema and select(mapColumn)
+        # Script should include the typed source schema; no orphan _mapped node
         script = df["properties"]["typeProperties"]["script"]
         assert "id as integer" in script
         assert "nm as string" in script
-        assert "select(mapColumn(" in script
+        assert "_mapped" not in script

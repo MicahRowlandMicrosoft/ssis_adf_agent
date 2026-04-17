@@ -8,6 +8,7 @@ from typing import Any
 
 from ...parsers.models import DataFlowComponent
 from ...warnings_collector import warn
+from ._naming import safe_node_name
 
 # Map SSIS source component type → ADF dataset type
 _SOURCE_DATASET_TYPE: dict[str, str] = {
@@ -33,7 +34,10 @@ def convert_source(component: DataFlowComponent) -> dict[str, Any]:
     """
     comp_type = component.component_type
     ds_type = _SOURCE_DATASET_TYPE.get(comp_type, "AzureSqlTable")
-    safe_name = component.name.replace(" ", "_")
+    # ADF Mapping Data Flow node names must be alphanumeric only.
+    safe_name = safe_node_name(component.name, fallback="Source")
+    # Dataset resource names allow underscores; keep the underscore form for refs.
+    ds_ref_name = component.name.replace(" ", "_")
 
     conn_ref = component.connection_id
     if not conn_ref:
@@ -48,7 +52,7 @@ def convert_source(component: DataFlowComponent) -> dict[str, Any]:
         "name": safe_name,
         "description": f"Source from SSIS {comp_type}: {component.name}",
         "dataset": {
-            "referenceName": f"DS_{safe_name}",
+            "referenceName": f"DS_{ds_ref_name}",
             "type": "DatasetReference",
         },
         "linkedService": {

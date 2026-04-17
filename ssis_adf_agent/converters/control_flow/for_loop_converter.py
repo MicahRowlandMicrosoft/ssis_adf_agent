@@ -21,6 +21,10 @@ from ...parsers.models import (
     PrecedenceConstraint,
     SSISTask,
 )
+from ...translators.control_flow_expression import (
+    translate_control_flow_expr,
+    strip_variable_namespace,
+)
 from ..base_converter import BaseConverter
 
 
@@ -31,22 +35,8 @@ def _negate_ssis_expression(expr: str | None) -> str:
     """
     if not expr:
         return "@equals(1, 1)  /* TODO: translate loop condition */"
-    # Replace @(expr) SSIS syntax → ADF @(expr)
-    adf = _translate_ssis_expr(expr)
+    adf = translate_control_flow_expr(expr)
     return f"@not({adf})"
-
-
-def _translate_ssis_expr(expr: str) -> str:
-    """Best-effort translation of common SSIS expression patterns to ADF equivalents."""
-    if not expr:
-        return ""
-    # @(Variable::Name) → @variables('Name')
-    expr = re.sub(r'@\(\s*\w+::(\w+)\s*\)', r"@variables('\1')", expr)
-    # @Variable::Name → @variables('Name')
-    expr = re.sub(r'@\w+::(\w+)', r"@variables('\1')", expr)
-    # Common operators
-    expr = expr.replace("==", "==").replace("!=", "!=").replace("&&", " && ")
-    return expr
 
 
 class ForLoopConverter(BaseConverter):
@@ -103,31 +93,47 @@ class ForLoopConverter(BaseConverter):
         return activities
 
     def _init_set_variable(self, task: ForLoopContainer) -> dict[str, Any]:
-        # Parse @(Ns::VarName) = value from init expression
-        m = re.search(r'@\(?(?:\w+::)?(\w+)\)?\s*=\s*(.+)', task.init_expression or "")
-        var_name = m.group(1) if m else "counter"
-        init_val = (m.group(2).strip().strip('"').strip("'")) if m else "0"
+        # Parse @[User::VarName] = value or @(Ns::VarName) = value
+        m = re.search(
+            r'@(?:\[([\w:]+)\]|\(([\w:]+)\)|(\w+::\w+))\s*=\s*(.+)',
+            task.init_expression or "",
+        )
+        if m:
+            raw_var = m.group(1) or m.group(2) or m.group(3) or "counter"
+            var_name = strip_variable_namespace(raw_var)
+            init_val = translate_control_flow_expr(m.group(4).strip())
+        else:
+            var_name = "counter"
+            init_val = "0"
         return {
             "name": f"Init_{task.name.replace(' ', '_')}",
             "description": f"Initialize counter for For Loop: {task.init_expression}",
             "type": "SetVariable",
             "typeProperties": {
                 "variableName": var_name,
-                "value": {"value": init_val, "type": "Expression"},
+                "value": {"value": f"@{init_val}" if not init_val.startswith('@') else init_val, "type": "Expression"},
             },
         }
 
     def _set_variable_activity(self, task: ForLoopContainer) -> dict[str, Any]:
-        m = re.search(r'@\(?(?:\w+::)?(\w+)\)?\s*=\s*(.+)', task.assign_expression or "")
-        var_name = m.group(1) if m else "counter"
-        new_val = _translate_ssis_expr(m.group(2).strip()) if m else "@add(variables('counter'), 1)"
+        m = re.search(
+            r'@(?:\[([\w:]+)\]|\(([\w:]+)\)|(\w+::\w+))\s*=\s*(.+)',
+            task.assign_expression or "",
+        )
+        if m:
+            raw_var = m.group(1) or m.group(2) or m.group(3) or "counter"
+            var_name = strip_variable_namespace(raw_var)
+            new_val = translate_control_flow_expr(m.group(4).strip())
+        else:
+            var_name = "counter"
+            new_val = "add(variables('counter'), 1)"
         return {
             "name": f"Increment_{task.name.replace(' ', '_')}",
             "description": f"Increment counter: {task.assign_expression}",
             "type": "SetVariable",
             "typeProperties": {
                 "variableName": var_name,
-                "value": {"value": new_val, "type": "Expression"},
+                "value": {"value": f"@{new_val}" if not new_val.startswith('@') else new_val, "type": "Expression"},
             },
         }
 

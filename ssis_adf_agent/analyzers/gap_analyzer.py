@@ -26,6 +26,7 @@ from ..parsers.models import (  # type: ignore[attr-defined]
     TaskType,
     ProtectionLevel,
 )
+from .script_classifier import classify_script, ScriptComplexity
 
 # Data flow component types that ADF Mapping Data Flow cannot represent directly
 _UNSUPPORTED_DF_COMPONENTS: frozenset[str] = frozenset({
@@ -101,21 +102,75 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
 
     if task.task_type == TaskType.SCRIPT:
         assert isinstance(task, ScriptTask)
+        classification = classify_script(task)
         lang = task.script_language
-        gaps.append(GapItem(
-            task_id=task.id,
-            task_name=task.name,
-            task_type="ScriptTask",
-            severity="manual_required",
-            message=(
-                f"Script Task uses {lang} code that cannot be automatically converted to ADF. "
-                "An Azure Function stub has been generated."
-            ),
-            recommendation=(
-                "Review the generated Azure Function stub, implement the business logic, "
-                "deploy the function, and wire it as an AzureFunctionActivity in the pipeline."
-            ),
-        ))
+
+        if classification.tier == ScriptComplexity.TRIVIAL:
+            gaps.append(GapItem(
+                task_id=task.id,
+                task_name=task.name,
+                task_type="ScriptTask",
+                severity="info",
+                message=(
+                    f"Script Task ({lang}) classified as trivial: {classification.reason}. "
+                    "This can be replaced with ADF pipeline variables, parameters, or expressions."
+                ),
+                recommendation=(
+                    "Replace with SetVariable activities or pipeline parameters. "
+                    "No Azure Function is needed for this script."
+                ),
+            ))
+        elif classification.tier == ScriptComplexity.SIMPLE:
+            gaps.append(GapItem(
+                task_id=task.id,
+                task_name=task.name,
+                task_type="ScriptTask",
+                severity="info" if classification.adf_expressible else "warning",
+                message=(
+                    f"Script Task ({lang}) classified as simple: {classification.reason}. "
+                    + (
+                        "This logic can likely be expressed using ADF expressions."
+                        if classification.adf_expressible
+                        else "An Azure Function stub has been generated but the logic is straightforward."
+                    )
+                ),
+                recommendation=(
+                    "Consider using ADF expressions, SetVariable activities, or pipeline parameters "
+                    "to replace this script. Review the generated stub for reference."
+                    if classification.adf_expressible
+                    else "Review the generated Azure Function stub — the logic is straightforward to port."
+                ),
+            ))
+        elif classification.tier == ScriptComplexity.MODERATE:
+            gaps.append(GapItem(
+                task_id=task.id,
+                task_name=task.name,
+                task_type="ScriptTask",
+                severity="warning",
+                message=(
+                    f"Script Task ({lang}) classified as moderate complexity: {classification.reason}. "
+                    "An Azure Function stub has been generated."
+                ),
+                recommendation=(
+                    "Review the generated Azure Function stub and implement the business logic. "
+                    "The port should be straightforward but requires testing."
+                ),
+            ))
+        else:  # COMPLEX
+            gaps.append(GapItem(
+                task_id=task.id,
+                task_name=task.name,
+                task_type="ScriptTask",
+                severity="manual_required",
+                message=(
+                    f"Script Task ({lang}) classified as complex: {classification.reason}. "
+                    "An Azure Function stub has been generated."
+                ),
+                recommendation=(
+                    "Review the generated Azure Function stub, implement the business logic, "
+                    "deploy the function, and wire it as an AzureFunctionActivity in the pipeline."
+                ),
+            ))
 
     elif task.task_type == TaskType.UNKNOWN:
         gaps.append(GapItem(

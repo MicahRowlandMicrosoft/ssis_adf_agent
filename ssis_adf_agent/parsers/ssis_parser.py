@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from lxml import etree
 
+from ..warnings_collector import warn
 from .models import (
     ConnectionManagerType,
     CrossDbReference,
@@ -315,6 +316,17 @@ _SHORT_FORM_TASK_MAP: dict[str, TaskType] = {
     "microsoft.sendmailtask": TaskType.SEND_MAIL,
     "microsoft.executepackagetask": TaskType.EXECUTE_PACKAGE,
     "microsoft.executeprocesstask": TaskType.EXECUTE_PROCESS,
+    "microsoft.executeprocess": TaskType.EXECUTE_PROCESS,
+    "microsoft.bulkinserttask": TaskType.BULK_INSERT,
+    "microsoft.webservicetask": TaskType.WEB_SERVICE,
+    "microsoft.xmltask": TaskType.XML,
+    "microsoft.transfersqlserverobjectstask": TaskType.TRANSFER_SQL,
+    "microsoft.dataprofilingtask": TaskType.UNKNOWN,
+    "microsoft.transferdatabasetask": TaskType.UNKNOWN,
+    "microsoft.transfererrormessagestask": TaskType.UNKNOWN,
+    "microsoft.transferjobstask": TaskType.UNKNOWN,
+    "microsoft.transferloginstask": TaskType.UNKNOWN,
+    "microsoft.transferstoredprocedurestask": TaskType.UNKNOWN,
     "stock:sequence": TaskType.SEQUENCE,
     "stock:foreach": TaskType.FOREACH_LOOP,
     "stock:forloop": TaskType.FOR_LOOP,
@@ -354,6 +366,11 @@ def _extract_source_from_blob(b64_text: str, language: str) -> str | None:
         logging.getLogger(__name__).debug(
             "Failed to extract script source from blob", exc_info=True
         )
+        warn(
+            phase="parse", severity="warning", source="ssis_parser",
+            message="Failed to extract script source code from binary blob",
+            detail="Script Task will be classified by heuristics instead of source analysis",
+        )
         return None
 
 
@@ -385,6 +402,10 @@ def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
         "Microsoft.SqlServer.Dts.Tasks.SendMailTask.SendMailTask": TaskType.SEND_MAIL,
         "Microsoft.SqlServer.Dts.Tasks.ExecutePackageTask.ExecutePackageTask": TaskType.EXECUTE_PACKAGE,
         "Microsoft.SqlServer.Dts.Tasks.ExecuteProcess.ExecuteProcessTask": TaskType.EXECUTE_PROCESS,
+        "Microsoft.SqlServer.Dts.Tasks.BulkInsertTask.BulkInsertTask": TaskType.BULK_INSERT,
+        "Microsoft.SqlServer.Dts.Tasks.WebServiceTask.WebServiceTask": TaskType.WEB_SERVICE,
+        "Microsoft.SqlServer.Dts.Tasks.XMLTask.XMLTask": TaskType.XML,
+        "Microsoft.SqlServer.Dts.Tasks.TransferSqlServerObjectsTask.TransferSqlServerObjectsTask": TaskType.TRANSFER_SQL,
         "Sequence": TaskType.SEQUENCE,
         "ForEachLoop": TaskType.FOREACH_LOOP,
         "ForLoop": TaskType.FOR_LOOP,
@@ -594,12 +615,15 @@ class SSISParser:
         params: list[SSISParameter] = []
         # Support both modern (PackageParameters/PackageParameter) and
         # legacy (Parameters/Parameter) formats
-        params_container = root.find(_dts("PackageParameters")) or root.find(_dts("Parameters"))
+        params_container = root.find(_dts("PackageParameters"))
+        if params_container is None:
+            params_container = root.find(_dts("Parameters"))
         if params_container is None:
             return params
 
-        p_elems = params_container.findall(_dts("PackageParameter")) \
-                  or params_container.findall(_dts("Parameter"))
+        p_elems = params_container.findall(_dts("PackageParameter"))
+        if not p_elems:
+            p_elems = params_container.findall(_dts("Parameter"))
         for p_elem in p_elems:
             # Modern format uses ObjectName; legacy uses Name
             name = _attr(p_elem, "ObjectName") or _attr(p_elem, "Name") or ""
@@ -679,7 +703,33 @@ class SSISParser:
             return self._parse_foreach(elem, base_kwargs)
         elif task_type == TaskType.FOR_LOOP:
             return self._parse_for_loop(elem, base_kwargs)
+        elif task_type in (
+            TaskType.BULK_INSERT,
+            TaskType.WEB_SERVICE,
+            TaskType.TRANSFER_SQL,
+        ):
+            # Recognised task types without dedicated parsers — return
+            # a generic SSISTask with the correct task_type so the
+            # dispatcher routes them to the appropriate converter.
+            props = {etree.QName(k).localname: v for k, v in elem.attrib.items()}
+            return SSISTask(**base_kwargs, properties=props)
+        elif task_type == TaskType.XML:
+            # Parse XMLTaskData attributes from ObjectData
+            props = {etree.QName(k).localname: v for k, v in elem.attrib.items()}
+            if object_data is not None:
+                for child in object_data:
+                    local = etree.QName(child.tag).localname
+                    if "XMLTask" in local or "XmlTask" in local:
+                        for attr_name, attr_val in child.attrib.items():
+                            props[attr_name] = attr_val
+            return SSISTask(**base_kwargs, properties=props)
         else:
+            warn(
+                phase="parse", severity="warning", source="ssis_parser",
+                message=f"Unknown task type '{creation_name}' — mapped to TaskType.UNKNOWN",
+                task_name=task_name, task_id=task_id,
+                detail="This task will receive a placeholder Wait activity in the converted pipeline",
+            )
             props = {etree.QName(k).localname: v for k, v in elem.attrib.items()}
             return SSISTask(**base_kwargs, properties=props)
 
@@ -870,20 +920,57 @@ class SSISParser:
         conn_id = None
         use_project = False
         project_pkg_name = None
+        param_assignments: list[dict[str, str]] = []
 
         if object_data is not None:
             for child in object_data:
                 local = etree.QName(child.tag).localname
                 if "ExecutePackageTask" in local:
+                    # Read from attributes first (older SSIS format)
                     pkg_path = child.get("PackageName") or child.get("PackagePath")
                     conn_id = _clean_id(child.get("Connection") or "")
                     use_project = (child.get("UseProjectReference") or "False").lower() == "true"
                     project_pkg_name = child.get("PackageName")
 
+                    # Override with sub-element text (newer SSIS format)
+                    for sub in child:
+                        sub_local = etree.QName(sub.tag).localname
+                        sub_text = (sub.text or "").strip()
+                        if sub_local == "PackageName" and sub_text:
+                            pkg_path = sub_text
+                            project_pkg_name = sub_text
+                        elif sub_local == "PackagePath" and sub_text:
+                            pkg_path = sub_text
+                        elif sub_local == "Connection" and sub_text:
+                            conn_id = _clean_id(sub_text)
+                        elif sub_local == "UseProjectReference" and sub_text:
+                            use_project = sub_text.lower() == "true"
+                        elif sub_local == "ParameterAssignment":
+                            pa = self._parse_param_assignment(sub)
+                            if pa:
+                                param_assignments.append(pa)
+
         return ExecutePackageTask(**base, package_path=pkg_path,
                                   package_connection_id=conn_id,
                                   use_project_reference=use_project,
-                                  project_package_name=project_pkg_name)
+                                  project_package_name=project_pkg_name,
+                                  parameter_assignments=param_assignments)
+
+    @staticmethod
+    def _parse_param_assignment(elem: etree._Element) -> dict[str, str] | None:
+        """Parse a single <ParameterAssignment> element."""
+        param_name = None
+        var_name = None
+        for sub in elem:
+            local = etree.QName(sub.tag).localname
+            text = (sub.text or "").strip()
+            if local == "ParameterName" and text:
+                param_name = text
+            elif local == "BindedVariableOrParameterName" and text:
+                var_name = text
+        if param_name and var_name:
+            return {"parameter": param_name, "variable": var_name}
+        return None
 
     def _parse_execute_process(
         self, elem: etree._Element, object_data: etree._Element | None, base: dict
@@ -1029,23 +1116,47 @@ class SSISParser:
                 conn_id = _clean_id(cm_ref.get("componentId") or cm_ref.get("id"))
                 break
 
+        # Component-level properties only (direct <properties> child, not recursive)
         props: dict[str, Any] = {}
-        for prop in comp.iter(f"{ns}property"):
-            pname = prop.get("name")
-            if pname:
-                props[pname] = prop.text
+        props_container = comp.find(f"{ns}properties")
+        if props_container is not None:
+            for prop in props_container.findall(f"{ns}property"):
+                pname = prop.get("name")
+                if pname:
+                    props[pname] = prop.text
 
-        # Columns
+        # Columns — capture column-level properties separately
         input_cols: list[DataFlowColumn] = []
         output_cols: list[DataFlowColumn] = []
 
         for input_elem in comp.iter(f"{ns}input"):
             for col in input_elem.iter(f"{ns}inputColumn"):
-                input_cols.append(self._parse_df_column(col))
+                input_cols.append(self._parse_df_column(col, ns))
 
         for output_elem in comp.iter(f"{ns}output"):
+            output_name = output_elem.get("name") or ""
+            is_error = output_elem.get("isErrorOut") == "true"
+            if is_error:
+                continue  # skip error outputs
+
+            # Capture output-level properties (ConditionalSplit conditions, etc.)
+            out_props_container = output_elem.find(f"{ns}properties")
+            if out_props_container is not None:
+                out_props: dict[str, str | None] = {}
+                for prop in out_props_container.findall(f"{ns}property"):
+                    pname = prop.get("name")
+                    if pname:
+                        out_props[pname] = prop.text
+                if out_props:
+                    # Store output-level properties keyed by output name
+                    conds = props.setdefault("_output_conditions", [])
+                    conds.append({
+                        "output_name": output_name,
+                        **out_props,
+                    })
+
             for col in output_elem.iter(f"{ns}outputColumn"):
-                output_cols.append(self._parse_df_column(col))
+                output_cols.append(self._parse_df_column(col, ns))
 
         # Extract key columns from destination components (e.g., MERGE ON clause)
         key_columns: list[str] = []
@@ -1065,12 +1176,27 @@ class SSISParser:
             key_columns=key_columns,
         )
 
-    def _parse_df_column(self, col: etree._Element) -> DataFlowColumn:
+    def _parse_df_column(self, col: etree._Element, ns: str = "") -> DataFlowColumn:
         dt_str = col.get("dataType") or "wstr"
         try:
             dt = DataType(dt_str)
         except ValueError:
             dt = DataType.WSTRING
+
+        # Extract column-level properties (Expression, JoinToReferenceColumn,
+        # AggregationType, SortKeyPosition, etc.)
+        col_props: dict[str, Any] = {}
+        props_container = col.find(f"{ns}properties") if ns else None
+        if props_container is not None:
+            for prop in props_container.findall(f"{ns}property"):
+                pname = prop.get("name")
+                if pname:
+                    col_props[pname] = prop.text
+
+        # Also check for lineageId (used for column cross-referencing)
+        lineage_id = col.get("lineageId")
+        if lineage_id:
+            col_props["_lineageId"] = lineage_id
 
         return DataFlowColumn(
             name=col.get("name") or col.get("externalMetadataColumnId") or "column",
@@ -1079,6 +1205,7 @@ class SSISParser:
             precision=int(col.get("precision") or "0"),
             scale=int(col.get("scale") or "0"),
             code_page=int(col.get("codePage") or "0"),
+            properties=col_props,
         )
 
     # ------------------------------------------------------------------

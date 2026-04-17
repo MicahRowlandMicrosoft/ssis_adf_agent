@@ -50,6 +50,8 @@ SQL Agent jobs ───┤      │   Optional configs:    │
   - [3. Convert a package](#3-convert-a-package)
   - [4. Validate generated artifacts](#4-validate-generated-artifacts)
   - [5. Deploy to Azure Data Factory](#5-deploy-to-azure-data-factory)
+  - [6. Deploy Azure Function stubs](#6-deploy-azure-function-stubs)
+  - [7. Provision Azure Function App](#7-provision-azure-function-app)
 - [Enterprise Features](#enterprise-features)
   - [Self-Hosted Integration Runtime](#self-hosted-integration-runtime)
   - [Azure Key Vault Secrets](#azure-key-vault-secrets)
@@ -66,6 +68,8 @@ SQL Agent jobs ───┤      │   Optional configs:    │
 - [Manual Steps After Conversion](#manual-steps-after-conversion)
 - [Development](#development)
 - [License](#license)
+
+> **New to the agent?** See [HOWTO.md](HOWTO.md) for an end-to-end conversation guide with copy-paste example prompts.
 
 ---
 
@@ -137,12 +141,15 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
 > If you installed into a virtual environment, replace `"command": "ssis-adf-agent"` with the full path to the script, e.g. `"C:\\path\\to\\.venv\\Scripts\\ssis-adf-agent.exe"` (Windows) or `"/path/to/.venv/bin/ssis-adf-agent"` (macOS/Linux).
 
 3. Restart VS Code (or reload the window: `Ctrl+Shift+P` → **Developer: Reload Window**).
-4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the five tools appear:
+4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the eight tools appear:
    - `scan_ssis_packages`
    - `analyze_ssis_package`
    - `convert_ssis_package`
    - `validate_adf_artifacts`
    - `deploy_to_adf`
+   - `consolidate_packages`
+   - `deploy_function_stubs`
+   - `provision_function_app`
 
 ---
 
@@ -171,7 +178,7 @@ The `samples/` directory is intended as a convenient drop zone for `.dtsx` files
 
 ## Usage — End-to-End Walkthrough
 
-All five tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below show what each tool does and the key parameters it accepts.
+All eight tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below show what each tool does and the key parameters it accepts.
 
 ---
 
@@ -233,12 +240,30 @@ Analyze C:\Projects\LegacyETL\LoadFactSales.dtsx with ESI tables config at C:\co
 
 | Score | Label | Typical Effort |
 |---|---|---|
-| 0–25 | Low | < 1 day |
-| 26–50 | Medium | 1–3 days |
-| 51–75 | High | 3–5 days |
-| 76–100 | Very High | 1+ weeks |
+| 0–30 | Low | < 1 day |
+| 31–55 | Medium | 1–3 days |
+| 56–80 | High | 3–5 days |
+| 81–100 | Very High | 1–3 weeks |
 
-Score drivers: Script Tasks (+20 each), Data Flow Tasks (+8 each), ForEach/ForLoop containers (+5 each), unknown task types (+10 each), linked server references (+8 each), cross-database references (+3 each).
+Score drivers (raw points are soft-capped to 0–100 via a logarithmic curve):
+
+| Driver | Weight | Notes |
+|---|---|---|
+| Script Task (trivial) | +2 | Variable assignment only — auto-converted to SetVariable |
+| Script Task (simple) | +6 | String/path manipulation, ADF-expressible |
+| Script Task (moderate) | +13 | File I/O, regex, HTTP, XML — needs Azure Function |
+| Script Task (complex) | +25 | DB connections, COM interop, threading |
+| Data Flow Task | +5 | Base weight per task |
+| Data Flow component | +1.5 | Per source/transform/destination inside a Data Flow |
+| ForEach / For Loop | +5 | Per loop container |
+| Event Handler | +4 | Per OnError / OnPostExecute handler |
+| Nesting depth | +3 | Per level beyond depth 1 |
+| Unknown task type | +10 | Unrecognised task — requires manual review |
+| Linked server reference | +8 | OPENQUERY, OPENROWSET, four-part names |
+| Cross-database reference | +3 | Three-part names (different database, same server) |
+| Execute SQL | +2 | Execute Package (+3), File System (+2), FTP (+3), Send Mail (+4), Execute Process (+4), Sequence (+1) |
+
+> **Supported task types:** Execute SQL, Data Flow, Execute Package, Script Task, ForEach Loop, For Loop, Sequence Container, File System, FTP, Send Mail, Execute Process, Bulk Insert, Web Service, XML Task, Transfer SQL Server Objects. Additional task types (Data Profiling, Transfer Database, Transfer Logins, etc.) are mapped to placeholder Wait activities with manual-review guidance.
 
 **Key output:**
 - Complexity score and effort label
@@ -277,6 +302,7 @@ Convert C:\Projects\LegacyETL\LoadFactSales.dtsx to ADF artifacts and write them
 | `schema_remap_path` | No | Path to schema remap JSON for database consolidation |
 | `shared_artifacts_dir` | No | Shared directory for cross-package linked service/dataset deduplication |
 | `pipeline_prefix` | No | Prefix for pipeline names (default: `PL_`) |
+| `file_path_map_path` | No | Path to a JSON file mapping local/UNC path prefixes to Azure Storage URLs for automatic path rewriting |
 
 Sub-folders are created automatically inside `output_dir`. See [Generated Artifact Structure](#generated-artifact-structure).
 
@@ -287,6 +313,8 @@ Sub-folders are created automatically inside `output_dir`. See [Generated Artifa
 **Tool:** `validate_adf_artifacts`
 
 Checks the generated JSON files for structural correctness (required fields, valid activity references) before touching Azure. Always validate before deploying.
+
+> **Note:** `convert_ssis_package` now runs validation automatically after generation. The response summary includes `"validation"` (status + issues) and `"unresolved_pipeline_refs"` (ExecutePipeline cross-reference check). Run `validate_adf_artifacts` again after any manual edits.
 
 **Example prompt:**
 
@@ -338,6 +366,84 @@ Deploy C:\adf_output\LoadFactSales to ADF instance my-adf in resource group rg-d
 
 ---
 
+### 6. Deploy Azure Function stubs
+
+**Tool:** `deploy_function_stubs`
+
+Zip-deploys the generated Azure Function stubs to an existing Azure Function App. The `stubs/` directory must have been generated by a prior `convert_ssis_package` call (it includes `host.json`, `requirements.txt`, and per-function directories).
+
+> **Prerequisite:** Create the Function App first (Python runtime, Consumption or Premium plan), or use the `provision_function_app` tool to create one. The deploy tool uploads code only — it does not provision infrastructure.
+
+**Example prompt (dry run):**
+
+```
+Do a dry run deploy of the function stubs in C:\adf_output\LoadFactSales\stubs to my Function App func-stubs-prod in resource group rg-data-prod, subscription 00000000-0000-0000-0000-000000000000.
+```
+
+**Example prompt (live deployment):**
+
+```
+Deploy the function stubs in C:\adf_output\LoadFactSales\stubs to Function App func-stubs-prod in resource group rg-data-prod, subscription 00000000-0000-0000-0000-000000000000.
+```
+
+**Key parameters:**
+
+| Parameter | Required | Description |
+|---|---|---|
+| `stubs_dir` | Yes | Path to the stubs directory (typically `<output_dir>/stubs`) |
+| `subscription_id` | Yes | Azure subscription GUID |
+| `resource_group` | Yes | Azure resource group name |
+| `function_app_name` | Yes | Name of the existing Azure Function App |
+| `dry_run` | No | `true` to build the zip and validate without uploading (default: `false`) |
+
+> **Note:** The tool uses `DefaultAzureCredential`. Run `az login` before deploying from a developer machine, or set `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` for CI/CD.
+
+---
+
+### 7. Provision Azure Function App
+
+**Tool:** `provision_function_app`
+
+Creates the Azure infrastructure needed to host Function stubs: Storage Account, Application Insights (optional), Consumption App Service Plan, and a Python Linux Function App. Run this before `deploy_function_stubs` if no Function App exists yet.
+
+**Example prompt (dry run):**
+
+```
+Do a dry run provision of a Function App called func-stubs-prod in resource group rg-data-prod, location eastus2, subscription 00000000-0000-0000-0000-000000000000.
+```
+
+**Example prompt (live provisioning):**
+
+```
+Provision a Function App called func-stubs-prod in resource group rg-data-prod, location eastus2, subscription 00000000-0000-0000-0000-000000000000.
+```
+
+**Key parameters:**
+
+| Parameter | Required | Description |
+|---|---|---|
+| `function_app_name` | Yes | Globally unique name for the Function App |
+| `subscription_id` | Yes | Azure subscription GUID |
+| `resource_group` | Yes | Azure resource group (must already exist) |
+| `location` | Yes | Azure region (e.g. `eastus2`, `westeurope`) |
+| `storage_account_name` | No | Override auto-derived storage account name (3-24 lowercase alphanumeric) |
+| `skip_app_insights` | No | Skip creating Application Insights (default: `false`) |
+| `python_version` | No | Python runtime version (default: `3.11`) |
+| `dry_run` | No | `true` to report what would be created without provisioning (default: `false`) |
+
+**Resources created:**
+
+| Resource | Configuration |
+|---|---|
+| Storage Account | Standard_LRS, StorageV2, HTTPS-only, TLS 1.2 |
+| Application Insights | Web type (skippable via `skip_app_insights`) |
+| App Service Plan | Consumption / Y1 / Dynamic, Linux |
+| Function App | Python runtime, Linux, FTPS disabled, TLS 1.2, HTTP/2 enabled |
+
+> **Note:** The tool uses `DefaultAzureCredential`. Run `az login` before provisioning from a developer machine, or set `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` for CI/CD.
+
+---
+
 ## Enterprise Features
 
 These features were designed for large-scale enterprise SSIS migrations where packages share connections, target consolidated databases, or operate alongside existing data platforms (ESI, CDM layers).
@@ -345,6 +451,28 @@ These features were designed for large-scale enterprise SSIS migrations where pa
 ### Self-Hosted Integration Runtime
 
 On-prem connections are automatically detected (heuristics: `localhost`, IP addresses, non-`.database.windows.net` server names). These connections generate `SqlServer` linked services with a `connectVia` reference to a Self-Hosted Integration Runtime. Use `on_prem_ir_name` to override the default name `SelfHostedIR`.
+
+#### Multi-IR Mapping
+
+For environments with multiple Integration Runtimes (e.g. per-region or per-network-zone), pass an `ir_mapping` dictionary from glob patterns to IR names:
+
+```json
+{
+  "*-east-*": "IR_EastUS",
+  "*-west-*": "IR_WestUS",
+  "legacy*": "IR_Legacy"
+}
+```
+
+Connection names are matched against patterns (first match wins). Unmatched on-prem connections fall back to `on_prem_ir_name`.
+
+### Path Traversal Protection
+
+All MCP tool inputs that accept file/directory paths are validated against path traversal attacks. Null bytes and `..` segments are rejected. Optionally, set the `SSIS_ADF_ALLOWED_ROOT` environment variable to restrict all file operations to a specific directory tree.
+
+### Deployer Retry with Jitter
+
+The `deploy_to_adf` tool uses exponential backoff with jitter (±50%) and a 60-second cap for Azure API retries, preventing thundering herd problems during batch deployments across many packages.
 
 ### Azure Key Vault Secrets
 
@@ -385,7 +513,12 @@ When consolidating multiple on-prem databases into a single Azure SQL database, 
 }
 ```
 
-Keys are original database names; values are target schemas. Pass the file path via `schema_remap_path`. The converter replaces cross-database references in SQL text and qualified table names in datasets.
+Keys are original database names; values are target schemas. Pass the file path via `schema_remap_path`. The converter replaces cross-database references in:
+
+- **Script activities** — SQL text in `scripts[].text`
+- **Lookup activities** — `source.sqlReaderQuery`
+- **Stored Procedure activities** — `storedProcedureName`
+- **Dataset definitions** — qualified table names
 
 ### ESI Reuse Detection
 
@@ -537,19 +670,30 @@ export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
 | Execute SQL Task | Stored Procedure / Script / Lookup Activity | Depends on `ResultSetType` and SQL pattern |
 | Data Flow Task (simple) | Copy Activity | Single source → single destination. Sink pattern varies: `insert` (full load), `upsert` with keys (delta/merge). Retry policy: 2 retries, 60s interval. |
 | Data Flow Task (complex) | Execute Data Flow Activity (Mapping Data Flow) | Multiple sources, transformations, or fanout. `READ_UNCOMMITTED` isolation, `errorHandlingOption: stopOnFirstError`. |
-| Execute Package Task | Execute Pipeline Activity | Child pipeline must also be converted |
+| Execute Package Task | Execute Pipeline Activity | Child pipeline must also be converted. The referenced pipeline name uses the `pipeline_prefix` (default `PL_`). Supports project references and external package references, including parameter pass-through. |
 | Script Task (C# / VB) | Azure Function Activity | Stub generated at `stubs/<FunctionName>/__init__.py`. When `llm_translate=true`, C# source is extracted from the DTSX and translated to Python via Azure OpenAI; otherwise a `TODO` stub is generated. |
 | ForEach Loop Container | ForEach Activity | Expression varies by enumerator type |
 | For Loop Container | SetVariable (init) + Until Activity + SetVariable (increment) | Condition logic is inverted |
-| Sequence Container | Flattened into parent with `dependsOn` chaining | No ADF equivalent |
+| Sequence Container | Flattened into parent with `dependsOn` chaining | No ADF equivalent. Activity names are auto-deduplicated (suffixed `_2`, `_3`, …) to prevent ADF validation errors when multiple containers have identically-named tasks. |
 | File System Task | Copy Activity (Azure paths) or Web Activity → Azure Function | Local paths need Azure-path substitution |
 | Execute Process Task | Web Activity → Azure Function | Manual: wrap process call in a Function |
 | FTP Task | Copy Activity via FTP connector | Requires FTP linked service |
 | Send Mail Task | Logic App / Web Activity | No native ADF equivalent |
+| Bulk Insert Task | Copy Activity | DelimitedText source → AzureSqlSink. Generates linked service for the source file and SQL connection. |
+| Web Service Task | Web Activity | Configurable URL and HTTP method from the SSIS task properties. |
+| XML Task | Azure Function Activity | Operation type (XPATH, Merge, Validate, Diff, XSLT) extracted from the package. Azure Function stub with operation-specific boilerplate generated at `stubs/<FuncName>/`. |
+| Transfer SQL Server Objects Task | Script Activity | Migration guidance in description. Recommends Copy Activity pipeline or Azure Database Migration Service. |
+| Execute Process Task | Web Activity → Azure Function | Manual: wrap process call in a Function |
 | Event Handler (`OnError`) | Pipeline fails path / error handling | Converted to sub-pipeline reference |
+| Event Handler (`OnWarning`) | Completed dependency path | Converted to sub-pipeline reference |
 | Event Handler (`OnPostExecute`) | Succeeded dependency path | Converted to sub-pipeline reference |
+| Event Handler (`OnInformation`, `OnProgress`) | Succeeded dependency path | Converted to sub-pipeline reference |
 | Connection Manager (Azure SQL) | Linked Service (`AzureSqlDatabase`) | Microsoft Recommended version: `server`/`database`/`authenticationType`. Default auth: `SystemAssignedManagedIdentity`. |
 | Connection Manager (on-prem SQL) | Linked Service (`SqlServer`) | Auto-detected. Uses Self-Hosted IR with `pooling: false`. |
+| Connection Manager (FILE / MULTIFILE) | Linked Service (`FileServer` or `AzureBlobStorage`) | UNC/drive paths → `FileServer` with Self-Hosted IR; other paths → `AzureBlobStorage` with TODO connection string. |
+| Connection Manager (FTP) | Linked Service (`FtpServer`) | Basic auth with SSL enabled. Password stored in Key Vault when `use_key_vault=true`. |
+| Connection Manager (HTTP) | Linked Service (`HttpServer`) | Anonymous auth by default. |
+| Connection Manager (SMTP) | Linked Service (`AzureFunction`) | Stub for Azure Communication Services or Logic App. No native ADF SMTP support. |
 | SQL Agent Job Schedule | Schedule Trigger | Mapped from `msdb` `freq_type`/`freq_interval`. Falls back to placeholder if unavailable. |
 
 ---
@@ -571,11 +715,17 @@ export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
     DF_<DataFlowName>.json      ← Mapping Data Flow with READ_UNCOMMITTED + error handling
   trigger/
     TR_<PackageName>.json       ← ScheduleTrigger (Stopped state); accurate if SQL Agent schedule provided
-  stubs/
+  stubs/                        ← Deploy-ready Azure Functions project
+    host.json                   ← Functions runtime config (v2, 10-min timeout)
+    requirements.txt            ← Auto-detected Python dependencies
+    local.settings.json         ← Local dev settings (not deployed)
+    .funcignore                 ← Deployment exclusion list
     <FunctionName>/
       __init__.py               ← Python stub with TODO blocks
-      function.json             ← Azure Function binding definition
+      function.json             ← HTTP trigger binding definition
 ```
+
+> **Deploy-ready stubs:** The `stubs/` directory is a complete Azure Functions project. Deploy with `func azure functionapp publish <APP_NAME>` or zip-deploy via CI/CD. Run `func start` locally to test before deploying.
 
 ### Linked Service Format
 
@@ -641,14 +791,19 @@ Generated pipelines include automatic annotations based on detected patterns:
 After running `convert_ssis_package`, review the following checklist before deploying:
 
 - [ ] **Connection string passwords** — packages with `EncryptAllWithPassword` protection level may have missing passwords. When `use_key_vault=true`, linked services reference Key Vault secrets — verify the secret names exist and are populated. Otherwise fill in plaintext credentials.
-- [ ] **Script Task stubs** — each stub in `stubs/<FunctionName>/__init__.py` contains `TODO` comments. If `llm_translate=true` was used, the stub contains LLM-translated Python. Deploy the Function to Azure Functions before running the pipeline.
-- [ ] **Local file paths** — File System Tasks that reference local paths have placeholder Azure Storage paths. Replace them with valid `abfss://` or `https://` URLs.
+- [ ] **Script Task stubs** — each stub in `stubs/<FunctionName>/` contains `TODO` comments and an HTTP trigger binding (`function.json`). If `llm_translate=true` was used, the stub contains LLM-translated Python. The `stubs/` directory is a complete Azure Functions project — deploy with `func azure functionapp publish <APP_NAME>` after implementing the TODO blocks.
+- [x] **XML Task stubs** *(automated)* — XML operations (XPATH, Merge, Validate, Diff, XSLT) now generate Azure Function stubs with operation-specific boilerplate (lxml examples for XPath, Merge, Validate, XSLT, Diff). Each stub includes `__init__.py` and `function.json`. Review and complete the `TODO` blocks, then deploy to Azure Functions.
+- [ ] **Bulk Insert / Web Service / Transfer SQL activities** — these are converted to Copy Activity, Web Activity, or Script Activity respectively with TODO guidance. Review the generated descriptions for migration advice.
+- [x] **Local file paths** *(automated with `file_path_map_path`)* — pass a JSON file mapping local/UNC prefixes to Azure Storage URLs (e.g. `{"C:\\Data\\Input": "https://blob/input"}`). The converter applies longest-prefix-match substitution across linked services, pipeline activities, and datasets. Remaining unmapped paths still need manual attention.
 - [ ] **Trigger schedules** — if no SQL Agent schedule was available, the trigger uses a placeholder daily-at-midnight schedule. Update it to match your production schedule. When SQL Agent metadata was provided, verify the mapped ADF recurrence matches the original.
 - [ ] **Cross-database / linked server references** — check the gap analysis for `manual_required` severity items. Replace linked server four-part names with Azure SQL elastic queries, external tables, or separate linked services. Remap three-part names if consolidating databases.
 - [ ] **CDM review items** — if the pipeline has a `cdm-review-required` annotation, coordinate with the CDM team to decide whether the transformation logic should migrate as-is or be replaced by existing CDM-layer entities.
 - [ ] **ESI reuse candidates** — if the pipeline has an `esi-reuse-candidate` annotation, review whether reading from the ESI Azure SQL layer is preferable to re-staging from the on-prem source via SHIR.
 - [ ] **Upsert key columns** — Copy Activities with `writeBehavior: "upsert"` include detected key columns. Verify these match the target table's unique key. Replace `TODO_KEY_COLUMN` placeholders where keys could not be auto-detected.
-- [ ] **Re-validate** — run `validate_adf_artifacts` again after all manual edits.
+- [x] **Auto-validate** *(automated)* — `convert_ssis_package` now automatically runs `validate_adf_artifacts` after generation and includes results in the response summary under `"validation"`. Re-run manually after any manual edits.
+- [ ] **Duplicate activity names** — when multiple Sequence Containers contain tasks with the same name, the generator auto-deduplicates by appending `_2`, `_3`, etc. Review renamed activities and their `dependsOn` references.
+- [ ] **FILE connection linked services** — FILE/MULTIFILE connection managers produce `FileServer` linked services for UNC/drive paths. Verify the host path and credentials, or migrate files to Azure Blob Storage.
+- [x] **Execute Pipeline references** *(automated)* — the converter now cross-checks all `ExecutePipeline` activity references against pipeline JSON files in the output directory (and shared artifacts directory). Unresolved references are reported in the response summary under `"unresolved_pipeline_refs"`.
 - [ ] **Activate triggers** — triggers are deployed in **Stopped** state. Activate them in ADF Studio only after a successful pipeline smoke-test.
 
 ---

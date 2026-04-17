@@ -16,6 +16,8 @@ from ..base_converter import BaseConverter
 _ERROR_EVENTS = frozenset({"OnError", "OnTaskFailed"})
 _PRE_EVENTS = frozenset({"OnPreExecute", "OnPreValidate"})
 _POST_EVENTS = frozenset({"OnPostExecute", "OnPostValidate"})
+_WARNING_EVENTS = frozenset({"OnWarning"})
+_INFO_EVENTS = frozenset({"OnInformation", "OnProgress"})
 
 
 class EventHandlerConverter(BaseConverter):
@@ -58,6 +60,14 @@ class EventHandlerConverter(BaseConverter):
             trigger_condition = "Failed"
         elif event in _POST_EVENTS:
             trigger_condition = "Succeeded"
+        elif event in _WARNING_EVENTS:
+            trigger_condition = "Completed"
+            # Warnings fire regardless of success/failure — Completed is the
+            # closest ADF equivalent (runs on any terminal state).
+        elif event in _INFO_EVENTS:
+            trigger_condition = "Succeeded"
+            # Informational / progress events map to the success path since
+            # they typically log non-critical data.
         else:
             trigger_condition = "Completed"
 

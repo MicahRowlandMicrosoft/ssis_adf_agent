@@ -8,31 +8,183 @@ of the legacy connectionString format.
 Supports:
   - Self-Hosted IR detection for on-prem connections
   - Key Vault secret references
-  - SystemAssignedManagedIdentity as default auth
+  - SystemAssignedManagedIdentity, ServicePrincipal, and SQL auth
+  - Azure Blob Storage with connection string, account key, or SAS token
   - Cross-package deduplication via shared_artifacts_dir
+  - Connection string component extraction
 """
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 from ..parsers.models import ConnectionManagerType, SSISConnectionManager, SSISPackage
+from ..warnings_collector import warn
 
 
 _DEFAULT_IR = "AutoResolveIntegrationRuntime"
-_AZURE_SQL_SUFFIX = ".database.windows.net"
 
+# Cloud suffixes for Azure services — connections to these don't need SHIR
+_AZURE_SUFFIXES = (
+    ".database.windows.net",
+    ".sql.azuresynapse.net",
+    ".documents.azure.com",
+    ".cosmos.azure.com",
+    ".core.windows.net",
+    ".blob.core.windows.net",
+    ".dfs.core.windows.net",
+    ".table.core.windows.net",
+    ".queue.core.windows.net",
+    ".file.core.windows.net",
+    ".azurehdinsight.net",
+    ".servicebus.windows.net",
+    ".azuredatabricks.net",
+    ".mysql.database.azure.com",
+    ".postgres.database.azure.com",
+    ".mariadb.database.azure.com",
+    ".redis.cache.windows.net",
+)
+
+
+# ---------------------------------------------------------------------------
+# Connection string parsing
+# ---------------------------------------------------------------------------
+
+def parse_connection_string(cs: str | None) -> dict[str, str]:
+    """
+    Parse a semicolon-delimited connection string into a dict of components.
+
+    Handles OLE DB, ADO.NET, and Azure Storage connection strings.
+    Keys are normalised to lower-case for consistent lookup.
+
+    Correctly handles values wrapped in single or double quotes, so that
+    semicolons embedded in quoted passwords (e.g. ``Password="a;b"``) are
+    not treated as delimiters.
+
+    Examples::
+
+        "Server=mysvr;Database=mydb;User ID=sa;Password=secret"
+        "Server=mysvr;Password=\"p;wd\";Database=mydb"
+        "DefaultEndpointsProtocol=https;AccountName=act;AccountKey=k;..."
+    """
+    if not cs:
+        return {}
+    parts: dict[str, str] = {}
+    # Tokenise respecting quoted segments
+    segments = _split_connection_string(cs)
+    for segment in segments:
+        segment = segment.strip()
+        if "=" not in segment:
+            continue
+        key, _, value = segment.partition("=")
+        # Strip surrounding quotes from values if present
+        value = value.strip()
+        if len(value) >= 2 and value[0] in ('"', "'") and value[-1] == value[0]:
+            value = value[1:-1]
+        parts[key.strip().lower()] = value
+    return parts
+
+
+def _split_connection_string(cs: str) -> list[str]:
+    """Split a connection string on semicolons, respecting quoted values.
+
+    Quotes (single or double) protect embedded semicolons.  A backslash does
+    **not** act as an escape character — OLE DB / ADO.NET connection strings
+    use doubled quotes for escaping, which this routine handles transparently.
+    """
+    segments: list[str] = []
+    current: list[str] = []
+    in_quote: str | None = None
+
+    for ch in cs:
+        if in_quote is not None:
+            current.append(ch)
+            if ch == in_quote:
+                in_quote = None
+        elif ch in ('"', "'"):
+            in_quote = ch
+            current.append(ch)
+        elif ch == ";":
+            segments.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+
+    if current:
+        segments.append("".join(current))
+    return segments
+
+
+# Key aliases in connection strings
+_SERVER_KEYS = ("server", "data source", "host", "addr", "address", "network address")
+_DB_KEYS = ("database", "initial catalog")
+_USER_KEYS = ("user id", "uid", "user", "username")
+_PWD_KEYS = ("password", "pwd")
+
+
+def _extract_server(cs_parts: dict[str, str]) -> str | None:
+    for k in _SERVER_KEYS:
+        if k in cs_parts:
+            return cs_parts[k]
+    return None
+
+
+def _extract_database(cs_parts: dict[str, str]) -> str | None:
+    for k in _DB_KEYS:
+        if k in cs_parts:
+            return cs_parts[k]
+    return None
+
+
+def _extract_user(cs_parts: dict[str, str]) -> str | None:
+    for k in _USER_KEYS:
+        if k in cs_parts:
+            return cs_parts[k]
+    return None
+
+
+def _extract_password(cs_parts: dict[str, str]) -> str | None:
+    for k in _PWD_KEYS:
+        if k in cs_parts:
+            return cs_parts[k]
+    return None
+
+
+# ---------------------------------------------------------------------------
+# IR selection heuristic
+# ---------------------------------------------------------------------------
 
 def _is_on_prem(cm: SSISConnectionManager) -> bool:
-    """Heuristic: server name without Azure SQL suffix → on-premises."""
-    server = cm.server or ""
-    if _AZURE_SQL_SUFFIX in server.lower():
+    """
+    Heuristic: decide if this connection targets on-prem infrastructure.
+
+    Returns False (= cloud / Azure-hosted) when:
+      - server name contains any known Azure suffix
+      - connection string contains any Azure suffix
+      - connection string has ``Authentication=ActiveDirectoryManagedIdentity``
+      - connection string has Azure Storage keys (AccountName, BlobEndpoint, etc.)
+
+    Returns True otherwise (assumed on-prem, needs Self-Hosted IR).
+    """
+    server = (cm.server or "").lower()
+    cs = (cm.connection_string or "").lower()
+    combined = f"{server} {cs}"
+
+    # Any Azure suffix → cloud
+    for suffix in _AZURE_SUFFIXES:
+        if suffix in combined:
+            return False
+
+    # Azure Storage connection string patterns
+    if any(k in cs for k in ("accountname=", "blobendpoint=", "defaultendpointsprotocol=")):
         return False
-    # Check connection string for Azure SQL suffix
-    cs = cm.connection_string or ""
-    if _AZURE_SQL_SUFFIX in cs.lower():
+
+    # Managed Identity auth marker
+    if "activedirectorymanagedidentity" in cs or "activedirectorydefault" in cs:
         return False
+
     return True
 
 
@@ -80,20 +232,48 @@ def _oledb_ls(
     ls = _base_ls(cm, ir_name)
     on_prem = _is_on_prem(cm)
 
+    # Extract components from connection string when model fields are empty
+    cs_parts = parse_connection_string(cm.connection_string)
+    server = cm.server or _extract_server(cs_parts) or ("TODO_SERVER" if on_prem else "TODO_SERVER.database.windows.net")
+    database = cm.database or _extract_database(cs_parts) or "TODO_DATABASE"
+    cs_user = _extract_user(cs_parts)
+    cs_password = _extract_password(cs_parts)
+
+    # Detect auth hints from the connection string
+    cs_auth = cs_parts.get("authentication", "").lower()
+    integrated = cs_parts.get("integrated security", "").lower() in ("sspi", "true", "yes")
+    if cs_auth.startswith("activedirectoryserviceprincipal"):
+        auth_type = "ServicePrincipal"
+    elif cs_auth.startswith("activedirectorymanagedidentity") or cs_auth.startswith("activedirectorydefault"):
+        auth_type = "SystemAssignedManagedIdentity"
+
     if on_prem:
         # On-prem SQL Server: use SqlServer connector type with SHIR
         ls["properties"]["type"] = "SqlServer"
-        server = cm.server or "TODO_SERVER"
-        database = cm.database or "TODO_DATABASE"
 
-        if use_key_vault:
+        if integrated:
+            ls["properties"]["typeProperties"] = {
+                "server": server,
+                "database": database,
+                "encrypt": "mandatory",
+                "trustServerCertificate": False,
+                "authenticationType": "Windows",
+                "userName": cs_user or "TODO_DOMAIN\\\\TODO_USER",
+                "password": (
+                    _kv_secret_ref(kv_ls_name, f"{cm.name}-password")
+                    if use_key_vault
+                    else {"type": "SecureString", "value": "TODO — store in Azure Key Vault"}
+                ),
+                "pooling": False,
+            }
+        elif use_key_vault:
             ls["properties"]["typeProperties"] = {
                 "server": server,
                 "database": database,
                 "encrypt": "mandatory",
                 "trustServerCertificate": False,
                 "authenticationType": "SQL",
-                "userName": "TODO_USERNAME",
+                "userName": cs_user or "TODO_USERNAME",
                 "password": _kv_secret_ref(kv_ls_name, f"{cm.name}-password"),
                 "pooling": False,
             }
@@ -103,19 +283,14 @@ def _oledb_ls(
                 "database": database,
                 "encrypt": "mandatory",
                 "trustServerCertificate": False,
-                "authenticationType": "Windows",
-                "userName": "TODO_DOMAIN\\\\TODO_USER",
-                "password": {
-                    "type": "SecureString",
-                    "value": "TODO — store in Azure Key Vault",
-                },
+                "authenticationType": "SQL",
+                "userName": cs_user or "TODO_USERNAME",
+                "password": {"type": "SecureString", "value": "TODO — store in Azure Key Vault"},
                 "pooling": False,
             }
     else:
         # Azure SQL Database: Recommended version format
         ls["properties"]["type"] = "AzureSqlDatabase"
-        server = cm.server or "TODO_SERVER.database.windows.net"
-        database = cm.database or "TODO_DATABASE"
 
         if auth_type == "SystemAssignedManagedIdentity":
             ls["properties"]["typeProperties"] = {
@@ -125,6 +300,24 @@ def _oledb_ls(
                 "trustServerCertificate": False,
                 "authenticationType": "SystemAssignedManagedIdentity",
             }
+        elif auth_type == "ServicePrincipal":
+            tenant = cs_parts.get("tenant id", cs_parts.get("tenantid", "TODO_TENANT_ID"))
+            sp_id = cs_parts.get("client id", cs_parts.get("clientid", cs_user or "TODO_SERVICE_PRINCIPAL_ID"))
+            ls["properties"]["typeProperties"] = {
+                "server": server,
+                "database": database,
+                "encrypt": "mandatory",
+                "trustServerCertificate": False,
+                "authenticationType": "ServicePrincipal",
+                "servicePrincipalId": sp_id,
+                "tenant": tenant,
+                "servicePrincipalCredentialType": "ServicePrincipalKey",
+                "servicePrincipalCredential": (
+                    _kv_secret_ref(kv_ls_name, f"{cm.name}-sp-secret")
+                    if use_key_vault
+                    else {"type": "SecureString", "value": "TODO — store in Azure Key Vault"}
+                ),
+            }
         elif use_key_vault:
             ls["properties"]["typeProperties"] = {
                 "server": server,
@@ -132,7 +325,7 @@ def _oledb_ls(
                 "encrypt": "mandatory",
                 "trustServerCertificate": False,
                 "authenticationType": "SQL",
-                "userName": "TODO_USERNAME",
+                "userName": cs_user or "TODO_USERNAME",
                 "password": _kv_secret_ref(kv_ls_name, f"{cm.name}-password"),
             }
         else:
@@ -142,11 +335,8 @@ def _oledb_ls(
                 "encrypt": "mandatory",
                 "trustServerCertificate": False,
                 "authenticationType": "SQL",
-                "userName": "TODO_USERNAME",
-                "password": {
-                    "type": "SecureString",
-                    "value": "TODO — store in Azure Key Vault",
-                },
+                "userName": cs_user or "TODO_USERNAME",
+                "password": {"type": "SecureString", "value": "TODO — store in Azure Key Vault"},
             }
 
     return ls
@@ -161,21 +351,61 @@ def _flat_file_ls(
 ) -> dict[str, Any]:
     ls = _base_ls(cm, ir_name)
     ls["properties"]["type"] = "AzureBlobStorage"
-    if use_key_vault:
+    note = (
+        f"Original flat file path: {cm.file_path or 'unknown'}. "
+        "Replace with Azure Blob Storage or ADLS Gen2 connection string."
+    )
+
+    cs_parts = parse_connection_string(cm.connection_string)
+    sas_token = cs_parts.get("sharedaccesssignature", "")
+    account_name = cs_parts.get("accountname", "")
+    account_key = cs_parts.get("accountkey", "")
+    blob_endpoint = cs_parts.get("blobendpoint", "")
+
+    if sas_token:
+        # SAS token authentication
+        sas_uri = blob_endpoint or f"https://{account_name}.blob.core.windows.net"
+        # Combine endpoint and token: sasUri = endpoint + "?" + sas
+        full_uri = f"{sas_uri}?{sas_token}" if "?" not in sas_uri else sas_uri
+        if use_key_vault:
+            ls["properties"]["typeProperties"] = {
+                "sasUri": _kv_secret_ref(kv_ls_name, f"{cm.name}-sasuri"),
+                "note": note,
+            }
+        else:
+            ls["properties"]["typeProperties"] = {
+                "sasUri": {"type": "SecureString", "value": full_uri},
+                "note": note,
+            }
+    elif account_key:
+        # Account key authentication
+        if use_key_vault:
+            ls["properties"]["typeProperties"] = {
+                "connectionString": f"DefaultEndpointsProtocol=https;AccountName={account_name}",
+                "accountKey": _kv_secret_ref(kv_ls_name, f"{cm.name}-accountkey"),
+                "note": note,
+            }
+        else:
+            ls["properties"]["typeProperties"] = {
+                "connectionString": f"DefaultEndpointsProtocol=https;AccountName={account_name};AccountKey={account_key}",
+                "note": note,
+            }
+    elif account_name:
+        # Known account but no key/SAS — use Managed Identity or Key Vault
+        ls["properties"]["typeProperties"] = {
+            "serviceEndpoint": f"https://{account_name}.blob.core.windows.net",
+            "accountKind": "StorageV2",
+            "note": note,
+        }
+    elif use_key_vault:
         ls["properties"]["typeProperties"] = {
             "connectionString": _kv_secret_ref(kv_ls_name, f"{cm.name}-connectionstring"),
-            "note": (
-                f"Original flat file path: {cm.file_path or 'unknown'}. "
-                "Replace with Azure Blob Storage or ADLS Gen2 connection string."
-            ),
+            "note": note,
         }
     else:
         ls["properties"]["typeProperties"] = {
             "connectionString": "DefaultEndpointsProtocol=https;AccountName=TODO;AccountKey=TODO",
-            "note": (
-                f"Original flat file path: {cm.file_path or 'unknown'}. "
-                "Replace with Azure Blob Storage or ADLS Gen2 connection string."
-            ),
+            "note": note,
         }
     return ls
 
@@ -241,6 +471,47 @@ def _smtp_ls(
     return ls
 
 
+def _file_ls(
+    cm: SSISConnectionManager,
+    ir_name: str,
+    auth_type: str,
+    use_key_vault: bool,
+    kv_ls_name: str,
+) -> dict[str, Any]:
+    """FILE / MULTIFILE connection → FileServer linked service (on-prem) or AzureBlobStorage."""
+    ls = _base_ls(cm, ir_name)
+    file_path = cm.file_path or cm.connection_string or ""
+
+    # Heuristic: if the path looks like a UNC or local drive path, use FileServer
+    if file_path.startswith("\\\\") or (len(file_path) >= 2 and file_path[1] == ":"):
+        ls["properties"]["type"] = "FileServer"
+        ls["properties"]["description"] = (
+            f"[MANUAL REVIEW] FILE connection '{cm.name}' points to local/UNC path '{file_path}'. "
+            "Migrate files to Azure Blob/ADLS and switch to AzureBlobStorage, or keep "
+            "FileServer with Self-Hosted IR."
+        )
+        password: Any
+        if use_key_vault:
+            password = _kv_secret_ref(kv_ls_name, f"{cm.name}-password")
+        else:
+            password = {"type": "SecureString", "value": "TODO — store in Azure Key Vault"}
+        ls["properties"]["typeProperties"] = {
+            "host": file_path,
+            "userId": cm.username or "TODO_USERNAME",
+            "password": password,
+        }
+    else:
+        ls["properties"]["type"] = "AzureBlobStorage"
+        ls["properties"]["description"] = (
+            f"[MANUAL REVIEW] FILE connection '{cm.name}' — original path: '{file_path}'. "
+            "Replace with Azure Blob Storage or ADLS Gen2 connection."
+        )
+        ls["properties"]["typeProperties"] = {
+            "connectionString": "DefaultEndpointsProtocol=https;AccountName=TODO;AccountKey=TODO",
+        }
+    return ls
+
+
 _BUILDERS: dict[ConnectionManagerType, Any] = {
     ConnectionManagerType.OLEDB: _oledb_ls,
     ConnectionManagerType.ADO_NET: _oledb_ls,
@@ -250,6 +521,8 @@ _BUILDERS: dict[ConnectionManagerType, Any] = {
     ConnectionManagerType.HTTP: _http_ls,
     ConnectionManagerType.SMTP: _smtp_ls,
     ConnectionManagerType.ODBC: _oledb_ls,
+    ConnectionManagerType.FILE: _file_ls,
+    ConnectionManagerType.MULTIFILE: _file_ls,
 }
 
 
@@ -279,6 +552,28 @@ def _generate_kv_linked_service(
     return ls
 
 
+def _resolve_ir_name(
+    cm: SSISConnectionManager,
+    on_prem: bool,
+    on_prem_ir_name: str,
+    cloud_ir_name: str,
+    ir_mapping: dict[str, str] | None,
+) -> str:
+    """Pick the Integration Runtime name for *cm*.
+
+    If *ir_mapping* is provided, check the connection manager's name against
+    each glob pattern (case-insensitive).  First match wins.  Falls back to
+    the binary on-prem / cloud default when no pattern matches.
+    """
+    if ir_mapping:
+        import fnmatch
+        cm_name_lower = (cm.name or "").lower()
+        for pattern, ir_name in ir_mapping.items():
+            if fnmatch.fnmatch(cm_name_lower, pattern.lower()):
+                return ir_name
+    return on_prem_ir_name if on_prem else cloud_ir_name
+
+
 def generate_linked_services(
     package: SSISPackage,
     output_dir: Path,
@@ -290,12 +585,21 @@ def generate_linked_services(
     kv_ls_name: str = "LS_KeyVault",
     kv_url: str = "https://TODO.vault.azure.net/",
     shared_artifacts_dir: Path | None = None,
+    ir_mapping: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Generate one ADF linked service JSON per unique Connection Manager in *package*.
 
     When *shared_artifacts_dir* is set, checks for existing linked service JSON files
     there before creating new ones (cross-package deduplication by server+database).
+
+    *ir_mapping* is an optional dict mapping connection-name glob patterns
+    (case-insensitive) to specific Integration Runtime names.  For example::
+
+        {"*_EU_*": "SHIR_Europe", "*_US_*": "SHIR_US", "LEGACY_*": "SHIR_Legacy"}
+
+    When a connection manager's name matches a pattern, that IR is used instead
+    of the default ``on_prem_ir_name`` / ``cloud_ir_name`` heuristic.
 
     Files are written to *output_dir*/linkedService/.
     Returns the list of linked service dicts.
@@ -315,7 +619,13 @@ def generate_linked_services(
                     key = f"{tp.get('server', '')}|{tp.get('database', '')}".lower()
                     if key != "|":
                         existing_ls[key] = data["name"]
-                except Exception:
+                except Exception as exc:
+                    warn(
+                        phase="generate", severity="warning",
+                        source="linked_service_generator",
+                        message=f"Failed to read shared linked service '{f.name}': {exc}",
+                        detail="Deduplication may create a duplicate linked service",
+                    )
                     continue
 
     seen_ids: set[str] = set()
@@ -334,7 +644,7 @@ def generate_linked_services(
             continue
 
         on_prem = _is_on_prem(cm)
-        ir_name = on_prem_ir_name if on_prem else cloud_ir_name
+        ir_name = _resolve_ir_name(cm, on_prem, on_prem_ir_name, cloud_ir_name, ir_mapping)
 
         builder = _BUILDERS.get(cm.type, _generic_ls)
         ls = builder(cm, ir_name, auth_type, use_key_vault, kv_ls_name)

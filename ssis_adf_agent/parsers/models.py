@@ -28,6 +28,14 @@ class PrecedenceValue(str, Enum):
     COMPLETION = "2"
 
 
+class Severity(str, Enum):
+    """Unified severity levels for warnings and gap items."""
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
+    MANUAL_REQUIRED = "manual_required"
+
+
 class ProtectionLevel(str, Enum):
     DONT_SAVE_SENSITIVE = "DontSaveSensitive"
     ENCRYPT_SENSITIVE_WITH_USER_KEY = "EncryptSensitiveWithUserKey"
@@ -287,6 +295,7 @@ class DataFlowColumn(BaseModel):
     scale: int = 0
     code_page: int = 0
     nullable: bool = True
+    properties: dict[str, Any] = Field(default_factory=dict)
 
 
 class DataFlowComponent(BaseModel):
@@ -398,9 +407,20 @@ class GapItem(BaseModel):
     task_id: str
     task_name: str
     task_type: str
-    severity: str  # "manual_required", "warning", "info"
+    severity: Severity
     message: str
     recommendation: str = ""
+
+
+class ConversionWarning(BaseModel):
+    """Structured warning emitted during parsing, conversion, or generation."""
+    phase: str  # "parse", "analyze", "convert", "generate", "deploy"
+    severity: Severity
+    source: str  # module/component that emitted the warning
+    message: str
+    task_name: str = ""
+    task_id: str = ""
+    detail: str = ""  # additional context (e.g. fallback value used)
 
 
 class ComplexityScore(BaseModel):

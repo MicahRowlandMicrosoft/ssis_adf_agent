@@ -1,7 +1,10 @@
 """
-Script Task → ADF Azure Function Activity + Azure Function Python stub generation.
+Script Task → ADF activity converter.
 
-The converter:
+Trivial / simple scripts (e.g. variable assignment based on environment) are
+converted to SetVariable activities — no Azure Function needed.
+
+For moderate / complex scripts the converter:
 1. Generates an AzureFunctionActivity JSON that calls an Azure Function endpoint.
 2. Writes a Python Azure Function stub to the ``stubs/`` output directory that
    preserves the original variable interface so the developer can fill in logic.
@@ -16,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ...parsers.models import PrecedenceConstraint, ScriptTask, SSISTask
+from ...analyzers.script_classifier import classify_script, ScriptComplexity
 from ..base_converter import BaseConverter
 
 
@@ -37,6 +41,90 @@ class ScriptTaskConverter(BaseConverter):
         assert isinstance(task, ScriptTask)
         depends_on = self._depends_on(task, constraints, task_by_id)
 
+        classification = classify_script(task)
+
+        # Trivial scripts → SetVariable activities (no Azure Function needed)
+        if classification.tier == ScriptComplexity.TRIVIAL:
+            return self._convert_trivial(task, depends_on)
+
+        # Simple ADF-expressible scripts → SetVariable with a review note
+        if classification.tier == ScriptComplexity.SIMPLE and classification.adf_expressible:
+            return self._convert_simple(task, depends_on)
+
+        # Moderate / complex → Azure Function stub (original behaviour)
+        return self._convert_to_function(task, depends_on)
+
+    def _convert_trivial(
+        self,
+        task: ScriptTask,
+        depends_on: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Emit SetVariable activities for each read-write variable."""
+        activities: list[dict[str, Any]] = []
+        rw_vars = task.read_write_variables
+        if not rw_vars:
+            # No read-write variables → emit a single no-op SetVariable as placeholder
+            return [{
+                "name": task.name,
+                "description": (
+                    "[AUTO-CONVERTED] Trivial Script Task — original script only assigned variables. "
+                    "No Azure Function needed. " + (task.description or "")
+                ),
+                "type": "SetVariable",
+                "dependsOn": depends_on,
+                "typeProperties": {
+                    "variableName": "_placeholder",
+                    "value": "true",
+                },
+            }]
+
+        for i, var in enumerate(rw_vars):
+            var_name = var.split("::")[-1] if "::" in var else var
+            activity: dict[str, Any] = {
+                "name": f"{task.name} - Set {var_name}" if len(rw_vars) > 1 else task.name,
+                "description": (
+                    "[AUTO-CONVERTED] Trivial Script Task → SetVariable. "
+                    "Original script only assigned variable values. "
+                    "Review the default value and adjust the expression if needed. "
+                    + (task.description or "")
+                ),
+                "type": "SetVariable",
+                "dependsOn": depends_on if i == 0 else [{
+                    "activity": activities[-1]["name"],
+                    "dependencyConditions": ["Succeeded"],
+                }],
+                "typeProperties": {
+                    "variableName": var_name,
+                    "value": {
+                        "value": f"@variables('{var_name}')",
+                        "type": "Expression",
+                    },
+                },
+            }
+            activities.append(activity)
+        return activities
+
+    def _convert_simple(
+        self,
+        task: ScriptTask,
+        depends_on: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Emit SetVariable activities with review note for simple scripts."""
+        activities = self._convert_trivial(task, depends_on)
+        for act in activities:
+            act["description"] = (
+                "[REVIEW] Simple Script Task converted to SetVariable. "
+                "The original logic may need ADF expressions. "
+                + (task.description or "")
+            )
+        return activities
+
+    def _convert_to_function(
+        self,
+        task: ScriptTask,
+        depends_on: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Original behaviour: emit AzureFunction activity + write stub."""
         func_name = _safe_name(task.name)
         stub_path = self._write_stub(task, func_name)
 
@@ -157,6 +245,28 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     )
 '''
         stub_file.write_text(stub_content, encoding="utf-8")
+
+        # Write function.json (Azure Functions HTTP trigger binding)
+        import json as _json
+        func_json = stub_file.parent / "function.json"
+        func_json.write_text(_json.dumps({
+            "scriptFile": "__init__.py",
+            "bindings": [
+                {
+                    "authLevel": "function",
+                    "type": "httpTrigger",
+                    "direction": "in",
+                    "name": "req",
+                    "methods": ["post"],
+                },
+                {
+                    "type": "http",
+                    "direction": "out",
+                    "name": "$return",
+                },
+            ],
+        }, indent=2), encoding="utf-8")
+
         return stub_file
 
 

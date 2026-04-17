@@ -153,7 +153,18 @@ class CSharpToPythonTranslator:
                 f"Unexpected error calling Azure OpenAI: {exc}", exc
             ) from exc
 
-        content = response.choices[0].message.content
+        if not response.choices:
+            raise TranslationError(
+                "Azure OpenAI returned a response with no choices."
+            )
+
+        message = response.choices[0].message
+        if message is None:
+            raise TranslationError(
+                "Azure OpenAI returned a choice with no message."
+            )
+
+        content = message.content
         if not content:
             raise TranslationError("Azure OpenAI returned an empty response.")
 

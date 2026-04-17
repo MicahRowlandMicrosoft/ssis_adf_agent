@@ -20,6 +20,8 @@ via the MCP server; use them in the order that makes sense for the task.
 | `convert_ssis_package` | Full conversion to ADF JSON (pipeline, linked services, datasets, data flows, triggers) |
 | `validate_adf_artifacts` | Structural validation of generated JSON before deploying |
 | `deploy_to_adf` | Push artifacts to Azure Data Factory via SDK |
+| `deploy_function_stubs` | Zip-deploy generated Azure Function stubs to an existing Function App |
+| `provision_function_app` | Create Azure resources (Storage, App Insights, Plan, Function App) for hosting stubs |
 
 ---
 
@@ -92,12 +94,12 @@ Run `az login` before deploying if using a developer machine.
 
 | Score | Label | Typical Effort |
 |---|---|---|
-| 0–25 | Low | < 1 day |
-| 26–50 | Medium | 1–3 days |
-| 51–75 | High | 3–5 days |
-| 76–100 | Very High | 1+ weeks |
+| 0–30 | Low | < 1 day |
+| 31–55 | Medium | 1–3 days |
+| 56–80 | High | 3–5 days |
+| 81–100 | Very High | 1–3 weeks |
 
-Score drivers: Script Tasks (+20 each), Data Flow Tasks (+8 each), ForEach/ForLoop (+5 each), Unknown tasks (+10 each).
+Score drivers: Script Tasks (+2 to +25, content-aware: trivial/simple/moderate/complex), Data Flow Tasks (+5 base, +1.5 per component), ForEach/ForLoop (+5 each), Event Handlers (+4 each), Nesting depth (+3 per level beyond 1), Unknown tasks (+10 each), Linked server references (+8 each), Cross-database references (+3 each).
 
 ---
 

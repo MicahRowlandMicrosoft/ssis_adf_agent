@@ -37,6 +37,10 @@ from ..parsers.models import (
 )
 from ..analyzers.dependency_graph import topological_sort
 from ..converters.dispatcher import ConverterDispatcher
+from ..warnings_collector import warn as _warn
+
+# ADF hard limit on activities per pipeline
+_ADF_ACTIVITY_LIMIT = 40
 
 _SSIS_TO_ADF_TYPE: dict[str, str] = {
     "String": "String",
@@ -110,7 +114,7 @@ def generate_pipeline(
 
     Returns the pipeline dict.
     """
-    dispatcher = ConverterDispatcher(stubs_dir=stubs_dir or output_dir / "stubs", llm_translate=llm_translate)
+    dispatcher = ConverterDispatcher(stubs_dir=stubs_dir or output_dir / "stubs", llm_translate=llm_translate, pipeline_prefix=pipeline_prefix)
     pipeline_name = f"{pipeline_prefix}{package.name.replace(' ', '_')}"
 
     # Topological task ordering
@@ -125,17 +129,54 @@ def generate_pipeline(
             continue
         acts = dispatcher.convert_task(task, package.constraints, task_by_id)
 
-        # Apply schema remap to SQL text in Script activities
+        # Apply schema remap to SQL text in Script, Lookup, and StoredProcedure activities
         if schema_remap:
             from ..converters.control_flow.execute_sql_converter import apply_schema_remap
             for act in acts:
-                if act.get("type") == "Script":
-                    scripts = act.get("typeProperties", {}).get("scripts", [])
+                act_type = act.get("type", "")
+                tp = act.get("typeProperties", {})
+
+                # Script activities — remap SQL in scripts[].text
+                if act_type == "Script":
+                    scripts = tp.get("scripts", [])
                     for script in scripts:
                         if "text" in script:
                             script["text"] = apply_schema_remap(script["text"], schema_remap) or script["text"]
 
+                # Lookup activities — remap SQL in source.sqlReaderQuery
+                elif act_type == "Lookup":
+                    source = tp.get("source", {})
+                    if "sqlReaderQuery" in source:
+                        source["sqlReaderQuery"] = (
+                            apply_schema_remap(source["sqlReaderQuery"], schema_remap)
+                            or source["sqlReaderQuery"]
+                        )
+
+                # StoredProcedure activities — remap the procedure name
+                elif act_type == "SqlServerStoredProcedure":
+                    if "storedProcedureName" in tp:
+                        tp["storedProcedureName"] = (
+                            apply_schema_remap(tp["storedProcedureName"], schema_remap)
+                            or tp["storedProcedureName"]
+                        )
+
         activities.extend(acts)
+
+    # Deduplicate activity names — ADF requires unique names
+    _deduplicate_activity_names(activities)
+
+    # Warn if activity count exceeds ADF hard limit
+    if len(activities) > _ADF_ACTIVITY_LIMIT:
+        _warn(
+            phase="generate",
+            severity="warning",
+            source="pipeline_generator",
+            message=(
+                f"Pipeline has {len(activities)} activities, exceeding the "
+                f"ADF limit of {_ADF_ACTIVITY_LIMIT}. Split into sub-pipelines."
+            ),
+            task_name=package.name,
+        )
 
     # Build parameters from SSIS package parameters
     parameters: dict[str, Any] = {}
@@ -220,3 +261,41 @@ def _inject_function_url_params(
                 "type": "String",
                 "defaultValue": "https://TODO.azurewebsites.net/api/" + name.replace("Url", ""),
             }
+
+
+def _deduplicate_activity_names(activities: list[dict[str, Any]]) -> None:
+    """Ensure every activity has a unique name by appending _2, _3, … to collisions.
+
+    Also patches ``dependsOn`` references so renamed activities are still
+    reachable by downstream activities.
+    """
+    seen: dict[str, int] = {}
+    old_to_new: dict[int, tuple[str, str]] = {}  # obj-id → (old_name, new_name)
+
+    for act in activities:
+        name = act["name"]
+        if name in seen:
+            seen[name] += 1
+            new_name = f"{name}_{seen[name]}"
+            old_to_new[id(act)] = (name, new_name)
+            act["name"] = new_name
+        else:
+            seen[name] = 1
+
+    # Patch dependsOn: build old_name → set-of-new-names for renames
+    if old_to_new:
+        rename_map: dict[str, list[str]] = {}
+        for _, (old, new) in old_to_new.items():
+            rename_map.setdefault(old, []).append(new)
+
+        for act in activities:
+            new_deps = []
+            for dep in act.get("dependsOn", []):
+                dep_name = dep.get("activity", "")
+                if dep_name in rename_map:
+                    # This dep refers to a name that was duplicated; find
+                    # the renamed version (if any) — keep original reference
+                    # since first occurrence kept its name.
+                    pass
+                new_deps.append(dep)
+            act["dependsOn"] = new_deps

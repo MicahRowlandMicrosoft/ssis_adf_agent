@@ -18,7 +18,7 @@ from ..parsers.models import SqlAgentSchedule, SSISPackage
 
 # SQL Agent freq_type → ADF frequency
 _FREQ_MAP: dict[int, str] = {
-    1: "Minute",   # Once — use one-time; approximate as Minute
+    1: "Minute",   # Once — approximate; schedule object carries exact time
     4: "Day",
     8: "Week",
     16: "Month",
@@ -36,22 +36,64 @@ _WEEKDAY_BITS: dict[int, str] = {
     64: "Saturday",
 }
 
+# SQL Agent freq_subday_type → ADF sub-day frequency
+_SUBDAY_FREQ: dict[int, str] = {
+    4: "Minute",
+    8: "Hour",
+}
+
+
+def _hhmmss_to_parts(hhmmss: int) -> tuple[int, int, int]:
+    """Parse SQL Agent HHMMSS int to (hours, minutes, seconds)."""
+    h = hhmmss // 10000
+    m = (hhmmss % 10000) // 100
+    s = hhmmss % 100
+    return h, m, s
+
+
+def _start_time_iso(sched: SqlAgentSchedule) -> str:
+    """Build an ISO-8601 startTime from the schedule's active_start_time.
+
+    Returns a date-time string like ``2026-01-01T06:00:00Z``.
+    """
+    h, m, s = _hhmmss_to_parts(sched.active_start_time)
+    return f"2026-01-01T{h:02d}:{m:02d}:{s:02d}Z"
+
+
+def _end_time_iso(sched: SqlAgentSchedule) -> str | None:
+    """Build an ISO-8601 endTime if end time differs from 23:59:59."""
+    if sched.active_end_time in (0, 235959):
+        return None
+    h, m, s = _hhmmss_to_parts(sched.active_end_time)
+    return f"2026-12-31T{h:02d}:{m:02d}:{s:02d}Z"
+
 
 def _schedule_from_agent(sched: SqlAgentSchedule) -> dict[str, Any]:
     """Convert SqlAgentSchedule to ADF recurrence + schedule dicts."""
     freq = _FREQ_MAP.get(sched.frequency_type, "Day")
     interval = 1
 
-    # Parse active_start_time (HHMMSS int)
-    hours = sched.active_start_time // 10000
-    minutes = (sched.active_start_time % 10000) // 100
+    h, m, _ = _hhmmss_to_parts(sched.active_start_time)
 
     schedule: dict[str, Any] = {
-        "hours": [hours],
-        "minutes": [minutes],
+        "hours": [h],
+        "minutes": [m],
     }
 
-    if sched.frequency_type == 4:
+    # --- Sub-day recurrence (runs every N minutes/hours within a day) ---
+    if sched.freq_subday_type in _SUBDAY_FREQ and sched.freq_subday_interval > 0:
+        freq = _SUBDAY_FREQ[sched.freq_subday_type]
+        interval = sched.freq_subday_interval
+        # For sub-day triggers ADF uses a simple interval; hours/minutes in
+        # the schedule object are not used because the trigger fires every
+        # N minutes/hours.  We keep them as documentation.
+
+    elif sched.frequency_type == 1:
+        # "Once" — no native once-trigger in ADF; emit daily with a comment.
+        freq = "Day"
+        interval = 1
+
+    elif sched.frequency_type == 4:
         # Daily — interval is freq_interval (every N days)
         interval = max(sched.freq_interval, 1)
 
@@ -78,7 +120,13 @@ def _schedule_from_agent(sched: SqlAgentSchedule) -> dict[str, Any]:
         "frequency": freq,
         "interval": interval,
         "schedule": schedule,
+        "startTime": _start_time_iso(sched),
+        "timeZone": "UTC",
     }
+
+    end_time = _end_time_iso(sched)
+    if end_time:
+        recurrence["endTime"] = end_time
 
     return recurrence
 
@@ -114,15 +162,26 @@ def generate_triggers(
         description_parts.append(
             f"Mapped from SQL Agent job '{sched.job_name}' schedule '{sched.schedule_name}'."
         )
+        if sched.frequency_type == 1:
+            description_parts.append(
+                "[MANUAL REVIEW] Original schedule was 'Once' — mapped to daily; adjust or disable after first run."
+            )
         if sched.frequency_type == 32:
             description_parts.append(
                 "[MANUAL REVIEW] Monthly-relative schedule — verify ADF recurrence matches original."
+            )
+        if sched.freq_subday_type in (4, 8) and sched.freq_subday_interval > 0:
+            subday_unit = "minutes" if sched.freq_subday_type == 4 else "hours"
+            description_parts.append(
+                f"Runs every {sched.freq_subday_interval} {subday_unit} within the active window."
             )
     elif cron_expression:
         recurrence = {
             "frequency": "Minute",
             "interval": 1,
             "schedule": {"quartz": cron_expression},
+            "startTime": "2026-01-01T00:00:00Z",
+            "timeZone": "UTC",
         }
     else:
         recurrence = {
@@ -132,6 +191,8 @@ def generate_triggers(
                 "hours": [0],
                 "minutes": [0],
             },
+            "startTime": "2026-01-01T00:00:00Z",
+            "timeZone": "UTC",
         }
         description_parts.append(
             "Adjust schedule to match original SQL Agent job schedule."
@@ -147,11 +208,7 @@ def generate_triggers(
             "annotations": ["ssis-adf-agent"],
             "type": "ScheduleTrigger",
             "typeProperties": {
-                "recurrence": {
-                    **recurrence,
-                    "startTime": "2026-01-01T00:00:00Z",
-                    "timeZone": "UTC",
-                },
+                "recurrence": recurrence,
             },
             "pipelines": [
                 {

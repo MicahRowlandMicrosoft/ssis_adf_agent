@@ -16,11 +16,41 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..parsers.models import DataFlowComponent, DataFlowPath, DataFlowTask, SSISPackage, TaskType
+from ..parsers.models import DataFlowComponent, DataFlowPath, DataFlowTask, DataType, SSISPackage, TaskType
 from ..converters.data_flow.source_converter import convert_source
 from ..converters.data_flow.destination_converter import convert_destination
 from ..converters.data_flow.transformation_converter import convert_transformation
 from ..translators.ssis_expression_translator import translate_expression
+from ..warnings_collector import warn
+
+# ---------------------------------------------------------------------------
+# SSIS DataType → ADF Mapping Data Flow DSL type
+# ---------------------------------------------------------------------------
+
+_DATATYPE_TO_DSL: dict[DataType, str] = {
+    DataType.INT8: "short",
+    DataType.INT16: "short",
+    DataType.INT32: "integer",
+    DataType.INT64: "long",
+    DataType.UINT8: "short",
+    DataType.UINT16: "integer",
+    DataType.UINT32: "long",
+    DataType.UINT64: "long",
+    DataType.FLOAT: "float",
+    DataType.DOUBLE: "double",
+    DataType.CURRENCY: "decimal",
+    DataType.DECIMAL: "decimal",
+    DataType.BOOLEAN: "boolean",
+    DataType.STRING: "string",
+    DataType.WSTRING: "string",
+    DataType.BYTES: "binary",
+    DataType.DATE: "date",
+    DataType.DBDATE: "date",
+    DataType.DBTIME: "string",
+    DataType.DBTIMESTAMP: "timestamp",
+    DataType.GUID: "string",
+    DataType.EMPTY: "string",
+}
 
 _SOURCE_TYPES = frozenset({
     "OleDbSource", "FlatFileSource", "ExcelSource", "OdbcSource",
@@ -137,6 +167,14 @@ def _build_dsl_script(
 
     # If no topology was resolved, fall back to linear chaining
     if not any(predecessors.values()):
+        if task and not task.paths:
+            warn(
+                phase="convert",
+                severity="warning",
+                source="dataflow_generator",
+                message=f"Data flow '{task.name}' has no parsed paths — using linear chain fallback",
+                detail="Topology may not match actual SSIS execution order; review the generated data flow",
+            )
         _linear_chain(sources, transformations, sinks, predecessors)
 
     # Emit sources
@@ -177,8 +215,9 @@ def _build_topology(
         input_to_comp[comp.id] = safe
         # SSIS uses output/input IDs — the path start_id references
         # the output ID which is typically encoded as "{compId}\Output{N}"
-        # We store both patterns
-        for i in range(5):
+        # Compute dynamic range from actual output columns + generous margin
+        max_io = max(len(comp.output_columns), len(comp.input_columns), 5)
+        for i in range(max_io):
             output_to_comp[f"{comp.id}\\Output {i}"] = safe
             output_to_comp[f"{comp.id}\\output {i}"] = safe
             input_to_comp[f"{comp.id}\\Input {i}"] = safe
@@ -187,6 +226,17 @@ def _build_topology(
     for path in task.paths:
         src_name = output_to_comp.get(path.start_id)
         dst_name = input_to_comp.get(path.end_id)
+        # Fallback: try prefix-matching for IDs not in the pre-built map
+        if not src_name:
+            for comp in task.components:
+                if path.start_id.startswith(comp.id):
+                    src_name = comp.name.replace(" ", "_")
+                    break
+        if not dst_name:
+            for comp in task.components:
+                if path.end_id.startswith(comp.id):
+                    dst_name = comp.name.replace(" ", "_")
+                    break
         if src_name and dst_name and dst_name in predecessors:
             predecessors[dst_name].append(src_name)
 
@@ -214,7 +264,16 @@ def _linear_chain(
 
 
 def _emit_source(lines: list[str], s: dict) -> None:
-    lines.append(f"source(output(/* TODO: declare output schema */),")
+    cols = s.get("_output_columns", [])
+    if cols:
+        col_defs = ",\n        ".join(
+            f"{c.name} as {_DATATYPE_TO_DSL.get(c.data_type, 'string')}" for c in cols
+        )
+        lines.append(f"source(output(")
+        lines.append(f"        {col_defs}")
+        lines.append(f"    ),")
+    else:
+        lines.append(f"source(output(/* TODO: declare output schema */),")
     lines.append(f"    allowSchemaDrift: true,")
     lines.append(f"    validateSchema: false,")
     lines.append(f"    isolationLevel: 'READ_UNCOMMITTED',")
@@ -248,7 +307,7 @@ def _emit_transformation(lines: list[str], t: dict, upstream: str) -> None:
         if conds:
             cond_str = ", ".join(f"{c['name']}: ({c['expression']})" for c in conds)
             lines.append(f"{upstream} split({cond_str},")
-            lines.append(f"    disjoint: false) ~> {t['name']}")
+            lines.append(f"    disjoint: true) ~> {t['name']}")
         else:
             lines.append(f"{upstream} split(/* TODO: conditions */) ~> {t['name']}")
 
@@ -308,6 +367,16 @@ def _emit_sink(
     key_columns: list[str] | None,
 ) -> None:
     has_keys = bool(key_columns)
+    # Emit column mapping from input column metadata
+    input_cols = sk.get("_input_columns", [])
+    if input_cols:
+        col_mappings = ", ".join(c.name for c in input_cols)
+        lines.append(f"{upstream} select(mapColumn(")
+        lines.append(f"        {col_mappings}")
+        lines.append(f"    )) ~> {sk['name']}_mapped")
+        # Chain mapped stream into sink
+        upstream = f"{sk['name']}_mapped"
+
     lines.append(f"{upstream} sink(allowSchemaDrift: true,")
     lines.append(f"    validateSchema: false,")
     lines.append(f"    errorHandlingOption: 'stopOnFirstError',")
@@ -322,4 +391,4 @@ def _emit_sink(
         lines.append(f"    deletable: false,")
         lines.append(f"    insertable: true,")
         lines.append(f"    updateable: false,")
-        lines.append(f"    upsertable: true) ~> {sk['name']}")
+        lines.append(f"    upsertable: false) ~> {sk['name']}")

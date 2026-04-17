@@ -645,6 +645,10 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
 
         stubs_dir = output_dir / "stubs"
 
+        # Run gap analysis for manual-work checklist
+        from .analyzers.gap_analyzer import analyze_gaps
+        gaps = analyze_gaps(package)
+
         # Run analyzers for annotations
         cdm_gaps = detect_cdm_patterns(package)
         esi_gaps = analyze_esi_reuse(package, esi_config) if esi_config else []
@@ -750,6 +754,11 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
             "manual_review_required": len(conversion_warnings),
             "cdm_patterns_flagged": len(cdm_gaps),
             "esi_reuse_candidates": len(esi_gaps),
+            "gap_analysis": {
+                "total": len(gaps),
+                "manual_required": [g.model_dump() for g in gaps if g.severity == "manual_required"],
+                "warnings": [g.model_dump() for g in gaps if g.severity == "warning"],
+            },
             "warnings": conversion_warnings[:20],  # cap output size
             "conversion_warnings": [w.model_dump() for w in wc.warnings],
             "files": {

@@ -39,6 +39,10 @@ def convert_destination(component: DataFlowComponent) -> dict[str, Any]:
     write_behavior = _WRITE_BEHAVIOR.get(comp_type, "upsert")
     safe_name = component.name.replace(" ", "_")
 
+    # Guard: only allow upsert if the component has key columns defined
+    has_keys = bool(component.key_columns)
+    allow_upsert = write_behavior == "upsert" and has_keys
+
     conn_ref = component.connection_id
     if not conn_ref:
         warn(
@@ -61,7 +65,7 @@ def convert_destination(component: DataFlowComponent) -> dict[str, Any]:
         },
         "typeProperties": {
             "format": {"type": ds_type},
-            "allowUpsert": write_behavior == "upsert",
+            "allowUpsert": allow_upsert,
         },
     }
 
@@ -72,5 +76,9 @@ def convert_destination(component: DataFlowComponent) -> dict[str, Any]:
     )
     if table:
         sink["typeProperties"]["tableName"] = table
+
+    # Carry column mapping metadata for DSL script generation
+    sink["_input_columns"] = component.input_columns
+    sink["_key_columns"] = component.key_columns
 
     return sink

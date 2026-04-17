@@ -737,6 +737,132 @@ class TestDataFlowColumnProperties:
 
     def test_with_sort_key_position(self):
         col = DataFlowColumn(name="SortCol", properties={"SortKeyPosition": "1"})
+
+
+# ==========================================================================
+# Audit-driven improvements
+# ==========================================================================
+
+from ssis_adf_agent.converters.data_flow.source_converter import convert_source
+from ssis_adf_agent.converters.data_flow.destination_converter import convert_destination
+
+
+class TestSourceOutputColumns:
+    """Source output schema should be populated in DSL from parsed columns."""
+
+    def test_source_output_columns_in_dsl(self):
+        comp = DataFlowComponent(
+            id="src1", name="OLE_SRC", component_class_id="test",
+            component_type="OleDbSource",
+            output_columns=[
+                DataFlowColumn(name="CustomerID", data_type=DataType.INT32),
+                DataFlowColumn(name="Name", data_type=DataType.WSTRING),
+            ],
+        )
+        source = convert_source(comp)
+        assert "_output_columns" in source
+        assert len(source["_output_columns"]) == 2
+
+        # Build script and verify schema appears
+        script = _build_dsl_script([source], [], [{"name": "sink1"}])
+        assert "CustomerID as integer" in script
+        assert "Name as string" in script
+        assert "/* TODO: declare output schema */" not in script
+
+    def test_source_no_columns_falls_back_to_todo(self):
+        comp = DataFlowComponent(
+            id="src1", name="OLE_SRC", component_class_id="test",
+            component_type="OleDbSource",
+            output_columns=[],
+        )
+        source = convert_source(comp)
+        script = _build_dsl_script([source], [], [{"name": "sink1"}])
+        assert "/* TODO: declare output schema */" in script
+
+
+class TestSinkColumnMapping:
+    """Sink should emit select/mapColumn from input columns."""
+
+    def test_sink_with_input_columns_emits_map(self):
+        sink_dict = {
+            "name": "sink1",
+            "_input_columns": [
+                DataFlowColumn(name="ID", data_type=DataType.INT32),
+                DataFlowColumn(name="Amount", data_type=DataType.DOUBLE),
+            ],
+            "_key_columns": [],
+        }
+        script = _build_dsl_script(
+            [{"name": "src1"}], [], [sink_dict]
+        )
+        assert "select(mapColumn(" in script
+        assert "ID" in script
+        assert "Amount" in script
+
+    def test_sink_without_input_columns_no_map(self):
+        sink_dict = {"name": "sink1", "_input_columns": [], "_key_columns": []}
+        script = _build_dsl_script([{"name": "src1"}], [], [sink_dict])
+        assert "select(mapColumn(" not in script
+
+
+class TestUpsertGuard:
+    """allowUpsert should only be true when key columns are present."""
+
+    def test_no_keys_disables_upsert(self):
+        comp = DataFlowComponent(
+            id="dst1", name="OLE_DST", component_class_id="test",
+            component_type="OleDbDestination",
+            key_columns=[],
+        )
+        sink = convert_destination(comp)
+        assert sink["typeProperties"]["allowUpsert"] is False
+
+    def test_with_keys_enables_upsert(self):
+        comp = DataFlowComponent(
+            id="dst1", name="OLE_DST", component_class_id="test",
+            component_type="OleDbDestination",
+            key_columns=["CustomerID"],
+        )
+        sink = convert_destination(comp)
+        assert sink["typeProperties"]["allowUpsert"] is True
+
+
+class TestSinkDslNoKeysNoUpsert:
+    """DSL sink should emit upsertable: false when no key columns."""
+
+    def test_no_keys_upsertable_false(self):
+        script = _build_dsl_script(
+            [{"name": "src1"}], [], [{"name": "sink1"}],
+            key_columns=None,
+        )
+        assert "upsertable: false" in script
+        assert "upsertable: true" not in script
+
+
+class TestConditionalSplitDisjoint:
+    """ConditionalSplit should emit disjoint: true (SSIS first-match semantics)."""
+
+    def test_disjoint_true(self):
+        t = {
+            "name": "split1",
+            "type": "ConditionalSplit",
+            "typeProperties": {
+                "conditions": [
+                    {"name": "Active", "expression": "Status == 'A'"},
+                ],
+            },
+        }
+        script = _build_dsl_script(
+            [{"name": "src1"}], [t], [{"name": "sink1"}]
+        )
+        assert "disjoint: true" in script
+
+
+class TestDataFlowColumnProperties2:
+    """Remaining column property assertions."""
+
+    def test_with_sort_key_position(self):
+        col = DataFlowColumn(name="SortCol", properties={"SortKeyPosition": "1"})
         assert col.properties["SortKeyPosition"] == "1"
 
     def test_with_aggregation_type(self):

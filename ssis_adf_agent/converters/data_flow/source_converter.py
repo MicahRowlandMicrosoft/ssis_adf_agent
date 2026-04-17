@@ -65,4 +65,7 @@ def convert_source(component: DataFlowComponent) -> dict[str, Any]:
     if query:
         source["typeProperties"]["query"] = query
 
+    # Carry output column metadata for DSL script generation
+    source["_output_columns"] = component.output_columns
+
     return source

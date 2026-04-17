@@ -247,6 +247,51 @@ class TestGenerateDatasetsWithSchema:
 
         assert datasets[0]["properties"]["schema"] == []
 
+
+class TestLookupDatasetGeneration:
+    """Lookup transformations should generate a companion dataset."""
+
+    def _make_package(self, components):
+        return SSISPackage(
+            id="pkg1", name="TestPkg", source_file="test.dtsx",
+            connection_managers=[
+                SSISConnectionManager(
+                    id="conn-1", name="OleConn", type=ConnectionManagerType.OLEDB,
+                    connection_string="Server=.;Database=TestDB;",
+                    server=".", database="TestDB",
+                ),
+            ],
+            tasks=[
+                DataFlowTask(
+                    id="dft1", name="DataFlowWithLookup",
+                    components=components,
+                ),
+            ],
+        )
+
+    def test_lookup_dataset_created(self, tmp_path):
+        lookup = DataFlowComponent(
+            id="lkp-1", name="Lookup Customer",
+            component_class_id="", component_type="Lookup",
+            connection_id="conn-1",
+            properties={"OpenRowset": "[dbo].[Customer]"},
+        )
+        source = DataFlowComponent(
+            id="src-1", name="OLE_SRC",
+            component_class_id="", component_type="OleDbSource",
+            connection_id="conn-1",
+        )
+        pkg = self._make_package([source, lookup])
+        datasets = generate_datasets(pkg, tmp_path)
+
+        names = [ds["name"] for ds in datasets]
+        assert "DS_OLE_SRC" in names
+        assert "DS_Lookup_Customer_lookup" in names
+
+        # Verify the lookup dataset has the right table
+        lkp_ds = next(d for d in datasets if d["name"] == "DS_Lookup_Customer_lookup")
+        assert lkp_ds["properties"]["typeProperties"]["table"] == "Customer"
+
     def test_schema_written_to_json_file(self, tmp_path):
         comp = DataFlowComponent(
             id="src-1", name="TestSrc",

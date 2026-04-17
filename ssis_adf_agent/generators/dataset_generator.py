@@ -204,7 +204,13 @@ def generate_datasets(
         for comp in task.components:
             ds_type = _COMP_TO_DS_TYPE.get(comp.component_type)
             if ds_type is None:
-                continue  # transformation — no dataset needed
+                # Generate dataset for Lookup components referencing a table
+                if comp.component_type == "Lookup":
+                    _generate_lookup_dataset(
+                        comp, conn_by_id, ds_dir, seen, existing_ds,
+                        results, schema_remap,
+                    )
+                continue  # other transformations — no dataset needed
 
             ds_name = f"DS_{comp.name.replace(' ', '_')}"
             if ds_name in seen or ds_name in existing_ds:
@@ -239,3 +245,45 @@ def generate_datasets(
             results.append(ds)
 
     return results
+
+
+def _generate_lookup_dataset(
+    comp: DataFlowComponent,
+    conn_by_id: dict[str, "SSISConnectionManager"],
+    ds_dir: Path,
+    seen: set[str],
+    existing_ds: set[str],
+    results: list[dict[str, Any]],
+    schema_remap: dict[str, str] | None,
+) -> None:
+    """Generate a dataset for a Lookup transformation's reference table."""
+    ds_name = f"DS_{comp.name.replace(' ', '_')}_lookup"
+    if ds_name in seen or ds_name in existing_ds:
+        return
+    seen.add(ds_name)
+
+    conn = conn_by_id.get(comp.connection_id or "")
+    ls_name = f"LS_{comp.connection_id or 'unknown'}"
+    table = (
+        comp.properties.get("OpenRowset")
+        or comp.properties.get("TableOrViewName")
+    )
+
+    # Determine dataset type from connection type
+    ds_type = "AzureSqlTable"
+    if conn and conn.type.value in ("FLATFILE",):
+        ds_type = "DelimitedText"
+
+    ds = _build_dataset(
+        name=ds_name,
+        ds_type=ds_type,
+        linked_service_name=ls_name,
+        table_name=table,
+        description=f"Lookup reference dataset for SSIS component: {comp.name}",
+        schema_remap=schema_remap,
+    )
+    (ds_dir / f"{ds_name}.json").write_text(
+        json.dumps(ds, indent=4, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    results.append(ds)

@@ -37,6 +37,10 @@ from ..parsers.models import (
 )
 from ..analyzers.dependency_graph import topological_sort
 from ..converters.dispatcher import ConverterDispatcher
+from ..warnings_collector import warn as _warn
+
+# ADF hard limit on activities per pipeline
+_ADF_ACTIVITY_LIMIT = 40
 
 _SSIS_TO_ADF_TYPE: dict[str, str] = {
     "String": "String",
@@ -160,6 +164,19 @@ def generate_pipeline(
 
     # Deduplicate activity names — ADF requires unique names
     _deduplicate_activity_names(activities)
+
+    # Warn if activity count exceeds ADF hard limit
+    if len(activities) > _ADF_ACTIVITY_LIMIT:
+        _warn(
+            phase="generate",
+            severity="warning",
+            source="pipeline_generator",
+            message=(
+                f"Pipeline has {len(activities)} activities, exceeding the "
+                f"ADF limit of {_ADF_ACTIVITY_LIMIT}. Split into sub-pipelines."
+            ),
+            task_name=package.name,
+        )
 
     # Build parameters from SSIS package parameters
     parameters: dict[str, Any] = {}

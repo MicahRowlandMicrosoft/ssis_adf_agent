@@ -1,0 +1,18 @@
+{
+    "name": "LS_1718766E-4434-448F-988E-F63FE8459538",
+    "properties": {
+        "description": "Auto-generated from SSIS Connection Manager: Excel Connection Manager",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "connectVia": {
+            "referenceName": "SelfHostedIR",
+            "type": "IntegrationRuntimeReference"
+        },
+        "type": "AzureBlobStorage",
+        "typeProperties": {
+            "connectionString": "DefaultEndpointsProtocol=https;AccountName=TODO;AccountKey=TODO",
+            "note": "Original flat file path: unknown. Replace with Azure Blob Storage or ADLS Gen2 connection string."
+        }
+    }
+}

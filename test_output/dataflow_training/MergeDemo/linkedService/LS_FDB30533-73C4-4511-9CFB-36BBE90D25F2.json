@@ -1,0 +1,27 @@
+{
+    "name": "LS_FDB30533-73C4-4511-9CFB-36BBE90D25F2",
+    "properties": {
+        "description": "Auto-generated from SSIS Connection Manager: .\\sql2016.AdventureWorks2016",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "connectVia": {
+            "referenceName": "SelfHostedIR",
+            "type": "IntegrationRuntimeReference"
+        },
+        "type": "SqlServer",
+        "typeProperties": {
+            "server": ".\\sql2016",
+            "database": "AdventureWorks2016",
+            "encrypt": "mandatory",
+            "trustServerCertificate": false,
+            "authenticationType": "Windows",
+            "userName": "TODO_DOMAIN\\\\TODO_USER",
+            "password": {
+                "type": "SecureString",
+                "value": "TODO — store in Azure Key Vault"
+            },
+            "pooling": false
+        }
+    }
+}

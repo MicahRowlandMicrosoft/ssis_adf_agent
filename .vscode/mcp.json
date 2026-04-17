@@ -2,7 +2,7 @@
   "servers": {
     "ssis-adf-agent": {
       "type": "stdio",
-      "command": "python",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe",
       "args": ["-m", "ssis_adf_agent.mcp_server"],
       "cwd": "${workspaceFolder}",
       "env": {},

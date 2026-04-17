@@ -1,0 +1,433 @@
+{
+    "name": "DF_Data_Flow_Task",
+    "properties": {
+        "description": "Mapping Data Flow for SSIS Data Flow Task: Data Flow Task",
+        "type": "MappingDataFlow",
+        "typeProperties": {
+            "sources": [
+                {
+                    "name": "Data_Source",
+                    "description": "Source from SSIS OleDbSource: Data Source",
+                    "dataset": {
+                        "referenceName": "DS_Data_Source",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_6A2699F4-F32C-48C4-8EB4-D86FC2FC4A24",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "AzureSqlTable"
+                        },
+                        "query": "--MIPS TC\nSELECT \n       [Agency] AS [Agency]\n      ,[SubAgency] AS [SubAgency]\n\t  ,[Biennium] AS [Biennium]\n      --[Posting Fiscal Month]\n\t  ,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE [PostingFiscalMonth]\n\t  END AS [Posting Fiscal Month]\n\t  --[Posting Adjust Month]\n\t,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,CASE\n        WHEN LEN([AfrsDailyTransAddsId]) = 1\n            then replicate('0000000000',1)+cast([AfrsDailyTransAddsId] as varchar)  \n        WHEN LEN([AfrsDailyTransAddsId]) = 2\n            then replicate('000000000',1)+cast([AfrsDailyTransAddsId] as varchar) \n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 3\n            then replicate('00000000',1)+cast([AfrsDailyTransAddsId] as varchar) \n        WHEN LEN([AfrsDailyTransAddsId]) = 4\n            then replicate('0000000',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 5\n            then replicate('000000',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 6\n            then replicate('00000',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 7\n            then replicate('0000',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 8\n            then replicate('000',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 9\n            then replicate('00',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 10\n            then replicate('0',1)+cast([AfrsDailyTransAddsId] as varchar)\n        ELSE\n            CAST([AfrsDailyTransAddsId] AS VARCHAR(1))\n\t  END AS [ADDS Transaction Key]  \n\t  ,[Fund] AS [Account]\n\t  ,'0' AS [Account Detail]\n\t  ,[OrganizationIndex] AS [Organization Index]\n\t  ,[AppropriationIndex] AS [Expenditure Authority Index]\n\t  ,[ProgramIndex] AS [Program Index]\n\t  ,[Project] AS [PrePurge Project]\n\t  ,[SubProject] AS [PrePurge SubProject]\n\t  ,[ProjectPhase] AS [PrePurge Project Phase]\n\t  ,'' AS [PrePurge Project Type]\n\t  ,[TransactionCode] AS [Transaction Code]\n\t  ,[Modifier] AS [Modifier]\n\t  ,[ReverseInd] AS [Reverse Code]\n\t  ,[MasterIndex] AS [Master Index]\n\t  ,[OMWBEType] AS [OMWBE Pay Flag]\n\t  ,0 AS [Master Index Percentage]\n\t  ,[VariableGLAccount] AS [Variable GL Account]\n\t  --[Input Fiscal Month]\n\t  ,CASE\n\t\tWHEN [BatchFiscalMonth] = '25' THEN '24' \n\t\tWHEN [BatchFiscalMonth] = '99' THEN '12' \n\t\tELSE [BatchFiscalMonth]\n\t  END AS [Input Fiscal Month]\n\t  --[Input Adjusting Month]\n\t,CASE\n\t\tWHEN [BatchFiscalMonth] = '25' THEN '25' \n\t\tWHEN [BatchFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Input Adjusting Month]\n\t  ,[MajorSource] AS [Major Source]\n\t  ,[Source] AS [Source]\n\t  ,[SubSource] AS [SubSource]\n\t  ,SUBSTRING([SubObject], 1, 1) AS [Object] \n\t  ,[SubObject] AS [SubObject]\n\t  ,[SubsubObject] AS [SubsubObject]\n\t  ,[VendorNum] AS [Vendor Num]\n\t  ,[VendorNumSuffix] AS [Vendor Num Suffix]\n\t  ,[VendorName] AS [Vendor Name]\n\t  ,[AgreementId] AS [Contract Num]\n\t  ,[IRSBox] AS [IRS Box]\n\t  ,[UseTax] AS [Use Tax]\n\t  ,[AgencyFlag] AS [Agency Flag]\n\t  ,[VendorTrailer] AS [Vendor Trailer]\n\t  ,[CurrentDocumentNum] AS [Current Document Num]\n\t  ,[CurrentDocumentNumSuffix] AS [Current Document Num Suffix]\n\t  ,CONVERT(varchar,[DocumentDate],112) AS [Doc Date]\n\t  ,[ReferenceDocumentNum] AS [Reference Doc Num]\n\t  ,[ReferenceDocumentNumSuffix] AS [Reference Doc Num Suffix]\n\t  ,[InvoiceNum] AS [Invoice Num]\n\t  ,CONVERT(varchar,[InvoiceDate],112) AS [Invoice Date]\n\t  ,[OrderNum] AS [Order Num]\n\t  ,[Workclass] AS [Workclass]\n\t  ,[BudgetUnit] AS [Budget Unit]\n\t  ,[City] AS [City]\n\t  ,[County] AS [County]\n\t  ,IIF([MonthOfService] IS NULL, 0,  [MonthOfService]) AS [Month Of Service]\n\t  ,[AllocationCode] AS [Allocation]\n\t  ,[BatchAgency] AS [Submit Agency]\n\t  ,[BatchSubAgency] AS [Submit Subagency]\n\t  ,CONVERT(varchar,[BatchDate],112) AS [Batch Date]\n\t  ,[BatchType] AS [Batch Type]\n\t  ,[BatchNum] AS [Batch Num]\n\t  ,[BatchSequenceNum] AS [Batch Sequence Num]\n\t  ,[DuplicateRecordInd] AS [Dup Rec Ind]\n\t  ,[WarrantNum] AS [Warrant Num]\n\t  ,IIF([WarrantRegisterNum] = '', 0,  [WarrantRegisterNum]) AS [Warrant Register Num]\n\t  ,'00     0' AS [Prompt Pay Date]\n\t  ,'' AS [Warrant Batch Fiscal Month]\n\t  ,'' AS [Warrant Batch Type]\n\t  ,'' AS [Warrant Batch Num]\n\t  ,CONVERT( char(10), [ProcessDate], 101) + ' ' + CONVERT( char(5), [ProcessDate], 8) AS [Process Date]\n\t  ,'' AS [TAPS Origin]\n\t  ,'' AS [TAPS Status]\n\t  ,'' AS [TAPS Packet Num]\n\t  ,[AccountNum] AS [Account Num]\n\n  FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS]\n  WHERE [Agency] = 235\t\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND [PostingFiscalMonth] <> 00\t\t\t\t\t\t--Fiscal Posting Month not equal 00\n\tAND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n  ORDER BY [AfrsDailyTransAddsId]"
+                    }
+                }
+            ],
+            "sinks": [
+                {
+                    "name": "CSV_Output",
+                    "description": "Sink from SSIS FlatFileDestination: CSV Output",
+                    "dataset": {
+                        "referenceName": "DS_CSV_Output",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_DEDBD1CA-4802-4904-9BFD-25D0988B733B",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "DelimitedText"
+                        },
+                        "allowUpsert": false
+                    }
+                }
+            ],
+            "transformations": [
+                {
+                    "name": "Derived_Column",
+                    "description": "SSIS DerivedColumn: Derived Column",
+                    "type": "DerivedColumn",
+                    "typeProperties": {
+                        "columns": [
+                            {
+                                "name": "Derived Column 1",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBiennium}"
+                            },
+                            {
+                                "name": "Derived Column 2",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAgency}"
+                            },
+                            {
+                                "name": "Derived Column 3",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubAgency}"
+                            },
+                            {
+                                "name": "Derived Column 4",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPosting Fiscal Month}"
+                            },
+                            {
+                                "name": "Derived Column 5",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPosting Adjust Month}"
+                            },
+                            {
+                                "name": "Derived Column 6",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsADDS Transaction Key},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 7",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAccount}"
+                            },
+                            {
+                                "name": "Derived Column 8",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAccount Detail}"
+                            },
+                            {
+                                "name": "Derived Column 9",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsOrganization Index}"
+                            },
+                            {
+                                "name": "Derived Column 10",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsExpenditure Authority Index}"
+                            },
+                            {
+                                "name": "Derived Column 11",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsProgram Index}"
+                            },
+                            {
+                                "name": "Derived Column 12",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge Project}"
+                            },
+                            {
+                                "name": "Derived Column 13",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge SubProject}"
+                            },
+                            {
+                                "name": "Derived Column 14",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge Project Phase}"
+                            },
+                            {
+                                "name": "Derived Column 15",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge Project Type}"
+                            },
+                            {
+                                "name": "Derived Column 16",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTransaction Code}"
+                            },
+                            {
+                                "name": "Derived Column 17",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsModifier}"
+                            },
+                            {
+                                "name": "Derived Column 18",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsReverse Code}"
+                            },
+                            {
+                                "name": "Derived Column 19",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMaster Index}"
+                            },
+                            {
+                                "name": "Derived Column 20",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMaster Index Percentage}"
+                            },
+                            {
+                                "name": "Derived Column 21",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVariable GL Account}"
+                            },
+                            {
+                                "name": "Derived Column 22",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInput Fiscal Month}"
+                            },
+                            {
+                                "name": "Derived Column 23",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInput Adjusting Month}"
+                            },
+                            {
+                                "name": "Derived Column 24",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMajor Source}"
+                            },
+                            {
+                                "name": "Derived Column 25",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSource}"
+                            },
+                            {
+                                "name": "Derived Column 26",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubSource}"
+                            },
+                            {
+                                "name": "Derived Column 27",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsObject}"
+                            },
+                            {
+                                "name": "Derived Column 28",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubObject}"
+                            },
+                            {
+                                "name": "Derived Column 29",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubsubObject}"
+                            },
+                            {
+                                "name": "Derived Column 30",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Num},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 31",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Num Suffix}"
+                            },
+                            {
+                                "name": "Derived Column 32",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Name},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 33",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsContract Num}"
+                            },
+                            {
+                                "name": "Derived Column 34",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsIRS Box}"
+                            },
+                            {
+                                "name": "Derived Column 35",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsUse Tax}"
+                            },
+                            {
+                                "name": "Derived Column 36",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAgency Flag}"
+                            },
+                            {
+                                "name": "Derived Column 37",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Trailer},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 38",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCurrent Document Num}"
+                            },
+                            {
+                                "name": "Derived Column 39",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCurrent Document Num Suffix}"
+                            },
+                            {
+                                "name": "Derived Column 40",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsDoc Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 41",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsReference Doc Num}"
+                            },
+                            {
+                                "name": "Derived Column 42",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsReference Doc Num Suffix}"
+                            },
+                            {
+                                "name": "Derived Column 43",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInvoice Num},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 44",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInvoice Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 45",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsOrder Num}"
+                            },
+                            {
+                                "name": "Derived Column 46",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWorkclass}"
+                            },
+                            {
+                                "name": "Derived Column 47",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBudget Unit}"
+                            },
+                            {
+                                "name": "Derived Column 48",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCity},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 49",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCounty}"
+                            },
+                            {
+                                "name": "Derived Column 50",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMonth Of Service}"
+                            },
+                            {
+                                "name": "Derived Column 51",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAllocation}"
+                            },
+                            {
+                                "name": "Derived Column 52",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubmit Agency}"
+                            },
+                            {
+                                "name": "Derived Column 53",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubmit Subagency}"
+                            },
+                            {
+                                "name": "Derived Column 54",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 55",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Type}"
+                            },
+                            {
+                                "name": "Derived Column 56",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Num}"
+                            },
+                            {
+                                "name": "Derived Column 57",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Sequence Num}"
+                            },
+                            {
+                                "name": "Derived Column 58",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsDup Rec Ind}"
+                            },
+                            {
+                                "name": "Derived Column 59",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Num}"
+                            },
+                            {
+                                "name": "Derived Column 60",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Register Num}"
+                            },
+                            {
+                                "name": "Derived Column 61",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrompt Pay Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 62",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Batch Fiscal Month}"
+                            },
+                            {
+                                "name": "Derived Column 63",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Batch Type}"
+                            },
+                            {
+                                "name": "Derived Column 64",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Batch Num}"
+                            },
+                            {
+                                "name": "Derived Column 65",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsProcess Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 66",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTAPS Origin}"
+                            },
+                            {
+                                "name": "Derived Column 67",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTAPS Status}"
+                            },
+                            {
+                                "name": "Derived Column 68",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTAPS Packet Num}"
+                            },
+                            {
+                                "name": "Derived Column 69",
+                                "expression": "TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAccount Num},\"\\\"\",\"\\\"\\\"\\\"\\\"\"))"
+                            },
+                            {
+                                "name": "Derived Column 70",
+                                "expression": "#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsOMWBE Pay Flag}"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "script": "source(output(\n        Biennium as string,\n        Agency as string,\n        SubAgency as string,\n        Posting Fiscal Month as string,\n        Posting Adjust Month as integer,\n        ADDS Transaction Key as string,\n        Account as string,\n        Account Detail as string,\n        Organization Index as string,\n        Expenditure Authority Index as string,\n        Program Index as string,\n        PrePurge Project as string,\n        PrePurge SubProject as string,\n        PrePurge Project Phase as string,\n        PrePurge Project Type as string,\n        Transaction Code as string,\n        Modifier as string,\n        Reverse Code as string,\n        Master Index as string,\n        Master Index Percentage as string,\n        Variable GL Account as string,\n        Input Fiscal Month as string,\n        Input Adjusting Month as string,\n        Major Source as string,\n        Source as string,\n        SubSource as string,\n        Object as string,\n        SubObject as string,\n        SubsubObject as string,\n        Vendor Num as string,\n        Vendor Num Suffix as string,\n        Vendor Name as string,\n        Contract Num as string,\n        IRS Box as string,\n        Use Tax as string,\n        Agency Flag as string,\n        Vendor Trailer as string,\n        Current Document Num as string,\n        Current Document Num Suffix as string,\n        Doc Date as string,\n        Reference Doc Num as string,\n        Reference Doc Num Suffix as string,\n        Invoice Num as string,\n        Invoice Date as string,\n        Order Num as string,\n        Workclass as string,\n        Budget Unit as string,\n        City as string,\n        County as string,\n        Month Of Service as string,\n        Allocation as string,\n        Submit Agency as string,\n        Submit Subagency as string,\n        Batch Date as string,\n        Batch Type as string,\n        Batch Num as string,\n        Batch Sequence Num as string,\n        Dup Rec Ind as string,\n        Warrant Num as string,\n        Warrant Register Num as string,\n        Prompt Pay Date as string,\n        Warrant Batch Fiscal Month as string,\n        Warrant Batch Type as string,\n        Warrant Batch Num as string,\n        Process Date as string,\n        TAPS Origin as string,\n        TAPS Status as string,\n        TAPS Packet Num as string,\n        Account Num as string,\n        OMWBE Pay Flag as string\n    ),\n    allowSchemaDrift: true,\n    validateSchema: false,\n    isolationLevel: 'READ_UNCOMMITTED',\n    errorHandlingOption: 'stopOnFirstError') ~> Data_Source\nData_Source derive(Derived Column 1 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBiennium}, Derived Column 2 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAgency}, Derived Column 3 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubAgency}, Derived Column 4 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPosting Fiscal Month}, Derived Column 5 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPosting Adjust Month}, Derived Column 6 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsADDS Transaction Key},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 7 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAccount}, Derived Column 8 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAccount Detail}, Derived Column 9 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsOrganization Index}, Derived Column 10 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsExpenditure Authority Index}, Derived Column 11 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsProgram Index}, Derived Column 12 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge Project}, Derived Column 13 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge SubProject}, Derived Column 14 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge Project Phase}, Derived Column 15 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge Project Type}, Derived Column 16 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTransaction Code}, Derived Column 17 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsModifier}, Derived Column 18 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsReverse Code}, Derived Column 19 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMaster Index}, Derived Column 20 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMaster Index Percentage}, Derived Column 21 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVariable GL Account}, Derived Column 22 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInput Fiscal Month}, Derived Column 23 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInput Adjusting Month}, Derived Column 24 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMajor Source}, Derived Column 25 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSource}, Derived Column 26 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubSource}, Derived Column 27 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsObject}, Derived Column 28 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubObject}, Derived Column 29 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubsubObject}, Derived Column 30 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Num},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 31 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Num Suffix}, Derived Column 32 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Name},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 33 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsContract Num}, Derived Column 34 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsIRS Box}, Derived Column 35 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsUse Tax}, Derived Column 36 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAgency Flag}, Derived Column 37 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Trailer},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 38 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCurrent Document Num}, Derived Column 39 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCurrent Document Num Suffix}, Derived Column 40 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsDoc Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 41 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsReference Doc Num}, Derived Column 42 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsReference Doc Num Suffix}, Derived Column 43 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInvoice Num},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 44 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInvoice Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 45 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsOrder Num}, Derived Column 46 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWorkclass}, Derived Column 47 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBudget Unit}, Derived Column 48 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCity},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 49 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCounty}, Derived Column 50 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMonth Of Service}, Derived Column 51 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAllocation}, Derived Column 52 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubmit Agency}, Derived Column 53 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubmit Subagency}, Derived Column 54 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 55 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Type}, Derived Column 56 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Num}, Derived Column 57 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Sequence Num}, Derived Column 58 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsDup Rec Ind}, Derived Column 59 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Num}, Derived Column 60 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Register Num}, Derived Column 61 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrompt Pay Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 62 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Batch Fiscal Month}, Derived Column 63 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Batch Type}, Derived Column 64 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Batch Num}, Derived Column 65 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsProcess Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 66 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTAPS Origin}, Derived Column 67 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTAPS Status}, Derived Column 68 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTAPS Packet Num}, Derived Column 69 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAccount Num},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 70 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsOMWBE Pay Flag}) ~> Derived_Column\nDerived_Column select(mapColumn(\n        Biennium, Agency, SubAgency, Posting Fiscal Month, Posting Adjust Month, ADDS Transaction Key, Account, Account Detail, Organization Index, Expenditure Authority Index, Program Index, PrePurge Project, PrePurge SubProject, PrePurge Project Phase, PrePurge Project Type, Transaction Code, Modifier, Reverse Code, Master Index, OMWBE Pay Flag, Master Index Percentage, Variable GL Account, Input Fiscal Month, Input Adjusting Month, Major Source, Source, SubSource, SubObject, SubsubObject, Vendor Num, Vendor Num Suffix, Vendor Name, Object, Contract Num, IRS Box, Use Tax, Vendor Trailer, Agency Flag, Current Document Num, Current Document Num Suffix, Doc Date, Reference Doc Num, Reference Doc Num Suffix, Invoice Num, Invoice Date, Order Num, Workclass, Budget Unit, City, County, Month Of Service, Allocation, Submit Agency, Batch Date, Batch Type, Batch Num, Batch Sequence Num, Dup Rec Ind, Process Date, Prompt Pay Date, TAPS Origin, TAPS Packet Num, TAPS Status, Warrant Batch Fiscal Month, Warrant Batch Num, Warrant Batch Type, Warrant Num, Warrant Register Num, Account Num, Submit Subagency\n    )) ~> CSV_Output_mapped\nCSV_Output_mapped sink(allowSchemaDrift: true,\n    validateSchema: false,\n    errorHandlingOption: 'stopOnFirstError',\n    deletable: false,\n    insertable: true,\n    updateable: false,\n    upsertable: false) ~> CSV_Output",
+            "scriptLines": [
+                "source(output(",
+                "        Biennium as string,",
+                "        Agency as string,",
+                "        SubAgency as string,",
+                "        Posting Fiscal Month as string,",
+                "        Posting Adjust Month as integer,",
+                "        ADDS Transaction Key as string,",
+                "        Account as string,",
+                "        Account Detail as string,",
+                "        Organization Index as string,",
+                "        Expenditure Authority Index as string,",
+                "        Program Index as string,",
+                "        PrePurge Project as string,",
+                "        PrePurge SubProject as string,",
+                "        PrePurge Project Phase as string,",
+                "        PrePurge Project Type as string,",
+                "        Transaction Code as string,",
+                "        Modifier as string,",
+                "        Reverse Code as string,",
+                "        Master Index as string,",
+                "        Master Index Percentage as string,",
+                "        Variable GL Account as string,",
+                "        Input Fiscal Month as string,",
+                "        Input Adjusting Month as string,",
+                "        Major Source as string,",
+                "        Source as string,",
+                "        SubSource as string,",
+                "        Object as string,",
+                "        SubObject as string,",
+                "        SubsubObject as string,",
+                "        Vendor Num as string,",
+                "        Vendor Num Suffix as string,",
+                "        Vendor Name as string,",
+                "        Contract Num as string,",
+                "        IRS Box as string,",
+                "        Use Tax as string,",
+                "        Agency Flag as string,",
+                "        Vendor Trailer as string,",
+                "        Current Document Num as string,",
+                "        Current Document Num Suffix as string,",
+                "        Doc Date as string,",
+                "        Reference Doc Num as string,",
+                "        Reference Doc Num Suffix as string,",
+                "        Invoice Num as string,",
+                "        Invoice Date as string,",
+                "        Order Num as string,",
+                "        Workclass as string,",
+                "        Budget Unit as string,",
+                "        City as string,",
+                "        County as string,",
+                "        Month Of Service as string,",
+                "        Allocation as string,",
+                "        Submit Agency as string,",
+                "        Submit Subagency as string,",
+                "        Batch Date as string,",
+                "        Batch Type as string,",
+                "        Batch Num as string,",
+                "        Batch Sequence Num as string,",
+                "        Dup Rec Ind as string,",
+                "        Warrant Num as string,",
+                "        Warrant Register Num as string,",
+                "        Prompt Pay Date as string,",
+                "        Warrant Batch Fiscal Month as string,",
+                "        Warrant Batch Type as string,",
+                "        Warrant Batch Num as string,",
+                "        Process Date as string,",
+                "        TAPS Origin as string,",
+                "        TAPS Status as string,",
+                "        TAPS Packet Num as string,",
+                "        Account Num as string,",
+                "        OMWBE Pay Flag as string",
+                "    ),",
+                "    allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    isolationLevel: 'READ_UNCOMMITTED',",
+                "    errorHandlingOption: 'stopOnFirstError') ~> Data_Source",
+                "Data_Source derive(Derived Column 1 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBiennium}, Derived Column 2 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAgency}, Derived Column 3 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubAgency}, Derived Column 4 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPosting Fiscal Month}, Derived Column 5 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPosting Adjust Month}, Derived Column 6 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsADDS Transaction Key},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 7 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAccount}, Derived Column 8 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAccount Detail}, Derived Column 9 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsOrganization Index}, Derived Column 10 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsExpenditure Authority Index}, Derived Column 11 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsProgram Index}, Derived Column 12 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge Project}, Derived Column 13 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge SubProject}, Derived Column 14 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge Project Phase}, Derived Column 15 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrePurge Project Type}, Derived Column 16 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTransaction Code}, Derived Column 17 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsModifier}, Derived Column 18 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsReverse Code}, Derived Column 19 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMaster Index}, Derived Column 20 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMaster Index Percentage}, Derived Column 21 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVariable GL Account}, Derived Column 22 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInput Fiscal Month}, Derived Column 23 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInput Adjusting Month}, Derived Column 24 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMajor Source}, Derived Column 25 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSource}, Derived Column 26 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubSource}, Derived Column 27 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsObject}, Derived Column 28 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubObject}, Derived Column 29 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubsubObject}, Derived Column 30 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Num},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 31 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Num Suffix}, Derived Column 32 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Name},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 33 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsContract Num}, Derived Column 34 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsIRS Box}, Derived Column 35 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsUse Tax}, Derived Column 36 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAgency Flag}, Derived Column 37 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsVendor Trailer},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 38 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCurrent Document Num}, Derived Column 39 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCurrent Document Num Suffix}, Derived Column 40 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsDoc Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 41 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsReference Doc Num}, Derived Column 42 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsReference Doc Num Suffix}, Derived Column 43 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInvoice Num},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 44 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsInvoice Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 45 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsOrder Num}, Derived Column 46 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWorkclass}, Derived Column 47 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBudget Unit}, Derived Column 48 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCity},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 49 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsCounty}, Derived Column 50 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsMonth Of Service}, Derived Column 51 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAllocation}, Derived Column 52 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubmit Agency}, Derived Column 53 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsSubmit Subagency}, Derived Column 54 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 55 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Type}, Derived Column 56 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Num}, Derived Column 57 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsBatch Sequence Num}, Derived Column 58 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsDup Rec Ind}, Derived Column 59 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Num}, Derived Column 60 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Register Num}, Derived Column 61 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsPrompt Pay Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 62 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Batch Fiscal Month}, Derived Column 63 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Batch Type}, Derived Column 64 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsWarrant Batch Num}, Derived Column 65 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsProcess Date},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 66 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTAPS Origin}, Derived Column 67 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTAPS Status}, Derived Column 68 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsTAPS Packet Num}, Derived Column 69 = TRIM(REPLACE(#{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsAccount Num},\"\\\"\",\"\\\"\\\"\\\"\\\"\")), Derived Column 70 = #{Package\\Data Flow Task\\Data Source.OutputsOLE DB Source Output.ColumnsOMWBE Pay Flag}) ~> Derived_Column",
+                "Derived_Column select(mapColumn(",
+                "        Biennium, Agency, SubAgency, Posting Fiscal Month, Posting Adjust Month, ADDS Transaction Key, Account, Account Detail, Organization Index, Expenditure Authority Index, Program Index, PrePurge Project, PrePurge SubProject, PrePurge Project Phase, PrePurge Project Type, Transaction Code, Modifier, Reverse Code, Master Index, OMWBE Pay Flag, Master Index Percentage, Variable GL Account, Input Fiscal Month, Input Adjusting Month, Major Source, Source, SubSource, SubObject, SubsubObject, Vendor Num, Vendor Num Suffix, Vendor Name, Object, Contract Num, IRS Box, Use Tax, Vendor Trailer, Agency Flag, Current Document Num, Current Document Num Suffix, Doc Date, Reference Doc Num, Reference Doc Num Suffix, Invoice Num, Invoice Date, Order Num, Workclass, Budget Unit, City, County, Month Of Service, Allocation, Submit Agency, Batch Date, Batch Type, Batch Num, Batch Sequence Num, Dup Rec Ind, Process Date, Prompt Pay Date, TAPS Origin, TAPS Packet Num, TAPS Status, Warrant Batch Fiscal Month, Warrant Batch Num, Warrant Batch Type, Warrant Num, Warrant Register Num, Account Num, Submit Subagency",
+                "    )) ~> CSV_Output_mapped",
+                "CSV_Output_mapped sink(allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    errorHandlingOption: 'stopOnFirstError',",
+                "    deletable: false,",
+                "    insertable: true,",
+                "    updateable: false,",
+                "    upsertable: false) ~> CSV_Output"
+            ]
+        },
+        "annotations": [
+            "ssis-adf-agent"
+        ]
+    }
+}

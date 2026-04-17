@@ -1,0 +1,38 @@
+{
+    "name": "DS_Department_Details",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_2377BF98-DB6F-4E5F-B1EC-A0B034CA2F25",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: Department Details",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "AzureSqlTable",
+        "typeProperties": {
+            "schema": "HumanResources",
+            "table": "Department"
+        },
+        "schema": [
+            {
+                "name": "DepartmentID",
+                "type": "int16"
+            },
+            {
+                "name": "Name",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "GroupName",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "ModifiedDate",
+                "type": "datetime"
+            }
+        ]
+    }
+}

@@ -1,0 +1,308 @@
+{
+    "name": "DS_Flat_File_Destination",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_83BC83D9-0964-4E95-AD1A-D90C7CFACFA6",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: Flat File Destination",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "DelimitedText",
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobStorageLocation",
+                "fileName": "\\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\2027\\ADDS - Transaction Control.csv",
+                "folderPath": "TODO_folder",
+                "container": "TODO_container"
+            },
+            "columnDelimiter": ",",
+            "rowDelimiter": "\n",
+            "firstRowAsHeader": true,
+            "quoteChar": "\""
+        },
+        "schema": [
+            {
+                "name": "Biennium",
+                "type": "string"
+            },
+            {
+                "name": "Agency",
+                "type": "string"
+            },
+            {
+                "name": "SubAgency",
+                "type": "string"
+            },
+            {
+                "name": "Posting Fiscal Month",
+                "type": "string"
+            },
+            {
+                "name": "Posting Adjust Month",
+                "type": "int32"
+            },
+            {
+                "name": "ADDS Transaction Key",
+                "type": "int32"
+            },
+            {
+                "name": "Account",
+                "type": "string"
+            },
+            {
+                "name": "Account Detail",
+                "type": "string"
+            },
+            {
+                "name": "Organization Index",
+                "type": "string"
+            },
+            {
+                "name": "Expenditure Authority Index",
+                "type": "string"
+            },
+            {
+                "name": "Program Index",
+                "type": "string"
+            },
+            {
+                "name": "PrePurge Project",
+                "type": "string"
+            },
+            {
+                "name": "PrePurge SubProject",
+                "type": "string"
+            },
+            {
+                "name": "PrePurge Project Phase",
+                "type": "string"
+            },
+            {
+                "name": "PrePurge Project Type",
+                "type": "string"
+            },
+            {
+                "name": "Transaction Code",
+                "type": "string"
+            },
+            {
+                "name": "Modifier",
+                "type": "string"
+            },
+            {
+                "name": "Reverse Code",
+                "type": "string"
+            },
+            {
+                "name": "Master Index",
+                "type": "string"
+            },
+            {
+                "name": "OMWBE Pay Type",
+                "type": "string"
+            },
+            {
+                "name": "Master Index Percentage",
+                "type": "int32"
+            },
+            {
+                "name": "Variable GL Account",
+                "type": "string"
+            },
+            {
+                "name": "Input Fiscal Month",
+                "type": "string"
+            },
+            {
+                "name": "Input Adjusting Month",
+                "type": "int32"
+            },
+            {
+                "name": "Major Source",
+                "type": "string"
+            },
+            {
+                "name": "Source",
+                "type": "string"
+            },
+            {
+                "name": "SubSource",
+                "type": "string"
+            },
+            {
+                "name": "Object",
+                "type": "string"
+            },
+            {
+                "name": "SubObject",
+                "type": "string"
+            },
+            {
+                "name": "SubsubObject",
+                "type": "string"
+            },
+            {
+                "name": "Vendor Num",
+                "type": "string"
+            },
+            {
+                "name": "Vendor Num Suffix",
+                "type": "string"
+            },
+            {
+                "name": "Vendor Name",
+                "type": "string"
+            },
+            {
+                "name": "Contract Num",
+                "type": "string"
+            },
+            {
+                "name": "IRS Box",
+                "type": "string"
+            },
+            {
+                "name": "Use Tax",
+                "type": "string"
+            },
+            {
+                "name": "Agency Flag",
+                "type": "string"
+            },
+            {
+                "name": "Vendor Trailer",
+                "type": "string"
+            },
+            {
+                "name": "Current Document Num",
+                "type": "string"
+            },
+            {
+                "name": "Current Document Num Suffix",
+                "type": "string"
+            },
+            {
+                "name": "Doc Date",
+                "type": "string"
+            },
+            {
+                "name": "Reference Doc Num",
+                "type": "string"
+            },
+            {
+                "name": "Reference Doc Num Suffix",
+                "type": "string"
+            },
+            {
+                "name": "Invoice Num",
+                "type": "string"
+            },
+            {
+                "name": "Invoice Date",
+                "type": "string"
+            },
+            {
+                "name": "Order Num",
+                "type": "string"
+            },
+            {
+                "name": "Workclass",
+                "type": "string"
+            },
+            {
+                "name": "Budget Unit",
+                "type": "string"
+            },
+            {
+                "name": "City",
+                "type": "string"
+            },
+            {
+                "name": "County",
+                "type": "string"
+            },
+            {
+                "name": "Month Of Service",
+                "type": "int32"
+            },
+            {
+                "name": "Allocation",
+                "type": "string"
+            },
+            {
+                "name": "Submit Agency",
+                "type": "string"
+            },
+            {
+                "name": "Submit Subagency",
+                "type": "string"
+            },
+            {
+                "name": "Batch Date",
+                "type": "string"
+            },
+            {
+                "name": "Batch Type",
+                "type": "string"
+            },
+            {
+                "name": "Batch Num",
+                "type": "string"
+            },
+            {
+                "name": "Batch Sequence Num",
+                "type": "string"
+            },
+            {
+                "name": "Dup Rec Ind",
+                "type": "string"
+            },
+            {
+                "name": "Warrant Num",
+                "type": "string"
+            },
+            {
+                "name": "Warrant Register Num",
+                "type": "int32"
+            },
+            {
+                "name": "Prompt Pay Date",
+                "type": "string"
+            },
+            {
+                "name": "Warrant Batch Fiscal Month",
+                "type": "string"
+            },
+            {
+                "name": "Warrant Batch Type",
+                "type": "string"
+            },
+            {
+                "name": "Warrant Batch Num",
+                "type": "string"
+            },
+            {
+                "name": "Process Date",
+                "type": "string"
+            },
+            {
+                "name": "TAPS Origin",
+                "type": "string"
+            },
+            {
+                "name": "TAPS Status",
+                "type": "string"
+            },
+            {
+                "name": "TAPS Packet Num",
+                "type": "string"
+            },
+            {
+                "name": "Account Num",
+                "type": "string"
+            }
+        ]
+    }
+}

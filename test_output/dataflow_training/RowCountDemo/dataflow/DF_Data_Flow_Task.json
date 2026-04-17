@@ -1,0 +1,56 @@
+{
+    "name": "DF_Data_Flow_Task",
+    "properties": {
+        "description": "Mapping Data Flow for SSIS Data Flow Task: Data Flow Task",
+        "type": "MappingDataFlow",
+        "typeProperties": {
+            "sources": [
+                {
+                    "name": "OLE_DB_Source",
+                    "description": "Source from SSIS OleDbSource: OLE DB Source",
+                    "dataset": {
+                        "referenceName": "DS_OLE_DB_Source",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_974ED5E6-BCAE-4BAC-94A4-8020ED6CE8D9",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "AzureSqlTable"
+                        },
+                        "query": "[dbo].[Occupation]"
+                    }
+                }
+            ],
+            "sinks": [],
+            "transformations": [
+                {
+                    "name": "Row_Count",
+                    "description": "SSIS RowCount: Row Count",
+                    "type": "SetVariable",
+                    "typeProperties": {
+                        "variableName": "Counter",
+                        "value": "/* populated by Mapping Data Flow rowCount() */"
+                    }
+                }
+            ],
+            "script": "source(output(\n        OccupationId as short,\n        OccupationTitle as string\n    ),\n    allowSchemaDrift: true,\n    validateSchema: false,\n    isolationLevel: 'READ_UNCOMMITTED',\n    errorHandlingOption: 'stopOnFirstError') ~> OLE_DB_Source\nOLE_DB_Source derive(/* TODO: SetVariable */) ~> Row_Count",
+            "scriptLines": [
+                "source(output(",
+                "        OccupationId as short,",
+                "        OccupationTitle as string",
+                "    ),",
+                "    allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    isolationLevel: 'READ_UNCOMMITTED',",
+                "    errorHandlingOption: 'stopOnFirstError') ~> OLE_DB_Source",
+                "OLE_DB_Source derive(/* TODO: SetVariable */) ~> Row_Count"
+            ]
+        },
+        "annotations": [
+            "ssis-adf-agent"
+        ]
+    }
+}

@@ -1,0 +1,43 @@
+{
+    "name": "DS_OLE_DB_Source",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_04AB7BF4-0A8F-43CF-A1EB-09FE675BD217",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: OLE DB Source",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "AzureSqlTable",
+        "typeProperties": {
+            "schema": "Person",
+            "table": "StateProvince"
+        },
+        "schema": [
+            {
+                "name": "StateProvinceID",
+                "type": "int32"
+            },
+            {
+                "name": "StateProvinceCode",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "CountryRegionCode",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "Name",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "TerritoryID",
+                "type": "int32"
+            }
+        ]
+    }
+}

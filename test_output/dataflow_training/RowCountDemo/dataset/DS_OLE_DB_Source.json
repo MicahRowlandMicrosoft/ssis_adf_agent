@@ -1,0 +1,29 @@
+{
+    "name": "DS_OLE_DB_Source",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_974ED5E6-BCAE-4BAC-94A4-8020ED6CE8D9",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: OLE DB Source",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "AzureSqlTable",
+        "typeProperties": {
+            "schema": "dbo",
+            "table": "Occupation"
+        },
+        "schema": [
+            {
+                "name": "OccupationId",
+                "type": "int16"
+            },
+            {
+                "name": "OccupationTitle",
+                "type": "string",
+                "length": 50
+            }
+        ]
+    }
+}

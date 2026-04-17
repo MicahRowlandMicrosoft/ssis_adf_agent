@@ -1,0 +1,58 @@
+{
+    "name": "PL_RowCountDemo",
+    "properties": {
+        "description": "Auto-generated from SSIS package: C:\\source\\SSISDataFlowTraining\\RowCountDemo.dtsx. Review flagged activities before deploying.",
+        "activities": [
+            {
+                "name": "Data Flow Task",
+                "description": "Data Flow Task",
+                "type": "ExecuteDataFlow",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "1.00:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 60,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "dataflow": {
+                        "referenceName": "DF_Data_Flow_Task",
+                        "type": "DataFlowReference"
+                    },
+                    "compute": {
+                        "coreCount": 8,
+                        "computeType": "General"
+                    },
+                    "traceLevel": "None"
+                }
+            },
+            {
+                "name": "Script Task",
+                "description": "[MANUAL REVIEW REQUIRED] Converted from CSharp Script Task. Azure Function stub: __init__.py. Script Task",
+                "type": "AzureFunction",
+                "dependsOn": [],
+                "linkedServiceName": {
+                    "referenceName": "LS_AzureFunction",
+                    "type": "LinkedServiceReference"
+                },
+                "typeProperties": {
+                    "functionName": "Script_Task",
+                    "method": "POST",
+                    "body": {}
+                }
+            }
+        ],
+        "parameters": {},
+        "variables": {
+            "Counter": {
+                "type": "String",
+                "defaultValue": "0"
+            }
+        },
+        "annotations": [
+            "ssis-adf-agent",
+            "source-package:RowCountDemo"
+        ]
+    }
+}

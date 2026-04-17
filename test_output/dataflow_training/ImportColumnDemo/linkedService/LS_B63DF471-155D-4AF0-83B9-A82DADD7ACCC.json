@@ -1,0 +1,18 @@
+{
+    "name": "LS_B63DF471-155D-4AF0-83B9-A82DADD7ACCC",
+    "properties": {
+        "description": "Auto-generated from SSIS Connection Manager: Flat File Connection Manager",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "connectVia": {
+            "referenceName": "SelfHostedIR",
+            "type": "IntegrationRuntimeReference"
+        },
+        "type": "AzureBlobStorage",
+        "typeProperties": {
+            "connectionString": "DefaultEndpointsProtocol=https;AccountName=TODO;AccountKey=TODO",
+            "note": "Original flat file path: C:\\Outputs\\ImportColumnsDemoFiles\\FileList.txt. Replace with Azure Blob Storage or ADLS Gen2 connection string."
+        }
+    }
+}

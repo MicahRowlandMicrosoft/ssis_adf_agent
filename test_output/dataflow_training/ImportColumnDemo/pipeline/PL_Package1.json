@@ -1,0 +1,58 @@
+{
+    "name": "PL_Package1",
+    "properties": {
+        "description": "Auto-generated from SSIS package: C:\\source\\SSISDataFlowTraining\\ImportColumnDemo.dtsx. Review flagged activities before deploying.",
+        "activities": [
+            {
+                "name": "Data Flow Task",
+                "description": "Data Flow Task",
+                "type": "Copy",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "01:00:00",
+                    "retry": 2,
+                    "retryIntervalInSeconds": 60,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "AzureSqlSource",
+                        "queryTimeout": "02:00:00",
+                        "isolationLevel": "ReadUncommitted"
+                    },
+                    "sink": {
+                        "type": "AzureSqlSink",
+                        "writeBehavior": "insert",
+                        "tableOption": "autoCreate",
+                        "writeBatchSize": 100000,
+                        "sqlWriterUseTableLock": false
+                    },
+                    "enableStaging": false,
+                    "translator": {
+                        "type": "TabularTranslator",
+                        "typeConversion": true
+                    }
+                },
+                "inputs": [
+                    {
+                        "referenceName": "DS_Flat_File_Source",
+                        "type": "DatasetReference"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "referenceName": "DS_OLE_DB_Destination",
+                        "type": "DatasetReference"
+                    }
+                ]
+            }
+        ],
+        "parameters": {},
+        "variables": {},
+        "annotations": [
+            "ssis-adf-agent",
+            "source-package:Package1"
+        ]
+    }
+}

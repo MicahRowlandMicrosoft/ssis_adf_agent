@@ -1,0 +1,60 @@
+{
+    "name": "DF_Data_Flow_Task",
+    "properties": {
+        "description": "Mapping Data Flow for SSIS Data Flow Task: Data Flow Task",
+        "type": "MappingDataFlow",
+        "typeProperties": {
+            "sources": [
+                {
+                    "name": "Flat_File_Source",
+                    "description": "Source from SSIS FlatFileSource: Flat File Source",
+                    "dataset": {
+                        "referenceName": "DS_Flat_File_Source",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_4F901A4F-BEF0-4040-B254-1C263316BA25",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "DelimitedText"
+                        }
+                    }
+                }
+            ],
+            "sinks": [],
+            "transformations": [
+                {
+                    "name": "Unpivot",
+                    "description": "[Unknown component type: Unpivot] — manual review needed.",
+                    "type": "DerivedColumn",
+                    "typeProperties": {
+                        "columns": []
+                    }
+                }
+            ],
+            "script": "source(output(\n        Month as string,\n        Sunday as string,\n        Monday as string,\n        Tuesday as string,\n        Wednesday as string,\n        Thrusday as string,\n        Friday as string,\n        Saturday as string\n    ),\n    allowSchemaDrift: true,\n    validateSchema: false,\n    isolationLevel: 'READ_UNCOMMITTED',\n    errorHandlingOption: 'stopOnFirstError') ~> Flat_File_Source\nFlat_File_Source derive(/* TODO: add expressions */) ~> Unpivot",
+            "scriptLines": [
+                "source(output(",
+                "        Month as string,",
+                "        Sunday as string,",
+                "        Monday as string,",
+                "        Tuesday as string,",
+                "        Wednesday as string,",
+                "        Thrusday as string,",
+                "        Friday as string,",
+                "        Saturday as string",
+                "    ),",
+                "    allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    isolationLevel: 'READ_UNCOMMITTED',",
+                "    errorHandlingOption: 'stopOnFirstError') ~> Flat_File_Source",
+                "Flat_File_Source derive(/* TODO: add expressions */) ~> Unpivot"
+            ]
+        },
+        "annotations": [
+            "ssis-adf-agent"
+        ]
+    }
+}

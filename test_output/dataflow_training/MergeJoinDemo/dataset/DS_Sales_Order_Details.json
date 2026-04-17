@@ -1,0 +1,42 @@
+{
+    "name": "DS_Sales_Order_Details",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_01AF2D0E-663D-4051-8290-BA113C449784",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: Sales Order Details",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "AzureSqlTable",
+        "typeProperties": {
+            "schema": "Sales",
+            "table": "SalesOrderDetail"
+        },
+        "schema": [
+            {
+                "name": "SalesOrderID",
+                "type": "int32"
+            },
+            {
+                "name": "SalesOrderDetailID",
+                "type": "int32"
+            },
+            {
+                "name": "OrderQty",
+                "type": "int16"
+            },
+            {
+                "name": "ProductID",
+                "type": "int32"
+            },
+            {
+                "name": "LineTotal",
+                "type": "decimal",
+                "precision": 38,
+                "scale": 6
+            }
+        ]
+    }
+}

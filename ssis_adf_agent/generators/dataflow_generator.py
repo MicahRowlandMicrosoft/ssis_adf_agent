@@ -396,15 +396,12 @@ def _emit_sink(
     key_columns: list[str] | None,
 ) -> None:
     has_keys = bool(key_columns)
-    # Emit column mapping from input column metadata
-    input_cols = sk.get("_input_columns", [])
-    if input_cols:
-        col_mappings = ", ".join(_q(c.name) for c in input_cols)
-        lines.append(f"{upstream} select(mapColumn(")
-        lines.append(f"        {col_mappings}")
-        lines.append(f"    )) ~> {sk['name']}_mapped")
-        # Chain mapped stream into sink
-        upstream = f"{sk['name']}_mapped"
+    # NOTE: We intentionally do NOT emit an implicit `select(mapColumn(...)) ~> <sink>_mapped`
+    # step here. Any node referenced in the script DSL must also be declared in
+    # typeProperties.transformations, otherwise ADF rejects the data flow with
+    # "Unable to parse". With allowSchemaDrift: true the sink passes columns through
+    # automatically; if explicit column mapping is needed, add a proper named
+    # Select transformation to the transformations array.
 
     lines.append(f"{upstream} sink(allowSchemaDrift: true,")
     lines.append(f"    validateSchema: false,")

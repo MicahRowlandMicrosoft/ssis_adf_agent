@@ -1,0 +1,40 @@
+{
+    "name": "DS_OLE_DB_Source",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_58EE16B1-774A-40BA-B430-F2426C75DBEC",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: OLE DB Source",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "AzureSqlTable",
+        "typeProperties": {
+            "schema": "Person",
+            "table": "Person"
+        },
+        "schema": [
+            {
+                "name": "Title",
+                "type": "string",
+                "length": 8
+            },
+            {
+                "name": "FirstName",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "MiddleName",
+                "type": "string",
+                "length": 50
+            },
+            {
+                "name": "LastName",
+                "type": "string",
+                "length": 50
+            }
+        ]
+    }
+}

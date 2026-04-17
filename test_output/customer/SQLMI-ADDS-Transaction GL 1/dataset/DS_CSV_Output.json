@@ -1,0 +1,68 @@
+{
+    "name": "DS_CSV_Output",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_15FE9290-09E5-447B-B6A4-3A24FB896654",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: CSV Output",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "DelimitedText",
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobStorageLocation",
+                "fileName": "\\\\FileServerName.FQDN\\NOT_PROD_SHARE\\1\\2027\\ADDS - Transaction GL.csv",
+                "folderPath": "TODO_folder",
+                "container": "TODO_container"
+            },
+            "columnDelimiter": ",",
+            "rowDelimiter": "\n",
+            "firstRowAsHeader": true,
+            "quoteChar": "\""
+        },
+        "schema": [
+            {
+                "name": "Biennium",
+                "type": "string"
+            },
+            {
+                "name": "Agency",
+                "type": "string"
+            },
+            {
+                "name": "SubAgency",
+                "type": "string"
+            },
+            {
+                "name": "Posting Fiscal Month",
+                "type": "string"
+            },
+            {
+                "name": "Posting Adjust Month",
+                "type": "int32"
+            },
+            {
+                "name": "ADDS Transaction Key",
+                "type": "int32"
+            },
+            {
+                "name": "GL Account",
+                "type": "string"
+            },
+            {
+                "name": "Dr Cr Ind",
+                "type": "string"
+            },
+            {
+                "name": "Subsidiary Account",
+                "type": "string"
+            },
+            {
+                "name": "GL Amount",
+                "type": "decimal"
+            }
+        ]
+    }
+}

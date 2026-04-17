@@ -1,0 +1,152 @@
+{
+    "name": "DF_Data_Flow_Task",
+    "properties": {
+        "description": "Mapping Data Flow for SSIS Data Flow Task: Data Flow Task",
+        "type": "MappingDataFlow",
+        "typeProperties": {
+            "sources": [
+                {
+                    "name": "Data_Source",
+                    "description": "Source from SSIS OleDbSource: Data Source",
+                    "dataset": {
+                        "referenceName": "DS_Data_Source",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_D0EC7691-66FF-4ECD-8873-1BDEBB324C92",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "AzureSqlTable"
+                        },
+                        "query": "SELECT \n       ADDS.[Agency] AS [Agency]\n      ,ADDS.[SubAgency] AS [SubAgency]\n\t  ,ADDS.[Biennium] AS [Biennium]\n\t  ,CASE\n\t\tWHEN ADDS.[PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN ADDS.[PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE ADDS.[PostingFiscalMonth]\n\t  END AS [Posting Fiscal Month]\n\t,CASE\n\t\tWHEN ADDS.[PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN ADDS.[PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,ADDS.[AfrsDailyTransAddsId] AS [ADDS Transaction Key] \n\t  ,ADDS.[Fund] AS [Account]\n\t  ,'' AS [Account Detail]\n\t  ,ADDS.[OrganizationIndex] AS [Organization Index]\n\t  ,ADDS.[AppropriationIndex] AS [Expenditure Authority Index]\n\t  ,ADDS.[ProgramIndex] AS [Program Index]\n\t  ,ADDS.[Project] AS [PrePurge Project]\n\t  ,ADDS.[SubProject] AS [PrePurge SubProject]\n\t  ,ADDS.[ProjectPhase] AS [PrePurge Project Phase]\n\t  ,'' AS [PrePurge Project Type]\n\t  --,IIF([AFRS].[ProjectType] IS NULL, '', [AFRS].[ProjectType]) AS [PrePurge Project Type]\n\t  ,ADDS.[TransactionCode] AS [Transaction Code]\n\t  ,ADDS.[Modifier] AS [Modifier]\n\t  ,ADDS.[ReverseInd] AS [Reverse Code]\n\t  ,ADDS.[MasterIndex] AS [Master Index]\n\t  ,ADDS.[OMWBEType] AS [OMWBE Pay Type]\n\t  ,0 AS [Master Index Percentage]\n\t  ,ADDS.[VariableGLAccount] AS [Variable GL Account]\n\t  ,CASE\n\t\tWHEN ADDS.[BatchFiscalMonth] = '25' THEN '24' \n\t\tWHEN ADDS.[BatchFiscalMonth] = '99' THEN '12' \n\t\tELSE ADDS.[BatchFiscalMonth]\n\t  END AS [Input Fiscal Month]\n\t,CASE\n\t\tWHEN ADDS.[BatchFiscalMonth] = '25' THEN '25' \n\t\tWHEN ADDS.[BatchFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Input Adjusting Month]\n\t  ,ADDS.[MajorSource] AS [Major Source]\n\t  ,ADDS.[Source] AS [Source]\n\t  ,ADDS.[SubSource] AS [SubSource]\n\t  ,SUBSTRING(ADDS.[SubObject], 1, 1) AS [Object] \n\t  ,ADDS.[SubObject] AS [SubObject]\n\t  ,ADDS.[SubsubObject] AS [SubsubObject]\n\t  ,ADDS.[VendorNum] AS [Vendor Num]\n\t  ,ADDS.[VendorNumSuffix] AS [Vendor Num Suffix]\n\t  ,ADDS.[VendorName] AS [Vendor Name]\n\t  ,ADDS.[AgreementId] AS [Contract Num]\n\t  ,ADDS.[IRSBox] AS [IRS Box]\n\t  ,ADDS.[UseTax] AS [Use Tax]\n\t  ,ADDS.[AgencyFlag] AS [Agency Flag]\n\t  ,TRIM(REPLACE(ADDS.[VendorTrailer],'\"','')) AS [Vendor Trailer]\n\t  ,ADDS.[CurrentDocumentNum] AS [Current Document Num]\n\t  ,ADDS.[CurrentDocumentNumSuffix] AS [Current Document Num Suffix]\n\t  ,CONVERT(varchar,ADDS.[DocumentDate],112) AS [Doc Date]\n\t  ,ADDS.[ReferenceDocumentNum] AS [Reference Doc Num]\n\t  ,ADDS.[ReferenceDocumentNumSuffix] AS [Reference Doc Num Suffix]\n\t  ,ADDS.[InvoiceNum] AS [Invoice Num]\n\t  ,CONVERT(varchar,ADDS.[InvoiceDate],112) AS [Invoice Date]\n\t  ,ADDS.[OrderNum] AS [Order Num]\n\t  ,ADDS.[Workclass] AS [Workclass]\n\t  ,ADDS.[BudgetUnit] AS [Budget Unit]\n\t  ,ADDS.[City] AS [City]\n\t  ,ADDS.[County] AS [County]\n\t  ,IIF(ADDS.[MonthOfService] IS NULL, 0, ADDS.[MonthOfService]) AS [Month Of Service]\n\t  ,ADDS.[AllocationCode] AS [Allocation]\n\t  ,ADDS.[BatchAgency] AS [Submit Agency]\n\t  ,ADDS.[BatchSubAgency] AS [Submit Subagency]\n\t  ,CONVERT(varchar,ADDS.[BatchDate],112) AS [Batch Date]\n\t  ,ADDS.[BatchType] AS [Batch Type]\n\t  ,ADDS.[BatchNum] AS [Batch Num]\n\t  ,ADDS.[BatchSequenceNum] AS [Batch Sequence Num]\n\t  ,ADDS.[DuplicateRecordInd] AS [Dup Rec Ind]\n\t  ,ADDS.[WarrantNum] AS [Warrant Num]\n\t  ,IIF(ADDS.[WarrantRegisterNum] = '', 0,  ADDS.[WarrantRegisterNum]) AS [Warrant Register Num]\n\t  ,'00     0' AS [Prompt Pay Date]\n\t  ,'' AS [Warrant Batch Fiscal Month]\n\t  ,'' AS [Warrant Batch Type]\n\t  ,'' AS [Warrant Batch Num]\n\t  ,CONVERT( char(10), ADDS.[ProcessDate], 101) + ' ' + CONVERT( char(5), ADDS.[ProcessDate], 8) AS [Process Date]\n\t  ,'' AS [TAPS Origin]\n\t  ,'' AS [TAPS Status]\n\t  ,'' AS [TAPS Packet Num]\n\t  ,ADDS.[AccountNum] AS [Account Num]\n\n  FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS] ADDS\n  \t--\tFULL OUTER JOIN [OFM].[AFRSTitles].[dbo].[PC_ProjectControl] AS [AFRS] \n\t\t\t--ON [AFRS].[Agency] = [ADDS].[Agency]\n\t\t\t--\tAND [AFRS].[SubAgency] = [ADDS].[SubAgency]\n\t\t\t--\tAND [AFRS].[Project] = [ADDS].[Project]\n\t\t\t--\tAND [AFRS].[SubProject] = [ADDS].[SubProject]\n\t\t\t--\tAND [AFRS].[ProjectPhase] = [ADDS].[ProjectPhase]\n  WHERE ADDS.[Agency] = 235\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND ADDS.[PostingFiscalMonth] <> 00\t\t\t\t\t--Fiscal Posting Month not equal 00\n\t--AND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n\tAND [ProcessDate] >= '3-23-2026'\nORDER BY ADDS.[AfrsDailyTransAddsId]"
+                    }
+                }
+            ],
+            "sinks": [
+                {
+                    "name": "Flat_File_Destination",
+                    "description": "Sink from SSIS FlatFileDestination: Flat File Destination",
+                    "dataset": {
+                        "referenceName": "DS_Flat_File_Destination",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_83BC83D9-0964-4E95-AD1A-D90C7CFACFA6",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "DelimitedText"
+                        },
+                        "allowUpsert": false
+                    }
+                }
+            ],
+            "transformations": [
+                {
+                    "name": "Derived_Column",
+                    "description": "SSIS DerivedColumn: Derived Column",
+                    "type": "DerivedColumn",
+                    "typeProperties": {
+                        "columns": []
+                    }
+                }
+            ],
+            "script": "source(output(\n        Biennium as string,\n        Agency as string,\n        SubAgency as string,\n        Posting Fiscal Month as string,\n        Posting Adjust Month as integer,\n        ADDS Transaction Key as integer,\n        Account as string,\n        Account Detail as string,\n        Organization Index as string,\n        Expenditure Authority Index as string,\n        Program Index as string,\n        PrePurge Project as string,\n        PrePurge SubProject as string,\n        PrePurge Project Phase as string,\n        PrePurge Project Type as string,\n        Transaction Code as string,\n        Modifier as string,\n        Reverse Code as string,\n        Master Index as string,\n        OMWBE Pay Type as string,\n        Master Index Percentage as integer,\n        Variable GL Account as string,\n        Input Fiscal Month as string,\n        Input Adjusting Month as integer,\n        Major Source as string,\n        Source as string,\n        SubSource as string,\n        Object as string,\n        SubObject as string,\n        SubsubObject as string,\n        Vendor Num as string,\n        Vendor Num Suffix as string,\n        Vendor Name as string,\n        Contract Num as string,\n        IRS Box as string,\n        Use Tax as string,\n        Agency Flag as string,\n        Vendor Trailer as string,\n        Current Document Num as string,\n        Current Document Num Suffix as string,\n        Doc Date as string,\n        Reference Doc Num as string,\n        Reference Doc Num Suffix as string,\n        Invoice Num as string,\n        Invoice Date as string,\n        Order Num as string,\n        Workclass as string,\n        Budget Unit as string,\n        City as string,\n        County as string,\n        Month Of Service as integer,\n        Allocation as string,\n        Submit Agency as string,\n        Submit Subagency as string,\n        Batch Date as string,\n        Batch Type as string,\n        Batch Num as string,\n        Batch Sequence Num as string,\n        Dup Rec Ind as string,\n        Warrant Num as string,\n        Warrant Register Num as integer,\n        Prompt Pay Date as string,\n        Warrant Batch Fiscal Month as string,\n        Warrant Batch Type as string,\n        Warrant Batch Num as string,\n        Process Date as string,\n        TAPS Origin as string,\n        TAPS Status as string,\n        TAPS Packet Num as string,\n        Account Num as string\n    ),\n    allowSchemaDrift: true,\n    validateSchema: false,\n    isolationLevel: 'READ_UNCOMMITTED',\n    errorHandlingOption: 'stopOnFirstError') ~> Data_Source\nData_Source derive(/* TODO: add expressions */) ~> Derived_Column\nDerived_Column select(mapColumn(\n        Biennium, Agency, SubAgency, Posting Fiscal Month, Posting Adjust Month, ADDS Transaction Key, Account, Account Detail, Organization Index, Expenditure Authority Index, Program Index, PrePurge Project, PrePurge SubProject, PrePurge Project Phase, PrePurge Project Type, Transaction Code, Modifier, Reverse Code, Master Index, OMWBE Pay Type, Master Index Percentage, Variable GL Account, Input Fiscal Month, Input Adjusting Month, Major Source, Source, SubSource, Object, SubObject, SubsubObject, Vendor Num, Vendor Num Suffix, Vendor Name, Contract Num, IRS Box, Use Tax, Agency Flag, Vendor Trailer, Current Document Num, Current Document Num Suffix, Doc Date, Reference Doc Num, Reference Doc Num Suffix, Invoice Num, Invoice Date, Order Num, Workclass, Budget Unit, City, County, Month Of Service, Allocation, Submit Agency, Submit Subagency, Batch Date, Batch Type, Batch Num, Batch Sequence Num, Dup Rec Ind, Warrant Num, Warrant Register Num, Prompt Pay Date, Warrant Batch Fiscal Month, Warrant Batch Type, Warrant Batch Num, Process Date, TAPS Origin, TAPS Status, TAPS Packet Num, Account Num\n    )) ~> Flat_File_Destination_mapped\nFlat_File_Destination_mapped sink(allowSchemaDrift: true,\n    validateSchema: false,\n    errorHandlingOption: 'stopOnFirstError',\n    deletable: false,\n    insertable: true,\n    updateable: false,\n    upsertable: false) ~> Flat_File_Destination",
+            "scriptLines": [
+                "source(output(",
+                "        Biennium as string,",
+                "        Agency as string,",
+                "        SubAgency as string,",
+                "        Posting Fiscal Month as string,",
+                "        Posting Adjust Month as integer,",
+                "        ADDS Transaction Key as integer,",
+                "        Account as string,",
+                "        Account Detail as string,",
+                "        Organization Index as string,",
+                "        Expenditure Authority Index as string,",
+                "        Program Index as string,",
+                "        PrePurge Project as string,",
+                "        PrePurge SubProject as string,",
+                "        PrePurge Project Phase as string,",
+                "        PrePurge Project Type as string,",
+                "        Transaction Code as string,",
+                "        Modifier as string,",
+                "        Reverse Code as string,",
+                "        Master Index as string,",
+                "        OMWBE Pay Type as string,",
+                "        Master Index Percentage as integer,",
+                "        Variable GL Account as string,",
+                "        Input Fiscal Month as string,",
+                "        Input Adjusting Month as integer,",
+                "        Major Source as string,",
+                "        Source as string,",
+                "        SubSource as string,",
+                "        Object as string,",
+                "        SubObject as string,",
+                "        SubsubObject as string,",
+                "        Vendor Num as string,",
+                "        Vendor Num Suffix as string,",
+                "        Vendor Name as string,",
+                "        Contract Num as string,",
+                "        IRS Box as string,",
+                "        Use Tax as string,",
+                "        Agency Flag as string,",
+                "        Vendor Trailer as string,",
+                "        Current Document Num as string,",
+                "        Current Document Num Suffix as string,",
+                "        Doc Date as string,",
+                "        Reference Doc Num as string,",
+                "        Reference Doc Num Suffix as string,",
+                "        Invoice Num as string,",
+                "        Invoice Date as string,",
+                "        Order Num as string,",
+                "        Workclass as string,",
+                "        Budget Unit as string,",
+                "        City as string,",
+                "        County as string,",
+                "        Month Of Service as integer,",
+                "        Allocation as string,",
+                "        Submit Agency as string,",
+                "        Submit Subagency as string,",
+                "        Batch Date as string,",
+                "        Batch Type as string,",
+                "        Batch Num as string,",
+                "        Batch Sequence Num as string,",
+                "        Dup Rec Ind as string,",
+                "        Warrant Num as string,",
+                "        Warrant Register Num as integer,",
+                "        Prompt Pay Date as string,",
+                "        Warrant Batch Fiscal Month as string,",
+                "        Warrant Batch Type as string,",
+                "        Warrant Batch Num as string,",
+                "        Process Date as string,",
+                "        TAPS Origin as string,",
+                "        TAPS Status as string,",
+                "        TAPS Packet Num as string,",
+                "        Account Num as string",
+                "    ),",
+                "    allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    isolationLevel: 'READ_UNCOMMITTED',",
+                "    errorHandlingOption: 'stopOnFirstError') ~> Data_Source",
+                "Data_Source derive(/* TODO: add expressions */) ~> Derived_Column",
+                "Derived_Column select(mapColumn(",
+                "        Biennium, Agency, SubAgency, Posting Fiscal Month, Posting Adjust Month, ADDS Transaction Key, Account, Account Detail, Organization Index, Expenditure Authority Index, Program Index, PrePurge Project, PrePurge SubProject, PrePurge Project Phase, PrePurge Project Type, Transaction Code, Modifier, Reverse Code, Master Index, OMWBE Pay Type, Master Index Percentage, Variable GL Account, Input Fiscal Month, Input Adjusting Month, Major Source, Source, SubSource, Object, SubObject, SubsubObject, Vendor Num, Vendor Num Suffix, Vendor Name, Contract Num, IRS Box, Use Tax, Agency Flag, Vendor Trailer, Current Document Num, Current Document Num Suffix, Doc Date, Reference Doc Num, Reference Doc Num Suffix, Invoice Num, Invoice Date, Order Num, Workclass, Budget Unit, City, County, Month Of Service, Allocation, Submit Agency, Submit Subagency, Batch Date, Batch Type, Batch Num, Batch Sequence Num, Dup Rec Ind, Warrant Num, Warrant Register Num, Prompt Pay Date, Warrant Batch Fiscal Month, Warrant Batch Type, Warrant Batch Num, Process Date, TAPS Origin, TAPS Status, TAPS Packet Num, Account Num",
+                "    )) ~> Flat_File_Destination_mapped",
+                "Flat_File_Destination_mapped sink(allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    errorHandlingOption: 'stopOnFirstError',",
+                "    deletable: false,",
+                "    insertable: true,",
+                "    updateable: false,",
+                "    upsertable: false) ~> Flat_File_Destination"
+            ]
+        },
+        "annotations": [
+            "ssis-adf-agent"
+        ]
+    }
+}

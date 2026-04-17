@@ -1,0 +1,71 @@
+{
+    "name": "DF_Data_Flow_Task",
+    "properties": {
+        "description": "Mapping Data Flow for SSIS Data Flow Task: Data Flow Task",
+        "type": "MappingDataFlow",
+        "typeProperties": {
+            "sources": [
+                {
+                    "name": "OLE_DB_Source",
+                    "description": "Source from SSIS OleDbSource: OLE DB Source",
+                    "dataset": {
+                        "referenceName": "DS_OLE_DB_Source",
+                        "type": "DatasetReference"
+                    },
+                    "linkedService": {
+                        "referenceName": "LS_3DF1C96E-F5AB-4495-AABE-957A22FF7AFF",
+                        "type": "LinkedServiceReference"
+                    },
+                    "typeProperties": {
+                        "format": {
+                            "type": "AzureSqlTable"
+                        },
+                        "query": "[dbo].[ExportColumnDemo]"
+                    }
+                }
+            ],
+            "sinks": [],
+            "transformations": [
+                {
+                    "name": "Data_Conversion",
+                    "description": "SSIS DataConversion: Data Conversion",
+                    "type": "Cast",
+                    "typeProperties": {
+                        "columns": [
+                            {
+                                "name": "Copy of Description",
+                                "type": "wstr",
+                                "length": null,
+                                "scale": null
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "Export_Column",
+                    "description": "[UNSUPPORTED — ExportColumn] Manual implementation required. This component has no ADF Mapping Data Flow equivalent.",
+                    "type": "Wait",
+                    "typeProperties": {}
+                }
+            ],
+            "script": "source(output(\n        ProductId as integer,\n        ProductName as string,\n        Description as string,\n        FilePath as string\n    ),\n    allowSchemaDrift: true,\n    validateSchema: false,\n    isolationLevel: 'READ_UNCOMMITTED',\n    errorHandlingOption: 'stopOnFirstError') ~> OLE_DB_Source\nOLE_DB_Source cast(Copy of Description as wstr) ~> Data_Conversion\nData_Conversion derive(/* TODO: Wait */) ~> Export_Column",
+            "scriptLines": [
+                "source(output(",
+                "        ProductId as integer,",
+                "        ProductName as string,",
+                "        Description as string,",
+                "        FilePath as string",
+                "    ),",
+                "    allowSchemaDrift: true,",
+                "    validateSchema: false,",
+                "    isolationLevel: 'READ_UNCOMMITTED',",
+                "    errorHandlingOption: 'stopOnFirstError') ~> OLE_DB_Source",
+                "OLE_DB_Source cast(Copy of Description as wstr) ~> Data_Conversion",
+                "Data_Conversion derive(/* TODO: Wait */) ~> Export_Column"
+            ]
+        },
+        "annotations": [
+            "ssis-adf-agent"
+        ]
+    }
+}

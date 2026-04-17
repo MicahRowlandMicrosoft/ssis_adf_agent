@@ -1,0 +1,69 @@
+{
+    "name": "DS_Data_Source",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_57BD6F3A-2833-4081-B80C-517AD0B7E27A",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: Data Source",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "AzureSqlTable",
+        "typeProperties": {
+            "schema": "dbo",
+            "table": "activity"
+        },
+        "schema": [
+            {
+                "name": "Biennium",
+                "type": "string",
+                "length": 4
+            },
+            {
+                "name": "Agency",
+                "type": "string",
+                "length": 3
+            },
+            {
+                "name": "SubAgency",
+                "type": "string",
+                "length": 1
+            },
+            {
+                "name": "Posting Fiscal Month",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "Posting Adjust Month",
+                "type": "int32"
+            },
+            {
+                "name": "ADDS Transaction Key",
+                "type": "int32"
+            },
+            {
+                "name": "GL Account",
+                "type": "string",
+                "length": 4
+            },
+            {
+                "name": "Dr Cr Ind",
+                "type": "string",
+                "length": 2
+            },
+            {
+                "name": "Subsidiary Account",
+                "type": "string",
+                "length": 6
+            },
+            {
+                "name": "GL Amount",
+                "type": "decimal",
+                "precision": 13,
+                "scale": 2
+            }
+        ]
+    }
+}

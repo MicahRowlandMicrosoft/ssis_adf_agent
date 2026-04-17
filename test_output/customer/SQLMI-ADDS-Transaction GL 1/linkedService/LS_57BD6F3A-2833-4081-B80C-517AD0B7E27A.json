@@ -1,0 +1,27 @@
+{
+    "name": "LS_57BD6F3A-2833-4081-B80C-517AD0B7E27A",
+    "properties": {
+        "description": "Auto-generated from SSIS Connection Manager: Database_Source_Connection_Manager",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "connectVia": {
+            "referenceName": "SelfHostedIR",
+            "type": "IntegrationRuntimeReference"
+        },
+        "type": "SqlServer",
+        "typeProperties": {
+            "server": "Insert_SQL_Server_Name_Here",
+            "database": "Insert_DB_Name_Here",
+            "encrypt": "mandatory",
+            "trustServerCertificate": false,
+            "authenticationType": "SQL",
+            "userName": "Insert_DB_User_Name_Here",
+            "password": {
+                "type": "SecureString",
+                "value": "TODO — store in Azure Key Vault"
+            },
+            "pooling": false
+        }
+    }
+}

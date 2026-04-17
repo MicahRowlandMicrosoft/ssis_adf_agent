@@ -1,0 +1,61 @@
+{
+    "name": "DS_Excel_Destination",
+    "properties": {
+        "linkedServiceName": {
+            "referenceName": "LS_FA7A5821-1C88-4DF9-9EB9-4C3A7F838BB5",
+            "type": "LinkedServiceReference"
+        },
+        "description": "Dataset for SSIS component: Excel Destination",
+        "annotations": [
+            "ssis-adf-agent"
+        ],
+        "type": "Excel",
+        "typeProperties": {
+            "location": {
+                "type": "AzureBlobStorageLocation",
+                "fileName": "TODO_file.xlsx",
+                "container": "TODO_container"
+            },
+            "sheetIndex": 0,
+            "firstRowAsHeader": true
+        },
+        "schema": [
+            {
+                "name": "SalesOrderID",
+                "type": "int32"
+            },
+            {
+                "name": "SalesOrderDetailID",
+                "type": "int32"
+            },
+            {
+                "name": "OrderQty",
+                "type": "int16"
+            },
+            {
+                "name": "ProductID",
+                "type": "int32"
+            },
+            {
+                "name": "LineTotal",
+                "type": "decimal"
+            },
+            {
+                "name": "Name",
+                "type": "string"
+            },
+            {
+                "name": "ProductNumber",
+                "type": "string"
+            },
+            {
+                "name": "Color",
+                "type": "string"
+            },
+            {
+                "name": "ListPrice",
+                "type": "decimal"
+            }
+        ]
+    }
+}

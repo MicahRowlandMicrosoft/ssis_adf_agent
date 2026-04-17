@@ -23,7 +23,7 @@ Or via the installed script::
 from __future__ import annotations
 
 import json
-import traceback
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,8 @@ from mcp.server import Server
 
 from .warnings_collector import WarningsCollector
 from .path_safety import safe_resolve as _safe_resolve
+
+logger = logging.getLogger("ssis_adf_agent")
 
 # ---------------------------------------------------------------------------
 # Server setup
@@ -446,8 +448,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
-        tb = traceback.format_exc()
-        return [types.TextContent(type="text", text=f"Error: {exc}\n\n{tb}")]
+        logger.error("Tool %s failed: %s", name, exc, exc_info=True)
+        return [types.TextContent(type="text", text=f"Error: {exc}")]
 
 
 async def _scan(args: dict[str, Any]) -> list[types.TextContent]:
@@ -607,14 +609,14 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     kv_ls_name = args.get("kv_ls_name", "LS_KeyVault")
     kv_url = args.get("kv_url", "https://TODO.vault.azure.net/")
     if use_key_vault and "TODO" in kv_url:
-        from .warnings_collector import warn
-        warn(
-            phase="convert", severity="warning", source="mcp_server",
-            message=(
-                "Key Vault URL is still the placeholder 'https://TODO.vault.azure.net/'. "
+        return [types.TextContent(
+            type="text",
+            text=(
+                "Error: Key Vault URL is still the placeholder "
+                "'https://TODO.vault.azure.net/'. "
                 "Set the kv_url parameter to your actual Azure Key Vault URL."
             ),
-        )
+        )]
     pipeline_prefix = args.get("pipeline_prefix", "PL_")
     shared_artifacts_dir = _safe_resolve(args["shared_artifacts_dir"], label="shared_artifacts_dir") if args.get("shared_artifacts_dir") else None
 

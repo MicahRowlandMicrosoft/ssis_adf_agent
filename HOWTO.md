@@ -3,6 +3,8 @@
 This guide shows how to use the SSIS → ADF Agent through natural-language prompts in **GitHub Copilot Chat**. Each section includes example conversations you can copy and adapt.
 
 > **Tip:** Switch Copilot Chat to **Agent** mode before sending prompts so it can call the MCP tools automatically.
+>
+> For installation, architecture, and reference details see [README.md](README.md).
 
 ---
 

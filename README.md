@@ -69,6 +69,8 @@ SQL Agent jobs ───┤      │   Optional configs:    │
 - [Development](#development)
 - [License](#license)
 
+> **New to the agent?** See [HOWTO.md](HOWTO.md) for an end-to-end conversation guide with copy-paste example prompts.
+
 ---
 
 ## Prerequisites
@@ -139,12 +141,15 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
 > If you installed into a virtual environment, replace `"command": "ssis-adf-agent"` with the full path to the script, e.g. `"C:\\path\\to\\.venv\\Scripts\\ssis-adf-agent.exe"` (Windows) or `"/path/to/.venv/bin/ssis-adf-agent"` (macOS/Linux).
 
 3. Restart VS Code (or reload the window: `Ctrl+Shift+P` → **Developer: Reload Window**).
-4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the five tools appear:
+4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the eight tools appear:
    - `scan_ssis_packages`
    - `analyze_ssis_package`
    - `convert_ssis_package`
    - `validate_adf_artifacts`
    - `deploy_to_adf`
+   - `consolidate_packages`
+   - `deploy_function_stubs`
+   - `provision_function_app`
 
 ---
 
@@ -173,7 +178,7 @@ The `samples/` directory is intended as a convenient drop zone for `.dtsx` files
 
 ## Usage — End-to-End Walkthrough
 
-All five tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below show what each tool does and the key parameters it accepts.
+All eight tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below show what each tool does and the key parameters it accepts.
 
 ---
 

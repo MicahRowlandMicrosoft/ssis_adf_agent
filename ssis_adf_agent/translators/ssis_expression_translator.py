@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import re
 
+from ..warnings_collector import warn as _warn
+
 
 # ---------------------------------------------------------------------------
 # Function name mapping: SSIS → ADF
@@ -173,6 +175,16 @@ def translate_expression(ssis_expr: str | None) -> str:
     expr = expr.replace("&&", "&&").replace("||", "||")
     # SSIS uses == for equality (same as ADF), but != for not-equal
     # ADF uses != as well, so no change needed.
+
+    # Emit structured warning when TODO markers remain
+    if "/* TODO" in expr:
+        _warn(
+            phase="convert",
+            severity="warning",
+            source="ssis_expression_translator",
+            message=f"Expression requires manual review: {ssis_expr}",
+            detail=f"Translated with TODO markers: {expr}",
+        )
 
     return expr
 

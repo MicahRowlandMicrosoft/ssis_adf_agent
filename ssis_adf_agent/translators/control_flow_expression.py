@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
 
+from ..warnings_collector import warn as _warn
+
 
 # ---------------------------------------------------------------------------
 # Token types
@@ -235,11 +237,21 @@ def translate_control_flow_expr(ssis_expr: str | None) -> str:
         result = parser.parse_expression()
         # Check for leftover tokens (indicates partial parse)
         if parser.peek().kind != _Tk.EOF:
-            return f"/* TODO: partially translated */ {result}"
-        return result
+            result = f"/* TODO: partially translated */ {result}"
     except _ParseError:
         # Fall back to best-effort regex translation
-        return _fallback_translate(expr)
+        result = _fallback_translate(expr)
+
+    if "/* TODO" in result:
+        _warn(
+            phase="convert",
+            severity="warning",
+            source="control_flow_expression",
+            message=f"Expression requires manual review: {ssis_expr}",
+            detail=f"Translated with TODO markers: {result}",
+        )
+
+    return result
 
 
 def strip_variable_namespace(var_ref: str) -> str:

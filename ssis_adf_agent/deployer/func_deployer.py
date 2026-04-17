@@ -211,6 +211,12 @@ class FuncDeployer:
             scm_url = f"https://{self.function_app_name}.scm.azurewebsites.net"
             username = creds.publishing_user_name
             password = creds.publishing_password
+            if not username or not password:
+                return FuncDeployResult(
+                    success=False,
+                    function_app_name=self.function_app_name,
+                    error="Publishing credentials are empty. Verify the Function App exists and has deployment credentials configured.",
+                )
         except ClientAuthenticationError as exc:
             return FuncDeployResult(
                 success=False,

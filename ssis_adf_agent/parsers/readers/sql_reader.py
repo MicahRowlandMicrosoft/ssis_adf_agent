@@ -124,7 +124,8 @@ class SqlServerReader:
             if username:
                 parts.append(f"UID={username}")
             if password:
-                parts.append(f"PWD={password}")
+                # Wrap password in braces to escape semicolons and special chars
+                parts.append(f"PWD={{{password}}}")
         return ";".join(parts)
 
     def _connect(self) -> "pyodbc.Connection":

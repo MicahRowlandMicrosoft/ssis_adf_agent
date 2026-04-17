@@ -1004,3 +1004,54 @@ class TestDataFlowGeneratorIntegration:
         pkg = SSISPackage(id="p1", name="P", source_file="t.dtsx", tasks=[task])
         results = generate_data_flows(pkg, tmp_path)
         assert len(results) == 0  # handled as Copy Activity, not data flow
+
+    def test_dataflow_json_serializable_with_columns(self, tmp_path):
+        """Generated dataflow JSON must serialize cleanly when components carry parsed columns.
+
+        Regression: source/sink converters attach Pydantic ``DataFlowColumn`` objects
+        as private metadata for DSL emission; those must be stripped before json.dumps.
+        """
+        src = DataFlowComponent(
+            id="c1", name="Src", component_type="OleDbSource", component_class_id="x",
+            connection_id="cm1",
+            output_columns=[
+                DataFlowColumn(name="id", data_type=DataType.INT32),
+                DataFlowColumn(name="nm", data_type=DataType.WSTRING),
+            ],
+        )
+        dst = DataFlowComponent(
+            id="c2", name="Dest", component_type="OleDbDestination", component_class_id="x",
+            connection_id="cm1",
+            input_columns=[
+                DataFlowColumn(name="id", data_type=DataType.INT32),
+                DataFlowColumn(name="nm", data_type=DataType.WSTRING),
+            ],
+            key_columns=["id"],
+        )
+        trans = DataFlowComponent(
+            id="c3", name="Tr", component_type="DerivedColumn", component_class_id="x",
+        )
+        paths = [
+            DataFlowPath(id="p1", name="p1", start_id="c1\\Output 0", end_id="c3\\Input 0"),
+            DataFlowPath(id="p2", name="p2", start_id="c3\\Output 0", end_id="c2\\Input 0"),
+        ]
+        task = DataFlowTask(
+            id="t1", name="DFT", task_type=TaskType.DATA_FLOW,
+            components=[src, trans, dst], paths=paths,
+        )
+        pkg = SSISPackage(id="pk", name="P", source_file="p.dtsx", tasks=[task])
+        results = generate_data_flows(pkg, tmp_path)
+        assert len(results) == 1
+        # File on disk must be valid JSON (would crash on Pydantic models)
+        df = json.loads((tmp_path / "dataflow" / "DF_DFT.json").read_text())
+        # Private fields must not leak into the JSON
+        for s in df["properties"]["typeProperties"]["sources"]:
+            assert "_output_columns" not in s
+        for s in df["properties"]["typeProperties"]["sinks"]:
+            assert "_input_columns" not in s
+            assert "_key_columns" not in s
+        # Script should include the typed source schema and select(mapColumn)
+        script = df["properties"]["typeProperties"]["script"]
+        assert "id as integer" in script
+        assert "nm as string" in script
+        assert "select(mapColumn(" in script

@@ -114,6 +114,11 @@ def generate_data_flows(
         # Build data flow script using topology from parsed paths
         script = _build_dsl_script(sources, transformations, sinks, key_cols, task)
 
+        # Strip private metadata fields (Pydantic models) before JSON serialization
+        for _d in (*sources, *sinks):
+            for _k in ("_output_columns", "_input_columns", "_key_columns"):
+                _d.pop(_k, None)
+
         df: dict[str, Any] = {
             "name": df_name,
             "properties": {

@@ -15,7 +15,6 @@ from typing import Any
 
 from ..parsers.models import SqlAgentSchedule, SSISPackage
 
-
 # SQL Agent freq_type → ADF frequency
 _FREQ_MAP: dict[int, str] = {
     1: "Minute",   # Once — approximate; schedule object carries exact time

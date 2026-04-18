@@ -23,6 +23,7 @@ from typing import Any
 from ..parsers.models import (
     DataFlowTask,
     GapItem,
+    Severity,
     SSISPackage,
     TaskType,
 )
@@ -95,7 +96,7 @@ def analyze_esi_reuse(
                     task_id=comp.id,
                     task_name=f"{task.name} / {comp.name}",
                     task_type=f"DataFlow/{comp.component_type}",
-                    severity="info",
+                    severity=Severity.INFO,
                     message=(
                         f"Table '{table}' from source system '{system}' is already available in the "
                         f"ESI layer. Consider reading from ESI (Azure SQL) instead of staging from on-prem."

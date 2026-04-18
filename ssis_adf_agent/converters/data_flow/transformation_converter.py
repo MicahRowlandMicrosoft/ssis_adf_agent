@@ -7,14 +7,12 @@ Mapping Data Flow JSON.
 """
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from ...parsers.models import DataFlowComponent
 from ...translators.ssis_expression_translator import translate_expression
 from ...warnings_collector import warn
 from ._naming import safe_node_name
-
 
 # ---------------------------------------------------------------------------
 # Aggregation type enum used in SSIS Aggregate component
@@ -112,10 +110,8 @@ def _lookup(component: DataFlowComponent) -> dict[str, Any]:
                 "rightColumn": ref_col,
             })
 
-    # Determine lookup type from component properties
-    no_match_behavior = component.properties.get("NoMatchBehavior") or "0"
-    # 0 = fail on no match, 1 = redirect to no-match output
-    match_multiple = (component.properties.get("DefaultCodePage") or "") != ""  # heuristic
+    # TODO: surface NoMatchBehavior / match-multiple semantics from
+    # component.properties when emitting the Lookup transformation.
 
     t["typeProperties"] = {
         "lookupTable": {

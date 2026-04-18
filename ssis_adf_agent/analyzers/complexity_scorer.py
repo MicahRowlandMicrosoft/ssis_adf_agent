@@ -31,7 +31,7 @@ from ..parsers.models import (  # type: ignore[attr-defined]
     SSISTask,
     TaskType,
 )
-from .script_classifier import classify_script, ScriptClassificationResult
+from .script_classifier import ScriptClassificationResult, classify_script
 
 # Weight per task type (contribution to raw score)
 # NOTE: Script Tasks are NOT in this table — they use content-aware classification

@@ -27,28 +27,23 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from ..parsers.models import (
-    ConnectionManagerType,
     DataFlowComponent,
     DataFlowTask,
-    ExecutePackageTask,
     ExecuteSQLTask,
     FileSystemTask,
     ForEachLoopContainer,
     ForLoopContainer,
     FTPTask,
     ScriptTask,
-    SendMailTask,
     SequenceContainer,
     SSISPackage,
     SSISTask,
-    TaskType,
 )
 from .dependency_graph import topological_sort
-
 
 # ---------------------------------------------------------------------------
 # Public types

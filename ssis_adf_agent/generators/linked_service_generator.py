@@ -16,13 +16,11 @@ Supports:
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 from ..parsers.models import ConnectionManagerType, SSISConnectionManager, SSISPackage
 from ..warnings_collector import warn
-
 
 _DEFAULT_IR = "AutoResolveIntegrationRuntime"
 
@@ -234,10 +232,13 @@ def _oledb_ls(
 
     # Extract components from connection string when model fields are empty
     cs_parts = parse_connection_string(cm.connection_string)
-    server = cm.server or _extract_server(cs_parts) or ("TODO_SERVER" if on_prem else "TODO_SERVER.database.windows.net")
+    server = (
+        cm.server
+        or _extract_server(cs_parts)
+        or ("TODO_SERVER" if on_prem else "TODO_SERVER.database.windows.net")
+    )
     database = cm.database or _extract_database(cs_parts) or "TODO_DATABASE"
     cs_user = _extract_user(cs_parts)
-    cs_password = _extract_password(cs_parts)
 
     # Detect auth hints from the connection string
     cs_auth = cs_parts.get("authentication", "").lower()
@@ -387,7 +388,10 @@ def _flat_file_ls(
             }
         else:
             ls["properties"]["typeProperties"] = {
-                "connectionString": f"DefaultEndpointsProtocol=https;AccountName={account_name};AccountKey={account_key}",
+                "connectionString": (
+                    f"DefaultEndpointsProtocol=https;AccountName={account_name};"
+                    f"AccountKey={account_key}"
+                ),
                 "note": note,
             }
     elif account_name:

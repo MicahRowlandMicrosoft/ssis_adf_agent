@@ -10,7 +10,8 @@ import re
 import uuid
 from pathlib import Path
 from typing import Any
-from lxml import etree
+
+from lxml import etree  # type: ignore[attr-defined]
 
 from ..warnings_collector import warn
 from .models import (
@@ -27,11 +28,10 @@ from .models import (
     ExecuteProcessTask,
     ExecuteSQLTask,
     FileSystemTask,
-    ForEachLoopContainer,
     ForEachEnumeratorType,
+    ForEachLoopContainer,
     ForLoopContainer,
     FTPTask,
-    GapItem,
     IngestionPattern,
     PrecedenceConstraint,
     PrecedenceEvalOp,
@@ -489,8 +489,8 @@ def _extract_source_from_blob(b64_text: str, language: str) -> str | None:
     """
     import base64
     import io
-    import zipfile
     import logging
+    import zipfile
 
     ext = ".vb" if language == "VisualBasic" else ".cs"
     _EXCLUDE = {"assemblyinfo", ".designer.", "assemblyattributes"}
@@ -523,7 +523,7 @@ def _extract_source_from_blob(b64_text: str, language: str) -> str | None:
 
 
 def _extract_source_from_script_project(
-    config_elem: "etree._Element", language: str
+    config_elem: etree._Element, language: str
 ) -> str | None:
     """
     Pattern A (SSIS 2012+): look for a ScriptProject child inside the config element,
@@ -553,7 +553,10 @@ def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
         "Microsoft.SqlServer.Dts.Tasks.BulkInsertTask.BulkInsertTask": TaskType.BULK_INSERT,
         "Microsoft.SqlServer.Dts.Tasks.WebServiceTask.WebServiceTask": TaskType.WEB_SERVICE,
         "Microsoft.SqlServer.Dts.Tasks.XMLTask.XMLTask": TaskType.XML,
-        "Microsoft.SqlServer.Dts.Tasks.TransferSqlServerObjectsTask.TransferSqlServerObjectsTask": TaskType.TRANSFER_SQL,
+        (
+            "Microsoft.SqlServer.Dts.Tasks.TransferSqlServerObjectsTask."
+            "TransferSqlServerObjectsTask"
+        ): TaskType.TRANSFER_SQL,
         "Sequence": TaskType.SEQUENCE,
         "ForEachLoop": TaskType.FOREACH_LOOP,
         "ForLoop": TaskType.FOR_LOOP,
@@ -692,7 +695,6 @@ class SSISParser:
             object_data = cm_elem.find(_dts("ObjectData"))
             if object_data is not None:
                 for child in object_data:
-                    local = etree.QName(child.tag).localname
                     # OLE DB / ADO.NET: ConnectionString attribute
                     cs = child.get("ConnectionString") or child.get(f"{{{DTS_NS}}}ConnectionString")
                     if cs:
@@ -825,7 +827,7 @@ class SSISParser:
         description = _attr(elem, "Description") or ""
         disabled = (_attr(elem, "Disabled") or "0") not in ("0", "")
 
-        base_kwargs = dict(
+        base_kwargs: dict[str, Any] = dict(
             id=task_id, name=task_name, description=description,
             task_type=task_type, disabled=disabled,
         )
@@ -929,10 +931,26 @@ class SSISParser:
                               + list(child.findall(f"{{{NAMESPACES['ExecuteSQLTask']}}}ParameterBinding")):
                         pb_ns = etree.QName(pb.tag).namespace or ""
                         param_bindings.append({
-                            "variable": pb.get(f"{{{pb_ns}}}DtsVariableName") or pb.get("DtsVariableName") or "",
-                            "direction": pb.get(f"{{{pb_ns}}}ParameterDirection") or pb.get("ParameterDirection") or "Input",
-                            "data_type": pb.get(f"{{{pb_ns}}}DataType") or pb.get("DataType") or "0",
-                            "parameter_name": pb.get(f"{{{pb_ns}}}ParameterName") or pb.get("ParameterName") or "",
+                            "variable": (
+                                pb.get(f"{{{pb_ns}}}DtsVariableName")
+                                or pb.get("DtsVariableName")
+                                or ""
+                            ),
+                            "direction": (
+                                pb.get(f"{{{pb_ns}}}ParameterDirection")
+                                or pb.get("ParameterDirection")
+                                or "Input"
+                            ),
+                            "data_type": (
+                                pb.get(f"{{{pb_ns}}}DataType")
+                                or pb.get("DataType")
+                                or "0"
+                            ),
+                            "parameter_name": (
+                                pb.get(f"{{{pb_ns}}}ParameterName")
+                                or pb.get("ParameterName")
+                                or ""
+                            ),
                         })
 
         # Detect cross-DB references and ingestion pattern

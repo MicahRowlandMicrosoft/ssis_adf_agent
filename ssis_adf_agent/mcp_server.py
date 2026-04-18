@@ -31,8 +31,8 @@ import mcp.server.stdio
 import mcp.types as types
 from mcp.server import Server
 
-from .warnings_collector import WarningsCollector
 from .path_safety import safe_resolve as _safe_resolve
+from .warnings_collector import WarningsCollector
 
 logger = logging.getLogger("ssis_adf_agent")
 
@@ -161,13 +161,19 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "auth_type": {
                         "type": "string",
-                        "description": "Default authentication type for Azure SQL linked services. Default: 'SystemAssignedManagedIdentity'.",
+                        "description": (
+                            "Default authentication type for Azure SQL linked services. "
+                            "Default: 'SystemAssignedManagedIdentity'."
+                        ),
                         "enum": ["SystemAssignedManagedIdentity", "SQL", "ServicePrincipal"],
                         "default": "SystemAssignedManagedIdentity",
                     },
                     "use_key_vault": {
                         "type": "boolean",
-                        "description": "Use Azure Key Vault secret references for passwords/connection strings. Default: false.",
+                        "description": (
+                            "Use Azure Key Vault secret references for passwords/connection "
+                            "strings. Default: false."
+                        ),
                         "default": False,
                     },
                     "kv_ls_name": {
@@ -189,7 +195,8 @@ async def list_tools() -> list[types.Tool]:
                     "schema_remap_path": {
                         "type": "string",
                         "description": (
-                            "Optional path to a JSON file mapping old schema prefixes to new ones for database consolidation. "
+                            "Optional path to a JSON file mapping old schema prefixes to new ones "
+                            "for database consolidation. "
                             "Format: {\"StagingDB.dbo\": \"ConsolidatedDB.staging\"}."
                         ),
                     },
@@ -269,7 +276,10 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "validate_first": {
                         "type": "boolean",
-                        "description": "If true (default), run structural validation before deploying. Invalid artifacts are skipped and reported.",
+                        "description": (
+                            "If true (default), run structural validation before deploying. "
+                            "Invalid artifacts are skipped and reported."
+                        ),
                         "default": True,
                     },
                 },
@@ -486,10 +496,11 @@ async def _scan(args: dict[str, Any]) -> list[types.TextContent]:
                 })
 
         elif source_type == "sql":
-            from .parsers.readers.sql_reader import SqlServerReader
             # Expect path_or_conn to be a pyodbc-style connection string
             # Parse it first to get server/database
             import re
+
+            from .parsers.readers.sql_reader import SqlServerReader
             server_m = re.search(r"SERVER=([^;]+)", path_or_conn, re.I)
             db_m = re.search(r"DATABASE=([^;]+)", path_or_conn, re.I)
             server = server_m.group(1) if server_m else "localhost"
@@ -509,13 +520,13 @@ async def _scan(args: dict[str, Any]) -> list[types.TextContent]:
 
 
 async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
-    from .parsers.readers.local_reader import LocalReader
-    from .analyzers.complexity_scorer import score_package_detailed
-    from .analyzers.gap_analyzer import analyze_gaps
-    from .analyzers.dependency_graph import build_package_dependency_order
     from .analyzers.cdm_pattern_detector import detect_cdm_patterns
+    from .analyzers.complexity_scorer import score_package_detailed
+    from .analyzers.dependency_graph import build_package_dependency_order
     from .analyzers.esi_reuse_analyzer import analyze_esi_reuse, load_esi_config
+    from .analyzers.gap_analyzer import analyze_gaps
     from .analyzers.similarity_analyzer import fingerprint_package
+    from .parsers.readers.local_reader import LocalReader
 
     with WarningsCollector() as wc:
         path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
@@ -588,14 +599,14 @@ async def _analyze(args: dict[str, Any]) -> list[types.TextContent]:
 
 
 async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
-    from .parsers.readers.local_reader import LocalReader
-    from .generators.pipeline_generator import generate_pipeline
-    from .generators.linked_service_generator import generate_linked_services
-    from .generators.dataset_generator import generate_datasets
-    from .generators.dataflow_generator import generate_data_flows
-    from .generators.trigger_generator import generate_triggers
     from .analyzers.cdm_pattern_detector import detect_cdm_patterns
     from .analyzers.esi_reuse_analyzer import analyze_esi_reuse, load_esi_config
+    from .generators.dataflow_generator import generate_data_flows
+    from .generators.dataset_generator import generate_datasets
+    from .generators.linked_service_generator import generate_linked_services
+    from .generators.pipeline_generator import generate_pipeline
+    from .generators.trigger_generator import generate_triggers
+    from .parsers.readers.local_reader import LocalReader
 
     path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
     output_dir = _safe_resolve(args["output_dir"], label="output_dir")
@@ -618,7 +629,11 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
             ),
         )]
     pipeline_prefix = args.get("pipeline_prefix", "PL_")
-    shared_artifacts_dir = _safe_resolve(args["shared_artifacts_dir"], label="shared_artifacts_dir") if args.get("shared_artifacts_dir") else None
+    shared_artifacts_dir = (
+        _safe_resolve(args["shared_artifacts_dir"], label="shared_artifacts_dir")
+        if args.get("shared_artifacts_dir")
+        else None
+    )
 
     # Load optional config files
     schema_remap: dict[str, str] | None = None
@@ -902,9 +917,9 @@ async def _provision_func_app(args: dict[str, Any]) -> list[types.TextContent]:
 
 
 async def _consolidate(args: dict[str, Any]) -> list[types.TextContent]:
-    from .parsers.readers.local_reader import LocalReader
-    from .analyzers.similarity_analyzer import group_similar_packages, fingerprint_package
+    from .analyzers.similarity_analyzer import group_similar_packages
     from .generators.consolidated_pipeline_generator import generate_consolidated_pipelines
+    from .parsers.readers.local_reader import LocalReader
 
     package_paths = [_safe_resolve(p, must_exist=True, label="package_paths") for p in args["package_paths"]]
     output_dir = _safe_resolve(args["output_dir"], label="output_dir") if args.get("output_dir") else None

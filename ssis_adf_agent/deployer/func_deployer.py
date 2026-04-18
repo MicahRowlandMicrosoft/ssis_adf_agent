@@ -24,7 +24,6 @@ Usage::
 from __future__ import annotations
 
 import io
-import json
 import logging
 import zipfile
 from dataclasses import dataclass, field
@@ -34,24 +33,27 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 try:
-    from azure.identity import DefaultAzureCredential
-    from azure.mgmt.web import WebSiteManagementClient
     from azure.core.exceptions import (
-        HttpResponseError,
         ClientAuthenticationError,
+        HttpResponseError,
     )
+    from azure.identity import DefaultAzureCredential
+    from azure.mgmt.web import WebSiteManagementClient  # type: ignore[import-not-found]
     _AZURE_WEB_AVAILABLE = True
 except ImportError:
     _AZURE_WEB_AVAILABLE = False
 
     class HttpResponseError(Exception): ...  # type: ignore[no-redef]
     class ClientAuthenticationError(Exception): ...  # type: ignore[no-redef]
+    DefaultAzureCredential = None  # type: ignore[assignment,misc]
+    WebSiteManagementClient = None  # type: ignore[assignment,misc]
 
 try:
     import httpx
     _HTTPX_AVAILABLE = True
 except ImportError:
     _HTTPX_AVAILABLE = False
+    httpx = None  # type: ignore[assignment]
 
 # Files to exclude from the deployment zip
 _EXCLUDE_PATTERNS = frozenset({
@@ -155,7 +157,7 @@ class FuncDeployer:
         self._web_client: Any = None
 
     @property
-    def web_client(self) -> "WebSiteManagementClient":
+    def web_client(self) -> WebSiteManagementClient:
         if self._web_client is None:
             self._web_client = WebSiteManagementClient(
                 self._credential, self.subscription_id
@@ -215,7 +217,10 @@ class FuncDeployer:
                 return FuncDeployResult(
                     success=False,
                     function_app_name=self.function_app_name,
-                    error="Publishing credentials are empty. Verify the Function App exists and has deployment credentials configured.",
+                    error=(
+                        "Publishing credentials are empty. Verify the Function App exists "
+                        "and has deployment credentials configured."
+                    ),
                 )
         except ClientAuthenticationError as exc:
             return FuncDeployResult(

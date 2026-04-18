@@ -24,7 +24,6 @@ from enum import Enum
 
 from ..parsers.models import ScriptTask
 
-
 # ---------------------------------------------------------------------------
 # Public types
 # ---------------------------------------------------------------------------
@@ -278,8 +277,6 @@ def _is_trivial_variable_assignment(code: str) -> bool:
         return True  # empty script body ⇒ trivial
 
     for line in meaningful:
-        stripped = line.strip().rstrip(";")
-
         # Allow Dts.Variables[...].Value = ... (read or write)
         if _DTS_VARIABLE_ASSIGN.search(line):
             continue

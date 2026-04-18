@@ -9,13 +9,13 @@ from typing import Any
 from ..parsers.models import PrecedenceConstraint, SSISTask, TaskType
 from ..warnings_collector import warn
 from .base_converter import BaseConverter
-from .control_flow.execute_sql_converter import ExecuteSQLConverter
-from .control_flow.execute_package_converter import ExecutePackageConverter
-from .control_flow.file_system_converter import FileSystemConverter
-from .control_flow.script_task_converter import ScriptTaskConverter
-from .control_flow.foreach_converter import ForEachConverter
-from .control_flow.for_loop_converter import ForLoopConverter
 from .control_flow.data_flow_converter import DataFlowConverter
+from .control_flow.execute_package_converter import ExecutePackageConverter
+from .control_flow.execute_sql_converter import ExecuteSQLConverter
+from .control_flow.file_system_converter import FileSystemConverter
+from .control_flow.for_loop_converter import ForLoopConverter
+from .control_flow.foreach_converter import ForEachConverter
+from .control_flow.script_task_converter import ScriptTaskConverter
 
 
 class ConverterDispatcher:
@@ -28,8 +28,15 @@ class ConverterDispatcher:
         activities = dispatcher.convert_task(task, constraints, task_by_id)
     """
 
-    def __init__(self, stubs_dir: Path | None = None, llm_translate: bool = False, pipeline_prefix: str = "PL_") -> None:
-        script_converter = ScriptTaskConverter(stubs_output_dir=stubs_dir, llm_translate=llm_translate)
+    def __init__(
+        self,
+        stubs_dir: Path | None = None,
+        llm_translate: bool = False,
+        pipeline_prefix: str = "PL_",
+    ) -> None:
+        script_converter = ScriptTaskConverter(
+            stubs_output_dir=stubs_dir, llm_translate=llm_translate,
+        )
 
         # Pass self to loop converters so they can recursively convert inner tasks
         foreach_converter = ForEachConverter(child_converter=self)
@@ -197,9 +204,6 @@ class _BulkInsertConverter(BaseConverter):
     def convert(self, task, constraints, task_by_id):  # type: ignore[override]
         depends_on = self._depends_on(task, constraints, task_by_id)
         safe = task.name.replace(" ", "_")
-        conn_id = getattr(task, "connection_id", None) or "unknown"
-        table = getattr(task, "destination_table", None) or "TODO_TABLE"
-        source_file = getattr(task, "source_file", None) or ""
         return [{
             "name": task.name,
             "description": (
@@ -279,7 +283,7 @@ class _XMLConverter(BaseConverter):
         )
 
         func_name = task.name.replace(" ", "_").replace("-", "_")
-        stub_path = self._write_xml_stub(func_name, operation, source, second_operand, xpath_op)
+        self._write_xml_stub(func_name, operation, source, second_operand, xpath_op)
 
         return [{
             "name": task.name,

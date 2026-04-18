@@ -13,15 +13,19 @@ Best practices applied:
 from __future__ import annotations
 
 import json
+import re as _re
 from pathlib import Path
 from typing import Any
-import re as _re
 
-from ..parsers.models import DataFlowComponent, DataFlowPath, DataFlowTask, DataType, SSISPackage, TaskType
-from ..converters.data_flow.source_converter import convert_source
 from ..converters.data_flow.destination_converter import convert_destination
+from ..converters.data_flow.source_converter import convert_source
 from ..converters.data_flow.transformation_converter import convert_transformation
-from ..translators.ssis_expression_translator import translate_expression
+from ..parsers.models import (
+    DataFlowTask,
+    DataType,
+    SSISPackage,
+    TaskType,
+)
 from ..warnings_collector import warn
 
 # ---------------------------------------------------------------------------
@@ -298,14 +302,14 @@ def _emit_source(lines: list[str], s: dict) -> None:
         col_defs = ",\n        ".join(
             f"{_q(c.name)} as {_DATATYPE_TO_DSL.get(c.data_type, 'string')}" for c in cols
         )
-        lines.append(f"source(output(")
+        lines.append("source(output(")
         lines.append(f"        {col_defs}")
-        lines.append(f"    ),")
+        lines.append("    ),")
     else:
-        lines.append(f"source(output(_ssis_todo as string),")
-    lines.append(f"    allowSchemaDrift: true,")
-    lines.append(f"    validateSchema: false,")
-    lines.append(f"    isolationLevel: 'READ_UNCOMMITTED',")
+        lines.append("source(output(_ssis_todo as string),")
+    lines.append("    allowSchemaDrift: true,")
+    lines.append("    validateSchema: false,")
+    lines.append("    isolationLevel: 'READ_UNCOMMITTED',")
     lines.append(f"    errorHandlingOption: 'stopOnFirstError') ~> {s['name']}")
 
 
@@ -409,17 +413,17 @@ def _emit_sink(
     # Select transformation to the transformations array.
 
     lines.append(f"{upstream} sink(allowSchemaDrift: true,")
-    lines.append(f"    validateSchema: false,")
-    lines.append(f"    errorHandlingOption: 'stopOnFirstError',")
+    lines.append("    validateSchema: false,")
+    lines.append("    errorHandlingOption: 'stopOnFirstError',")
     if has_keys:
         keys_str = ", ".join(f"'{k}'" for k in key_columns)
         lines.append(f"    keys: [{keys_str}],")
-        lines.append(f"    deletable: false,")
-        lines.append(f"    insertable: true,")
-        lines.append(f"    updateable: true,")
+        lines.append("    deletable: false,")
+        lines.append("    insertable: true,")
+        lines.append("    updateable: true,")
         lines.append(f"    upsertable: true) ~> {sk['name']}")
     else:
-        lines.append(f"    deletable: false,")
-        lines.append(f"    insertable: true,")
-        lines.append(f"    updateable: false,")
+        lines.append("    deletable: false,")
+        lines.append("    insertable: true,")
+        lines.append("    updateable: false,")
         lines.append(f"    upsertable: false) ~> {sk['name']}")

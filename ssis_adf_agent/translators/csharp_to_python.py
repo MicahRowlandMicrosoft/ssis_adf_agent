@@ -85,7 +85,7 @@ class CSharpToPythonTranslator:
             and os.environ.get("AZURE_OPENAI_API_KEY")
         )
 
-    def translate(self, source_code: str, task: "ScriptTask") -> str:
+    def translate(self, source_code: str, task: ScriptTask) -> str:
         """
         Call Azure OpenAI to translate ``source_code`` to a Python function body.
 
@@ -93,7 +93,7 @@ class CSharpToPythonTranslator:
         Raises ``TranslationError`` on any failure (auth, rate limit, timeout, etc.).
         """
         try:
-            from openai import AzureOpenAI, APIError  # type: ignore[import-untyped]
+            from openai import APIError, AzureOpenAI  # type: ignore[import-untyped]
         except ImportError as exc:
             raise TranslationError(
                 "The 'openai' package is not installed. "

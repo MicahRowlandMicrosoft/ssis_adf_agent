@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from ..parsers.models import (
-    ConnectionManagerType,
     DataFlowColumn,
     DataFlowComponent,
     DataFlowTask,
@@ -249,7 +248,7 @@ def generate_datasets(
 
 def _generate_lookup_dataset(
     comp: DataFlowComponent,
-    conn_by_id: dict[str, "SSISConnectionManager"],
+    conn_by_id: dict[str, SSISConnectionManager],
     ds_dir: Path,
     seen: set[str],
     existing_ds: set[str],

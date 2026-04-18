@@ -15,26 +15,26 @@ import json
 import logging
 import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 try:
+    from azure.core.exceptions import (
+        ClientAuthenticationError,
+        HttpResponseError,
+        ServiceResponseError,
+    )
     from azure.identity import DefaultAzureCredential
     from azure.mgmt.datafactory import DataFactoryManagementClient
     from azure.mgmt.datafactory.models import (
-        DatasetResource,
         DataFlowResource,
+        DatasetResource,
         LinkedServiceResource,
         PipelineResource,
         TriggerResource,
-    )
-    from azure.core.exceptions import (
-        HttpResponseError,
-        ServiceResponseError,
-        ClientAuthenticationError,
     )
     _AZURE_AVAILABLE = True
 except ImportError:
@@ -123,7 +123,7 @@ class AdfDeployer:
         self._client: DataFactoryManagementClient | None = None
 
     @property
-    def client(self) -> "DataFactoryManagementClient":
+    def client(self) -> DataFactoryManagementClient:
         if self._client is None:
             self._client = DataFactoryManagementClient(
                 self._credential, self.subscription_id
@@ -323,7 +323,6 @@ class AdfDeployer:
         Validate JSON files in *artifacts_dir* against basic ADF schema requirements.
         Returns a list of validation issues (empty = all good).
         """
-        import jsonschema  # type: ignore[import-untyped]
 
         issues: list[dict[str, Any]] = []
         for json_file in artifacts_dir.rglob("*.json"):

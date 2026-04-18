@@ -26,17 +26,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..analyzers.dependency_graph import topological_sort
+from ..converters.dispatcher import ConverterDispatcher
 from ..parsers.models import (
     DataFlowTask,
     ExecuteSQLTask,
     IngestionPattern,
     SSISPackage,
-    SSISParameter,
-    SSISVariable,
-    TaskType,
 )
-from ..analyzers.dependency_graph import topological_sort
-from ..converters.dispatcher import ConverterDispatcher
 from ..warnings_collector import warn as _warn
 
 # ADF hard limit on activities per pipeline
@@ -114,7 +111,11 @@ def generate_pipeline(
 
     Returns the pipeline dict.
     """
-    dispatcher = ConverterDispatcher(stubs_dir=stubs_dir or output_dir / "stubs", llm_translate=llm_translate, pipeline_prefix=pipeline_prefix)
+    dispatcher = ConverterDispatcher(
+        stubs_dir=stubs_dir or output_dir / "stubs",
+        llm_translate=llm_translate,
+        pipeline_prefix=pipeline_prefix,
+    )
     pipeline_name = f"{pipeline_prefix}{package.name.replace(' ', '_')}"
 
     # Topological task ordering

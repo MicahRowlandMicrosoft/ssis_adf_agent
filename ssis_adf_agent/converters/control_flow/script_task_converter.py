@@ -18,8 +18,8 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+from ...analyzers.script_classifier import ScriptComplexity, classify_script
 from ...parsers.models import PrecedenceConstraint, ScriptTask, SSISTask
-from ...analyzers.script_classifier import classify_script, ScriptComplexity
 from ..base_converter import BaseConverter
 
 
@@ -202,7 +202,7 @@ class ScriptTaskConverter(BaseConverter):
                 warn_line
                 + orig_block
                 + "    # TODO: implement converted logic here\n"
-                + f"    raise NotImplementedError(\n"
+                + "    raise NotImplementedError(\n"
                 + f'        "Script Task \'{task.name}\' has not been implemented yet. "\n'
                 + f'        "See the original {task.script_language} code above."\n'
                 + "    )"

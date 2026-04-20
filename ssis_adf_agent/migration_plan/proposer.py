@@ -405,7 +405,53 @@ def _recommend_linked_services(package: SSISPackage) -> list[LinkedServiceSpec]:
             auth=AuthMode.MANAGED_IDENTITY,
             notes=f"SSIS connection type '{cm.type.value}' has no direct ADF equivalent. Manual review required.",
         ))
+
+    # Sensitive Project.params → recommend a Key Vault linked service per secret.
+    # This catches credentials the SSIS team kept in the project file rather
+    # than hard-coding into a connection manager (a common pattern).
+    for sec in _credential_project_params(package):
+        secret_name = f"ssis-{_slugify(sec.name)}"
+        specs.append(LinkedServiceSpec(
+            name=f"LS_KV_{sec.name}",
+            type="AzureKeyVaultSecret",
+            auth=AuthMode.MANAGED_IDENTITY,
+            target_resource="keyvault://<vault>/" + secret_name,
+            secret_name=secret_name,
+            notes=(
+                f"Sensitive Project.param '{sec.name}' was a credential in SSIS. "
+                "Store the value in Key Vault and reference it from any linked "
+                "service that needs it instead of a runtime parameter."
+            ),
+        ))
+
     return specs
+
+
+# Param-name suffixes that strongly suggest a credential. Conservative: we only
+# pull a project parameter into a KV linked-service recommendation if BOTH the
+# Sensitive flag is set AND the name matches one of these patterns.
+_CREDENTIAL_NAME_PATTERNS = (
+    "password", "passwd", "pwd",
+    "secret", "apikey", "api_key",
+    "token", "connectionstring", "connstr",
+    "clientsecret", "client_secret",
+)
+
+
+def _credential_project_params(package: SSISPackage) -> list:
+    """Return Project.params that look like credentials (Sensitive + name match)."""
+    out = []
+    for p in package.project_parameters or []:
+        if not p.sensitive:
+            continue
+        lc = (p.name or "").lower()
+        if any(pat in lc for pat in _CREDENTIAL_NAME_PATTERNS):
+            out.append(p)
+    return out
+
+
+def _slugify(name: str) -> str:
+    return "".join(c.lower() if c.isalnum() else "-" for c in (name or "")).strip("-") or "secret"
 
 
 def _recommend_infrastructure(linked_services: list[LinkedServiceSpec]) -> list[InfrastructureItem]:
@@ -426,7 +472,10 @@ def _recommend_infrastructure(linked_services: list[LinkedServiceSpec]) -> list[
             properties={"isHnsEnabled": True, "minimumTlsVersion": "TLS1_2"},
             purpose="ADLS Gen2 storage for file sources/sinks.",
         ))
-    needs_kv = any(ls.auth not in {AuthMode.MANAGED_IDENTITY} for ls in linked_services)
+    needs_kv = (
+        any(ls.auth not in {AuthMode.MANAGED_IDENTITY} for ls in linked_services)
+        or any(ls.type == "AzureKeyVaultSecret" for ls in linked_services)
+    )
     if needs_kv:
         items.append(InfrastructureItem(
             type="Microsoft.KeyVault/vaults",
@@ -456,6 +505,13 @@ def _recommend_rbac(linked_services: list[LinkedServiceSpec]) -> list[RbacAssign
                 scope=ls.target_resource or "<storage>",
                 role="Storage Blob Data Contributor",
                 purpose=f"Allow ADF to read/write {ls.name}.",
+            ))
+        elif ls.type == "AzureKeyVaultSecret":
+            rbac.append(RbacAssignment(
+                principal="<ADF MI>",
+                scope=ls.target_resource or "<keyvault>",
+                role="Key Vault Secrets User",
+                purpose=f"Allow ADF to read the secret behind {ls.name}.",
             ))
     return rbac
 

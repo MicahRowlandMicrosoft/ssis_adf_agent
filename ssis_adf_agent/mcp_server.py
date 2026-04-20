@@ -1659,6 +1659,10 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
     reader = LocalReader()
     rows: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
+    # Per-project-directory grouping for shared-infra detection. Key is the
+    # parent directory path (where Project.params would live); value tracks
+    # which packages share it and what credentials/connections recur.
+    projects: dict[str, dict[str, Any]] = {}
 
     for f in files:
         try:
@@ -1666,9 +1670,20 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
             score = score_package(pkg).score
             gaps = analyze_gaps(pkg)
             plan = propose_design(pkg)
+            project_dir = str(f.parent)
+            has_proj_params = (f.parent / "Project.params").exists()
+            sensitive_param_names = sorted({
+                p.name for p in (pkg.project_parameters or []) if p.sensitive
+            })
+            sql_servers = sorted({
+                cm.server for cm in pkg.connection_managers
+                if cm.server and "database.windows.net" not in (cm.server or "").lower()
+            })
             rows.append({
                 "package_name": pkg.name,
                 "path": str(f),
+                "project_dir": project_dir,
+                "has_project_params": has_proj_params,
                 "complexity_score": score,
                 "complexity_bucket": plan.effort.bucket,
                 "target_pattern": plan.target_pattern.value,
@@ -1679,7 +1694,18 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
                 "high_risks": [r.message for r in plan.risks if r.severity.value == "high"],
                 "simplifications_recommended": [s.action.value for s in plan.simplifications],
                 "estimated_total_hours": plan.effort.total_hours,
+                "sensitive_project_params": sensitive_param_names,
             })
+            proj = projects.setdefault(project_dir, {
+                "project_dir": project_dir,
+                "has_project_params": has_proj_params,
+                "package_names": [],
+                "shared_sensitive_params": set(),
+                "shared_sql_servers": set(),
+            })
+            proj["package_names"].append(pkg.name)
+            proj["shared_sensitive_params"].update(sensitive_param_names)
+            proj["shared_sql_servers"].update(sql_servers)
         except Exception as exc:
             failures.append({"path": str(f), "error": str(exc)})
 
@@ -1694,6 +1720,43 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
         total_hours += r["estimated_total_hours"]
         total_manual += r["manual_required_count"]
 
+    # Project-level groupings + shared-infra recommendations.
+    project_summaries: list[dict[str, Any]] = []
+    shared_infra_recs: list[dict[str, Any]] = []
+    for proj_dir, proj in projects.items():
+        pkg_count = len(proj["package_names"])
+        proj_record = {
+            "project_dir": proj_dir,
+            "has_project_params": proj["has_project_params"],
+            "package_count": pkg_count,
+            "package_names": sorted(proj["package_names"]),
+            "shared_sensitive_params": sorted(proj["shared_sensitive_params"]),
+            "shared_on_prem_sql_servers": sorted(proj["shared_sql_servers"]),
+        }
+        project_summaries.append(proj_record)
+        if pkg_count >= 2 and proj["has_project_params"]:
+            shared_infra_recs.append({
+                "project_dir": proj_dir,
+                "package_count": pkg_count,
+                "recommendation": (
+                    f"{pkg_count} packages share a Project.params file. Provision ONE "
+                    "Key Vault and ONE Storage Account / ADF for the project rather than "
+                    "per-package resources."
+                ),
+                "shared_secrets": sorted(proj["shared_sensitive_params"]),
+            })
+        if pkg_count >= 2 and proj["shared_sql_servers"]:
+            shared_infra_recs.append({
+                "project_dir": proj_dir,
+                "package_count": pkg_count,
+                "recommendation": (
+                    f"{pkg_count} packages connect to the same on-prem SQL server(s). "
+                    "Provision a single Self-Hosted Integration Runtime and reuse it "
+                    "across the project's linked services."
+                ),
+                "shared_on_prem_sql_servers": sorted(proj["shared_sql_servers"]),
+            })
+
     report = {
         "scanned_path": str(source_path),
         "package_count": len(rows),
@@ -1705,7 +1768,10 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
             "manual_required_total": total_manual,
             "bulk_convertible_count": by_bucket.get("low", 0) + by_bucket.get("medium", 0),
             "needs_design_review_count": by_bucket.get("high", 0) + by_bucket.get("very_high", 0),
+            "project_count": len(projects),
+            "shared_infra_recommendations": shared_infra_recs,
         },
+        "projects": sorted(project_summaries, key=lambda p: -p["package_count"]),
         "packages": sorted(rows, key=lambda r: -r["complexity_score"]),
         "failures": failures,
     }

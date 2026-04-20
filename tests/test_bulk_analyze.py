@@ -54,3 +54,71 @@ def test_bulk_analyze_handles_empty_directory(tmp_path: Path) -> None:
     payload = json.loads(result[0].text)
     assert payload["package_count"] == 0
     assert payload["failures"] == []
+
+
+_PROJECT_PARAMS_TEMPLATE = """<?xml version="1.0"?>
+<SSIS:Parameters xmlns:SSIS="www.microsoft.com/SqlServer/SSIS">
+  <SSIS:Parameter SSIS:Name="DbPassword">
+    <SSIS:Properties>
+      <SSIS:Property SSIS:Name="DataType">18</SSIS:Property>
+      <SSIS:Property SSIS:Name="Sensitive">1</SSIS:Property>
+      <SSIS:Property SSIS:Name="Value"></SSIS:Property>
+    </SSIS:Properties>
+  </SSIS:Parameter>
+</SSIS:Parameters>
+"""
+
+
+def test_bulk_analyze_groups_packages_by_project_directory(tmp_path: Path) -> None:
+    proj_a = tmp_path / "ProjA"
+    proj_b = tmp_path / "ProjB"
+    proj_a.mkdir(); proj_b.mkdir()
+    # Two packages share Project.params in ProjA
+    (proj_a / "Project.params").write_text(_PROJECT_PARAMS_TEMPLATE, encoding="utf-8")
+    for i in (1, 2):
+        (proj_a / f"pkg{i}.dtsx").write_text(
+            _DTSX_TEMPLATE.replace("{n}", str(i)), encoding="utf-8",
+        )
+    # One package in ProjB without Project.params
+    (proj_b / "pkg3.dtsx").write_text(
+        _DTSX_TEMPLATE.replace("{n}", "3"), encoding="utf-8",
+    )
+
+    result = asyncio.run(_bulk_analyze({"source_path": str(tmp_path)}))
+    payload = json.loads(result[0].text)
+
+    assert payload["package_count"] == 3
+    assert payload["estate_summary"]["project_count"] == 2
+
+    projects = {p["project_dir"]: p for p in payload["projects"]}
+    a = projects[str(proj_a)]
+    b = projects[str(proj_b)]
+
+    assert a["package_count"] == 2
+    assert a["has_project_params"] is True
+    assert "DbPassword" in a["shared_sensitive_params"]
+
+    assert b["package_count"] == 1
+    assert b["has_project_params"] is False
+    assert b["shared_sensitive_params"] == []
+
+    # ProjA must produce a shared-infra Key Vault recommendation.
+    recs = payload["estate_summary"]["shared_infra_recommendations"]
+    proj_a_recs = [r for r in recs if r["project_dir"] == str(proj_a)]
+    assert any("Key Vault" in r["recommendation"] for r in proj_a_recs)
+    # ProjB has only 1 package → no shared-infra recommendation.
+    assert not any(r["project_dir"] == str(proj_b) for r in recs)
+
+
+def test_bulk_analyze_row_includes_project_metadata(tmp_path: Path) -> None:
+    (tmp_path / "Project.params").write_text(_PROJECT_PARAMS_TEMPLATE, encoding="utf-8")
+    (tmp_path / "pkg.dtsx").write_text(
+        _DTSX_TEMPLATE.replace("{n}", "1"), encoding="utf-8",
+    )
+    result = asyncio.run(_bulk_analyze({"source_path": str(tmp_path)}))
+    payload = json.loads(result[0].text)
+    row = payload["packages"][0]
+    assert row["project_dir"] == str(tmp_path)
+    assert row["has_project_params"] is True
+    assert row["sensitive_project_params"] == ["DbPassword"]
+

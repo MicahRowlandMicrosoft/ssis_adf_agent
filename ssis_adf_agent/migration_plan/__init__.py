@@ -9,6 +9,7 @@ Public surface used by the MCP server:
 from __future__ import annotations
 
 from .applier import PlanApplication, apply_plan
+from .bicep_generator import generate_bicep
 from .models import (
     PLAN_SCHEMA_VERSION,
     AuthMode,
@@ -26,10 +27,12 @@ from .models import (
 )
 from .persistence import load_plan, save_plan
 from .proposer import detect_target_pattern, propose_design
+from .provisioner import BicepCompilerNotFound, deploy_bicep
 
 __all__ = [
     "PLAN_SCHEMA_VERSION",
     "AuthMode",
+    "BicepCompilerNotFound",
     "EffortEstimate",
     "InfrastructureItem",
     "LinkedServiceSpec",
@@ -43,7 +46,9 @@ __all__ = [
     "StorageKind",
     "TargetPattern",
     "apply_plan",
+    "deploy_bicep",
     "detect_target_pattern",
+    "generate_bicep",
     "load_plan",
     "propose_design",
     "save_plan",

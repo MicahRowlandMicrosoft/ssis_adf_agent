@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes fourteen tools to GitHub Copilot (and any MCP-compatible client):
+Exposes fifteen tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -17,6 +17,7 @@ Exposes fourteen tools to GitHub Copilot (and any MCP-compatible client):
 12. propose_adf_design        — recommend a best-practice target ADF design (MigrationPlan)
 13. save_migration_plan       — persist a (possibly customer-edited) MigrationPlan to disk
 14. load_migration_plan       — load a MigrationPlan from disk for downstream tools
+15. provision_adf_environment — generate Bicep from plan + deploy to Azure (infra + RBAC)
 
 Run as an MCP stdio server::
 
@@ -622,6 +623,56 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["path"],
             },
         ),
+        types.Tool(
+            name="provision_adf_environment",
+            description=(
+                "Generate a Bicep template from a MigrationPlan's infrastructure_needed and "
+                "rbac_needed sections, then deploy it to an Azure resource group. Provisions "
+                "the ADF instance (with system-assigned managed identity), Storage account "
+                "(HNS-enabled for ADLS Gen2 when the plan requests it), and Key Vault when "
+                "non-MI auth is required. Built-in Azure RBAC role assignments are emitted "
+                "into the same template; SQL-server-side roles like db_datareader are skipped "
+                "with a note (must be granted via T-SQL post-deploy). Requires the Azure CLI "
+                "on PATH (for 'az bicep build') and authentication via DefaultAzureCredential."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "plan_path": {
+                        "type": "string",
+                        "description": "Absolute path to the MigrationPlan JSON file.",
+                    },
+                    "subscription_id": {
+                        "type": "string",
+                        "description": "Azure subscription ID to deploy into.",
+                    },
+                    "resource_group": {
+                        "type": "string",
+                        "description": "Target resource group (must already exist).",
+                    },
+                    "name_prefix": {
+                        "type": "string",
+                        "description": "3-11 char lowercase prefix used in generated resource names. Default: 'ssismig'.",
+                        "default": "ssismig",
+                    },
+                    "deployment_name": {
+                        "type": "string",
+                        "description": "Name for the ARM deployment record. Default: 'ssis-migration-copilot'.",
+                        "default": "ssis-migration-copilot",
+                    },
+                    "output_bicep_path": {
+                        "type": "string",
+                        "description": "Optional. If supplied, also write the generated Bicep to this path for inspection / source control.",
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "If true, validate the deployment without applying it. Default: false.",
+                        "default": False,
+                    },
+                },
+                "required": ["plan_path", "subscription_id", "resource_group"],
+            },
+        ),
     ]
 
 
@@ -660,6 +711,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _save_plan(arguments)
         elif name == "load_migration_plan":
             return await _load_plan(arguments)
+        elif name == "provision_adf_environment":
+            return await _provision_adf_env(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -1348,6 +1401,38 @@ async def _load_plan(args: dict[str, Any]) -> list[types.TextContent]:
         "plan": plan.model_dump(mode="json"),
         "markdown": plan.render_markdown(),
     }, indent=2, default=str))]
+
+
+async def _provision_adf_env(args: dict[str, Any]) -> list[types.TextContent]:
+    from .migration_plan import deploy_bicep, generate_bicep, load_plan
+
+    plan_path = _safe_resolve(args["plan_path"], must_exist=True, label="plan_path")
+    plan = load_plan(plan_path)
+    name_prefix = args.get("name_prefix", "ssismig")
+    bicep = generate_bicep(plan, name_prefix=name_prefix)
+
+    if args.get("output_bicep_path"):
+        out = _safe_resolve(args["output_bicep_path"], label="output_bicep_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(bicep, encoding="utf-8")
+
+    result = deploy_bicep(
+        bicep_source=bicep,
+        subscription_id=args["subscription_id"],
+        resource_group=args["resource_group"],
+        deployment_name=args.get("deployment_name", "ssis-migration-copilot"),
+        parameters={"prefix": name_prefix},
+        dry_run=args.get("dry_run", False),
+    )
+    payload = {
+        "plan_package": plan.package_name,
+        "name_prefix": name_prefix,
+        "bicep_lines": len(bicep.splitlines()),
+        **result,
+    }
+    if args.get("output_bicep_path"):
+        payload["bicep_saved_to"] = str(_safe_resolve(args["output_bicep_path"], label="output_bicep_path"))
+    return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
 
 
 # ---------------------------------------------------------------------------

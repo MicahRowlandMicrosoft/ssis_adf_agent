@@ -8,12 +8,12 @@ An MCP (Model Context Protocol) server that reads SSIS packages (`.dtsx`) and co
 All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
 
 ```
-.dtsx file(s)  ──┐
+.dtsx file(s)  ───┐
                   │      ┌────────────────────────┐
-SQL Agent jobs ───┤      │   Optional configs:    │
-                  ├─────▶│  • ESI tables JSON     │
-  Config files ───┘      │  • Schema remap JSON   │
-                         │  • Shared artifacts dir │
+SQL Agent jobs ───┤      │  Optional configs:     │
+                  ├─────>│ • ESI tables JSON      │
+  Config files ───┘      │ • Schema remap JSON    │
+                         │ • Shared artifacts dir │
                          └──────────┬─────────────┘
                                     ▼
                     ┌─────────────────────────────┐
@@ -23,10 +23,10 @@ SQL Agent jobs ───┤      │   Optional configs:    │
                     │      → validate → deploy    │
                     │                             │
                     │  Detects:                   │
-                    │  • Cross-DB / linked server  │
-                    │  • Delta / MERGE patterns    │
-                    │  • CDM-layer logic           │
-                    │  • ESI reuse candidates      │
+                    │  • Cross-DB / linked server │
+                    │  • Delta / MERGE patterns   │
+                    │  • CDM-layer logic          │
+                    │  • ESI reuse candidates     │
                     └──────────┬──────────────────┘
                                ▼
                     ADF JSON artifacts

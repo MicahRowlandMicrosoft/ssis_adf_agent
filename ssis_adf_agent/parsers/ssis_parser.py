@@ -212,6 +212,71 @@ def _resolve_component_connection_refs(tasks, connection_managers) -> None:
     _walk(tasks)
 
 
+def _resolve_constraint_refs(tasks, constraints, event_handlers=None) -> None:
+    """Resolve PrecedenceConstraint endpoints from RefId paths to task DTSID GUIDs.
+
+    SSIS XML stores constraint From/To as RefId paths (e.g. ``Package\\Copy Template``)
+    while task ``.id`` holds the DTSID GUID. ``_clean_id`` uppercases these refs to
+    something like ``PACKAGE\\COPY TEMPLATE``. Without resolution, every downstream
+    consumer (topological_sort, ADF dependsOn generation, parity checker, explainer
+    diagrams) silently treats all constraints as unmatched, producing pipelines with
+    no execution ordering.
+
+    This walks all tasks (including nested containers and event handlers), builds an
+    UPPERCASE name→GUID lookup, then rewrites each constraint's from/to to the
+    matching GUID. Modifies constraints in place.
+    """
+    name_to_id: dict[str, str] = {}
+
+    def _index(items):
+        for t in items:
+            if t.name:
+                name_to_id[t.name.upper()] = t.id
+            sub = getattr(t, "tasks", None)
+            if sub:
+                _index(sub)
+
+    _index(tasks)
+    if event_handlers:
+        for eh in event_handlers:
+            sub = getattr(eh, "tasks", None)
+            if sub:
+                _index(sub)
+
+    valid_ids = set(name_to_id.values())
+
+    def _resolve(constraint_list):
+        for c in constraint_list:
+            for attr in ("from_task_id", "to_task_id"):
+                raw = getattr(c, attr, None)
+                if not raw or raw in valid_ids:
+                    continue
+                last = raw.rsplit("\\", 1)[-1]
+                resolved = name_to_id.get(last)
+                if resolved:
+                    setattr(c, attr, resolved)
+
+    def _walk_constraints(items):
+        for t in items:
+            sub_constraints = getattr(t, "constraints", None)
+            if sub_constraints:
+                _resolve(sub_constraints)
+            sub_tasks = getattr(t, "tasks", None)
+            if sub_tasks:
+                _walk_constraints(sub_tasks)
+
+    _resolve(constraints)
+    _walk_constraints(tasks)
+    if event_handlers:
+        for eh in event_handlers:
+            sub_constraints = getattr(eh, "constraints", None)
+            if sub_constraints:
+                _resolve(sub_constraints)
+            sub_tasks = getattr(eh, "tasks", None)
+            if sub_tasks:
+                _walk_constraints(sub_tasks)
+
+
 # ---------------------------------------------------------------------------
 # Project.params loader
 # ---------------------------------------------------------------------------
@@ -631,6 +696,8 @@ class SSISParser:
 
         # Post-process: resolve component connection refs (bracket-names) to CM DTSIDs
         _resolve_component_connection_refs(tasks, connection_managers)
+        # Post-process: resolve PrecedenceConstraint endpoints from RefId paths to task GUIDs
+        _resolve_constraint_refs(tasks, constraints, event_handlers)
 
         return SSISPackage(
             id=pkg_id,

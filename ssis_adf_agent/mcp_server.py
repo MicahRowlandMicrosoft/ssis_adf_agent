@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes sixteen tools to GitHub Copilot (and any MCP-compatible client):
+Exposes seventeen tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -19,6 +19,7 @@ Exposes sixteen tools to GitHub Copilot (and any MCP-compatible client):
 14. load_migration_plan       — load a MigrationPlan from disk for downstream tools
 15. provision_adf_environment — generate Bicep from plan + deploy to Azure (infra + RBAC)
 16. bulk_analyze              — estate-scale triage of a directory of SSIS packages
+17. smoke_test_pipeline       — trigger one ADF pipeline run, poll, return per-activity results
 
 Run as an MCP stdio server::
 
@@ -705,6 +706,43 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["source_path"],
             },
         ),
+        types.Tool(
+            name="smoke_test_pipeline",
+            description=(
+                "Trigger a single run of an existing ADF pipeline and return per-activity "
+                "results. Use this immediately after deploy_to_adf to verify a converted "
+                "pipeline actually executes end-to-end against real linked services. Polls "
+                "until the run reaches a terminal status (Succeeded / Failed / Cancelled) "
+                "or the timeout elapses, then queries activity_runs for a per-activity "
+                "breakdown (name, type, status, duration, error message). Authentication "
+                "uses DefaultAzureCredential (az login on dev machines)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "subscription_id": {"type": "string", "description": "Azure subscription ID."},
+                    "resource_group": {"type": "string", "description": "Resource group of the factory."},
+                    "factory_name": {"type": "string", "description": "Data Factory name."},
+                    "pipeline_name": {"type": "string", "description": "Pipeline to run (must already exist)."},
+                    "parameters": {
+                        "type": "object",
+                        "description": "Optional parameter overrides for the pipeline run.",
+                        "additionalProperties": True,
+                    },
+                    "timeout_seconds": {
+                        "type": "integer",
+                        "description": "Maximum seconds to wait for the run. Default 600.",
+                        "default": 600,
+                    },
+                    "poll_interval_seconds": {
+                        "type": "integer",
+                        "description": "Seconds between status polls. Default 10.",
+                        "default": 10,
+                    },
+                },
+                "required": ["subscription_id", "resource_group", "factory_name", "pipeline_name"],
+            },
+        ),
     ]
 
 
@@ -747,6 +785,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _provision_adf_env(arguments)
         elif name == "bulk_analyze":
             return await _bulk_analyze(arguments)
+        elif name == "smoke_test_pipeline":
+            return await _smoke_test_pipeline(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -1545,6 +1585,21 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
         report["saved_to"] = str(out)
 
     return [types.TextContent(type="text", text=json.dumps(report, indent=2, default=str))]
+
+
+async def _smoke_test_pipeline(args: dict[str, Any]) -> list[types.TextContent]:
+    from .migration_plan import smoke_test_pipeline
+
+    result = smoke_test_pipeline(
+        subscription_id=args["subscription_id"],
+        resource_group=args["resource_group"],
+        factory_name=args["factory_name"],
+        pipeline_name=args["pipeline_name"],
+        parameters=args.get("parameters"),
+        timeout_seconds=int(args.get("timeout_seconds", 600)),
+        poll_interval_seconds=int(args.get("poll_interval_seconds", 10)),
+    )
+    return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 
 
 # ---------------------------------------------------------------------------

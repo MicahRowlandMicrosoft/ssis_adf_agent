@@ -28,6 +28,7 @@ from .models import (
 from .persistence import load_plan, save_plan
 from .proposer import detect_target_pattern, propose_design
 from .provisioner import BicepCompilerNotFound, deploy_bicep
+from .smoke_tester import smoke_test_pipeline
 
 __all__ = [
     "PLAN_SCHEMA_VERSION",
@@ -52,4 +53,5 @@ __all__ = [
     "load_plan",
     "propose_design",
     "save_plan",
+    "smoke_test_pipeline",
 ]

@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes fifteen tools to GitHub Copilot (and any MCP-compatible client):
+Exposes sixteen tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -18,6 +18,7 @@ Exposes fifteen tools to GitHub Copilot (and any MCP-compatible client):
 13. save_migration_plan       — persist a (possibly customer-edited) MigrationPlan to disk
 14. load_migration_plan       — load a MigrationPlan from disk for downstream tools
 15. provision_adf_environment — generate Bicep from plan + deploy to Azure (infra + RBAC)
+16. bulk_analyze              — estate-scale triage of a directory of SSIS packages
 
 Run as an MCP stdio server::
 
@@ -673,6 +674,37 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["plan_path", "subscription_id", "resource_group"],
             },
         ),
+        types.Tool(
+            name="bulk_analyze",
+            description=(
+                "Estate-scale triage. Recursively scan a directory for .dtsx files, analyze each "
+                "one, and emit a sortable summary that buckets packages by complexity (low / "
+                "medium / high / very_high) and recommended target pattern. Use this as the first "
+                "step when a customer drops a large project on you \u2014 it separates the simple "
+                "file-drop packages that can be bulk-converted from the complex ones that need "
+                "human design review. Output also includes per-package risks, manual-required "
+                "counts, and effort estimates rolled up across the estate."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_path": {
+                        "type": "string",
+                        "description": "Absolute path to a directory containing .dtsx files (recursively scanned).",
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Optional. If supplied, write the full triage report (JSON) to this path.",
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "Recurse into subdirectories. Default: true.",
+                        "default": True,
+                    },
+                },
+                "required": ["source_path"],
+            },
+        ),
     ]
 
 
@@ -713,6 +745,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _load_plan(arguments)
         elif name == "provision_adf_environment":
             return await _provision_adf_env(arguments)
+        elif name == "bulk_analyze":
+            return await _bulk_analyze(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -1433,6 +1467,84 @@ async def _provision_adf_env(args: dict[str, Any]) -> list[types.TextContent]:
     if args.get("output_bicep_path"):
         payload["bicep_saved_to"] = str(_safe_resolve(args["output_bicep_path"], label="output_bicep_path"))
     return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
+
+
+async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
+    from .analyzers.complexity_scorer import score_package
+    from .analyzers.gap_analyzer import analyze_gaps
+    from .migration_plan import propose_design
+    from .parsers.readers.local_reader import LocalReader
+
+    source_path = _safe_resolve(args["source_path"], must_exist=True, label="source_path")
+    recursive = args.get("recursive", True)
+
+    if source_path.is_file():
+        files = [source_path] if source_path.suffix.lower() == ".dtsx" else []
+    else:
+        pattern = "**/*.dtsx" if recursive else "*.dtsx"
+        files = sorted(source_path.glob(pattern))
+
+    reader = LocalReader()
+    rows: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
+
+    for f in files:
+        try:
+            pkg = reader.read(f)
+            score = score_package(pkg).score
+            gaps = analyze_gaps(pkg)
+            plan = propose_design(pkg)
+            rows.append({
+                "package_name": pkg.name,
+                "path": str(f),
+                "complexity_score": score,
+                "complexity_bucket": plan.effort.bucket,
+                "target_pattern": plan.target_pattern.value,
+                "task_count": sum(plan.reasoning_input.get("task_counts", {}).values()),
+                "manual_required_count": sum(1 for g in gaps if g.severity.value == "manual_required"),
+                "warning_count": sum(1 for g in gaps if g.severity.value == "warning"),
+                "risk_count": len(plan.risks),
+                "high_risks": [r.message for r in plan.risks if r.severity.value == "high"],
+                "simplifications_recommended": [s.action.value for s in plan.simplifications],
+                "estimated_total_hours": plan.effort.total_hours,
+            })
+        except Exception as exc:
+            failures.append({"path": str(f), "error": str(exc)})
+
+    # Estate roll-up
+    by_bucket: dict[str, int] = {"low": 0, "medium": 0, "high": 0, "very_high": 0}
+    by_pattern: dict[str, int] = {}
+    total_hours = 0.0
+    total_manual = 0
+    for r in rows:
+        by_bucket[r["complexity_bucket"]] = by_bucket.get(r["complexity_bucket"], 0) + 1
+        by_pattern[r["target_pattern"]] = by_pattern.get(r["target_pattern"], 0) + 1
+        total_hours += r["estimated_total_hours"]
+        total_manual += r["manual_required_count"]
+
+    report = {
+        "scanned_path": str(source_path),
+        "package_count": len(rows),
+        "failure_count": len(failures),
+        "estate_summary": {
+            "by_complexity_bucket": by_bucket,
+            "by_target_pattern": by_pattern,
+            "estimated_total_hours": round(total_hours, 1),
+            "manual_required_total": total_manual,
+            "bulk_convertible_count": by_bucket.get("low", 0) + by_bucket.get("medium", 0),
+            "needs_design_review_count": by_bucket.get("high", 0) + by_bucket.get("very_high", 0),
+        },
+        "packages": sorted(rows, key=lambda r: -r["complexity_score"]),
+        "failures": failures,
+    }
+
+    if args.get("output_path"):
+        out = _safe_resolve(args["output_path"], label="output_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+        report["saved_to"] = str(out)
+
+    return [types.TextContent(type="text", text=json.dumps(report, indent=2, default=str))]
 
 
 # ---------------------------------------------------------------------------

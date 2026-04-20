@@ -53,16 +53,25 @@ function Ensure-Bicep {
     elseif (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "Installing Bicep CLI via winget ..." -ForegroundColor Yellow
         winget install -e --id Microsoft.Bicep --accept-source-agreements --accept-package-agreements
-        if ($LASTEXITCODE -ne 0) {
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) {
             throw "winget install Microsoft.Bicep failed. Install manually from https://github.com/Azure/bicep/releases"
         }
-        $wingetLinks = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links'
-        if (Test-Path (Join-Path $wingetLinks 'bicep.exe')) {
-            $env:PATH = "$wingetLinks;$env:PATH"
+        # winget doesn't refresh PATH in the current shell; search common install roots.
+        $candidates = @(
+            (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\bicep.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages\Microsoft.Bicep_Microsoft.Winget.Source_8wekyb3d8bbwe\bicep.exe')
+        )
+        $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if (-not $found) {
+            $found = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages') `
+                -Filter 'bicep.exe' -Recurse -ErrorAction SilentlyContinue |
+                Select-Object -First 1 -ExpandProperty FullName
         }
-        if (-not (Get-Command bicep -ErrorAction SilentlyContinue)) {
-            throw "Bicep installed via winget but not on PATH. Open a new shell and re-run."
+        if (-not $found) {
+            throw "winget reported success but bicep.exe was not found under $env:LOCALAPPDATA\Microsoft\WinGet. Open a new shell and re-run, or install manually from https://github.com/Azure/bicep/releases."
         }
+        $env:PATH = "$(Split-Path $found);$env:PATH"
+        Write-Host "Using Bicep at: $found" -ForegroundColor DarkGray
     }
     else {
         throw "No standalone bicep found and winget unavailable. Install Bicep from https://github.com/Azure/bicep/releases (bicep-win-x64.exe -> rename to bicep.exe on PATH)."

@@ -189,5 +189,6 @@ SELECT
 FROM n;
 GO
 
-PRINT CONCAT('Seeded dbo.activity with ', (SELECT COUNT(*) FROM dbo.activity), ' rows.');
+DECLARE @rowCount INT = (SELECT COUNT(*) FROM dbo.activity);
+PRINT CONCAT('Seeded dbo.activity with ', @rowCount, ' rows.');
 GO

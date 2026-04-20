@@ -185,7 +185,7 @@ BEGIN
 END
 ALTER ROLE db_datareader ADD MEMBER [$FactoryName];
 "@
-$adfUserSql | sqlcmd -S $sqlServerFqdn -d $sqlDatabaseName -G -l 30 -b
+sqlcmd -S $sqlServerFqdn -d $sqlDatabaseName -G -l 30 -b -Q "$adfUserSql"
 if ($LASTEXITCODE -ne 0) {
     throw @"
 sqlcmd (grant ADF MI) failed.

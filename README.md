@@ -3,7 +3,9 @@
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-An MCP (Model Context Protocol) server that reads SSIS packages (`.dtsx`) and converts them to Azure Data Factory (ADF) JSON artifacts, exposed as tools directly inside **GitHub Copilot**.
+An MCP (Model Context Protocol) server that turns SSIS migration into an agent-driven workflow inside **GitHub Copilot**.
+
+The server exposes **22 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, and post-deployment smoke testing.
 
 All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
 
@@ -44,6 +46,7 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 - [Installation](#installation)
 - [Registering as an MCP Server in VS Code](#registering-as-an-mcp-server-in-vs-code)
 - [Trying It Out — Samples Directory](#trying-it-out--samples-directory)
+- [Migration Copilot Workflow (recommended)](#migration-copilot-workflow-recommended)
 - [Usage — End-to-End Walkthrough](#usage--end-to-end-walkthrough)
   - [1. Scan for packages](#1-scan-for-packages)
   - [2. Analyze a package](#2-analyze-a-package)
@@ -141,7 +144,9 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
 > If you installed into a virtual environment, replace `"command": "ssis-adf-agent"` with the full path to the script, e.g. `"C:\\path\\to\\.venv\\Scripts\\ssis-adf-agent.exe"` (Windows) or `"/path/to/.venv/bin/ssis-adf-agent"` (macOS/Linux).
 
 3. Restart VS Code (or reload the window: `Ctrl+Shift+P` → **Developer: Reload Window**).
-4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the eight tools appear:
+4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the 22 tools appear. They group into three tiers:
+
+   **Per-package backbone** — the deterministic conversion path:
    - `scan_ssis_packages`
    - `analyze_ssis_package`
    - `convert_ssis_package`
@@ -150,6 +155,23 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
    - `consolidate_packages`
    - `deploy_function_stubs`
    - `provision_function_app`
+   - `explain_ssis_package`
+   - `explain_adf_artifacts`
+   - `validate_conversion_parity`
+
+   **Migration Copilot — design & infrastructure:**
+   - `propose_adf_design` — emit a recommended `MigrationPlan` for a package
+   - `edit_migration_plan` — apply structured edits (auth mode, region, simplifications)
+   - `save_migration_plan` / `load_migration_plan` — round-trip plans to disk
+   - `provision_adf_environment` — generate Bicep + deploy ADF / Storage / Key Vault / RBAC
+
+   **Migration Copilot — estate scale:**
+   - `bulk_analyze` — triage every `.dtsx` in a directory
+   - `convert_estate` — propose + convert every package in one shot
+   - `plan_migration_waves` — group an estate into ordered delivery waves
+   - `estimate_adf_costs` — monthly USD projection for the proposed estate
+   - `build_estate_report` — customer-facing PDF combining triage + waves + costs
+   - `smoke_test_pipeline` — trigger one ADF pipeline run + return per-activity results
 
 ---
 
@@ -176,9 +198,110 @@ The `samples/` directory is intended as a convenient drop zone for `.dtsx` files
 
 ---
 
+## Migration Copilot Workflow (recommended)
+
+The Migration Copilot tools wrap the per-package backbone into an estate-scale, agent-driven flow. Use this when a customer hands you a folder of SSIS packages and you need to produce a credible plan and deliver it incrementally.
+
+```
+  Customer's SSIS project
+          │
+          ▼
+  bulk_analyze ............... Walk all .dtsx, score, classify, roll up effort
+          │
+          ▼
+  plan_migration_waves ....... Bulk-convertible first, then design-review waves
+  estimate_adf_costs ......... Coarse monthly $ projection
+  build_estate_report ........ Stakeholder PDF (executive summary + waves + cost)
+          │
+          ▼
+  Per package (or convert_estate to do all at once):
+     propose_adf_design ...... Recommended MigrationPlan (target pattern,
+                               simplifications, linked services, infra,
+                               RBAC, risks, effort)
+     edit_migration_plan ..... Customer/agent refinements (auth mode,
+                               region, drop a fold)
+     save_migration_plan
+          │
+          ▼
+  provision_adf_environment .. Generate Bicep + deploy ADF / Storage / KV / RBAC
+          │
+          ▼
+  convert_ssis_package ....... Honors the saved plan when design_path is supplied
+  validate_adf_artifacts
+  deploy_to_adf
+          │
+          ▼
+  smoke_test_pipeline ........ Trigger one run, poll, return per-activity status
+```
+
+### What `propose_adf_design` recommends
+
+The rule-based proposer is opinionated but conservative. It emits a `MigrationPlan` covering:
+
+- **Target pattern** — one of `scheduled_file_drop`, `ingest_file_to_sql`, `sql_to_sql_copy`, `incremental_load`, `dimensional_load`, `script_heavy`, `custom`.
+- **Simplifications** vs. SSIS-faithful conversion. Auto-detected patterns include:
+
+  | Detector | When it fires | Action |
+  |---|---|---|
+  | Atomic-write cleanup | FileSystemTask CopyFile/MoveFile/Rename around a cloud-targeted Data Flow | `drop` |
+  | Trivial Data Flow fold | 1 source + 1 sink + only DerivedColumn / DataConversion | `fold_to_copy_activity` |
+  | Lookup-only Data Flow fold | 1 source + 1 sink + only Lookup transforms | `fold_to_copy_activity` |
+  | Stage-then-merge fold | TRUNCATE/DELETE + INSERT/MERGE/UPDATE on same connection | `fold_to_stored_proc` |
+  | Audit-only ExecuteSQL drop | INSERT/UPDATE into `*log*` / `*audit*` tables | `drop` |
+  | Send Mail replacement | SSIS Send Mail Task | `replace_with_function` (Logic App / Function) |
+
+- **Linked services** — recommended target shape with **Managed Identity** by default.
+- **Infrastructure** to provision (ADF, Storage Account, Key Vault) and **RBAC** assignments.
+- **Risks** with severity and mitigation.
+- **Effort estimate** in hours, bucketed (low / medium / high / very_high).
+
+### Editing the plan with `edit_migration_plan`
+
+Rather than hand-editing the JSON, apply structured mutations:
+
+```jsonc
+{
+  "set_auth_mode": "ManagedIdentity",
+  "set_region": "eastus2",
+  "set_target_pattern": "scheduled_file_drop",
+  "set_summary": "Customer-approved simplification",
+  "add_simplification": {
+    "action": "drop",
+    "items": ["Send Audit Email"],
+    "reason": "Replaced by Logic App"
+  },
+  "drop_simplification": "fold_to_stored_proc",
+  "set_customer_decision": { "region": "eastus2", "approver": "jane@contoso.com" }
+}
+```
+
+Unknown keys are rejected so typos surface immediately.
+
+### Wave planning & costs
+
+- `plan_migration_waves` reads a `bulk_analyze` report and produces ordered waves: bulk-convertible first (grouped by `target_pattern` so reviewers share context), then design-review waves capped at `max_packages_per_wave`. Parse failures land in a final `triage` wave.
+- `estimate_adf_costs` projects monthly USD across orchestration (activity runs), Copy DIU·hours, Mapping Data Flow v-cores, ADLS storage, and Key Vault ops. List-price US East defaults; override via the `rates` parameter.
+- `build_estate_report` rolls all of the above into a PDF deliverable for stakeholders.
+
+### Provisioning with Bicep
+
+`provision_adf_environment` consumes a saved `MigrationPlan` and:
+
+1. Generates a Bicep template covering Data Factory (system-assigned MI), Storage Account (HNS-enabled ADLS Gen2), Key Vault, and the RBAC assignments the plan declared.
+2. Compiles the Bicep via `az bicep build` (requires Azure CLI on PATH).
+3. Deploys via `azure-mgmt-resource` against an existing resource group.
+
+Supports `dry_run=true` to validate without applying.
+
+### Smoke testing
+
+After `deploy_to_adf` succeeds, `smoke_test_pipeline` triggers one pipeline run, polls until terminal status, and returns per-activity results (status, duration, error) so the agent can immediately see what worked and what didn't.
+
+---
+
 ## Usage — End-to-End Walkthrough
 
-All eight tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below show what each tool does and the key parameters it accepts.
+All 22 tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below cover the per-package backbone; see [Migration Copilot Workflow](#migration-copilot-workflow-recommended) above for the estate-scale tools.
 
 ---
 

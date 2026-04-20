@@ -10,10 +10,20 @@ This guide shows how to use the SSIS → ADF Agent through natural-language prom
 
 ## Table of Contents
 
+- [Migration Copilot — Estate Workflow (recommended)](#migration-copilot--estate-workflow-recommended)
 - [End-to-End Migration](#end-to-end-migration)
   - [Quick Start: One Package](#quick-start-one-package)
   - [Full Migration: Multiple Packages](#full-migration-multiple-packages)
 - [Per-Feature Guides](#per-feature-guides)
+  - [Triage an Estate](#triage-an-estate)
+  - [Propose a Migration Plan](#propose-a-migration-plan)
+  - [Edit a Plan](#edit-a-plan)
+  - [Plan Migration Waves](#plan-migration-waves)
+  - [Estimate ADF Costs](#estimate-adf-costs)
+  - [Build the Estate Report PDF](#build-the-estate-report-pdf)
+  - [Convert an Estate](#convert-an-estate)
+  - [Provision ADF Infrastructure](#provision-adf-infrastructure)
+  - [Smoke-Test a Pipeline](#smoke-test-a-pipeline)
   - [Scan for Packages](#scan-for-packages)
   - [Analyze a Package](#analyze-a-package)
   - [Convert a Package](#convert-a-package)
@@ -30,6 +40,63 @@ This guide shows how to use the SSIS → ADF Agent through natural-language prom
   - [ESI Reuse Detection](#esi-reuse-detection)
   - [LLM Script Task Translation](#llm-script-task-translation)
   - [Cross-Package Deduplication](#cross-package-deduplication)
+
+---
+
+## Migration Copilot — Estate Workflow (recommended)
+
+This is the conversation pattern when a customer hands you a folder of SSIS packages and you want a credible, sequenced plan before touching Azure.
+
+> **You:** A customer just dropped their SSIS project at `C:\Customers\Contoso\Project`. Triage the whole estate so we know what we're dealing with.
+
+> **Copilot:** *(calls `bulk_analyze`)* Found **18 packages**, no parse failures.
+>
+> | Bucket | Count |
+> |---|---|
+> | Low | 7 |
+> | Medium | 6 |
+> | High | 4 |
+> | Very High | 1 |
+>
+> **By target pattern:** 11 `scheduled_file_drop`, 4 `ingest_file_to_sql`, 2 `sql_to_sql_copy`, 1 `script_heavy`. Total estate effort: **312 hours**, 6 manual-required items. 13 are bulk-convertible; 5 need design review.
+
+> **You:** Plan the migration waves and project monthly cost. Save both reports under `C:\Customers\Contoso\reports\`.
+
+> **Copilot:** *(calls `plan_migration_waves` and `estimate_adf_costs`)* 4 waves planned:
+> - **Wave 1** — Bulk convert (scheduled_file_drop), 8 packages, 64h
+> - **Wave 2** — Bulk convert (ingest_file_to_sql), 4 packages, 32h
+> - **Wave 3** — Design review (script_heavy), 1 package, 60h
+> - **Wave 4** — Design review (scheduled_file_drop), 5 packages, 156h
+>
+> Projected cost: **\$248/month** (\$2,976/year). Major lines: orchestration \$162, Copy DIU \$60, ADLS storage \$18, Key Vault ops \$2, Mapping Data Flow \$6.
+
+> **You:** Build the estate PDF for the customer.
+
+> **Copilot:** *(calls `build_estate_report`)* PDF written to `C:\Customers\Contoso\reports\estate-report.pdf` — executive summary, complexity & pattern composition, 4-wave plan, cost breakdown, per-package detail, and a parse-failures section (empty).
+
+> **You:** For Wave 1, propose designs for each of the 8 packages and save the plans under `C:\Customers\Contoso\plans\`.
+
+> **Copilot:** *(calls `propose_adf_design` then `save_migration_plan` for each)* Plans saved. Common recommendations across the wave: drop SMB atomic-write file system tasks, fold trivial Data Flows into Copy Activities, use Managed Identity for all SQL connections, target eastus2 ADLS Gen2 storage. One package also flagged a Send Mail task for replacement with a Logic App.
+
+> **You:** Set the auth mode to ManagedIdentity across all 8 plans (it's already the default but make it explicit) and set the region to eastus2.
+
+> **Copilot:** *(calls `edit_migration_plan` for each)* Done. All 8 plans now have `set_auth_mode=ManagedIdentity` and `set_region=eastus2` recorded explicitly.
+
+> **You:** Provision the shared infrastructure using one of the plans as the spec — call it `adf-contoso-prod` in `rg-contoso-data`, location eastus2, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`. Dry run first.
+
+> **Copilot:** *(calls `provision_adf_environment` with `dry_run=true`)* Bicep validated. Would create: Data Factory `adf-contoso-prod` (system MI), Storage Account `stcontosoprod{hash}` (ADLS Gen2), Key Vault `kv-contoso-prod`, plus 3 RBAC assignments granting the factory's MI: Storage Blob Data Contributor on the storage account, Key Vault Secrets User on the vault.
+
+> **You:** Looks right. Provision for real.
+
+> **Copilot:** *(re-runs without dry_run)* Provisioned in 73 seconds. Outputs returned.
+
+> **You:** Now convert the entire Wave 1 estate using the saved plans. Output to `C:\Customers\Contoso\adf\`.
+
+> **Copilot:** *(calls `convert_estate` with the plans path)* Converted 8 packages, 8 succeeded / 0 failed. Each lives in its own subdirectory with pipeline + linked services + datasets + (where applicable) data flow + trigger + stubs.
+
+> **You:** Deploy `LoadFactSales` and run a smoke test.
+
+> **Copilot:** *(calls `deploy_to_adf` then `smoke_test_pipeline`)* Deployed 7 artifacts. Pipeline run `run-9b3f` completed in **42s**, status **Succeeded**. Per-activity: `Lookup_Cfg` 2s, `Copy_Sales` 28s, `SetVar_RowCount` 1s — all green.
 
 ---
 
@@ -109,6 +176,118 @@ This conversation takes a single SSIS package from analysis through deployment.
 ---
 
 ## Per-Feature Guides
+
+### Triage an Estate
+
+Walk a directory of `.dtsx` files and produce an estate-level summary.
+
+> Triage every SSIS package under `C:\Customers\Contoso\Project` and write the report to `C:\Customers\Contoso\reports\triage.json`.
+
+The report includes per-package complexity score, target pattern, recommended simplifications, manual-required count, and a roll-up by complexity bucket and target pattern (with total estimated hours).
+
+---
+
+### Propose a Migration Plan
+
+Generate a recommended `MigrationPlan` for one package.
+
+> Propose an ADF design for `C:\Customers\Contoso\Project\LoadFactSales.dtsx` and save the plan to `C:\Customers\Contoso\plans\LoadFactSales.plan.json`.
+
+The plan covers: target pattern, simplifications (with confidence scores), recommended linked services (Managed Identity by default), Azure infrastructure to provision, RBAC assignments, risks, and effort estimate.
+
+---
+
+### Edit a Plan
+
+Apply structured mutations rather than hand-editing the JSON.
+
+**Switch all linked services to Managed Identity:**
+> Edit the plan at `C:\plans\LoadFactSales.plan.json` and set the auth mode to ManagedIdentity.
+
+**Change the target region:**
+> Edit `C:\plans\LoadFactSales.plan.json` and set the region to eastus2.
+
+**Drop a recommended simplification you disagree with:**
+> Edit `C:\plans\LoadFactSales.plan.json` and drop the fold_to_stored_proc simplification.
+
+**Record a customer decision:**
+> Edit `C:\plans\LoadFactSales.plan.json` and add a customer_decision noting that approver is jane@contoso.com.
+
+Unknown edit keys are rejected so typos surface immediately.
+
+---
+
+### Plan Migration Waves
+
+Group an estate into ordered delivery waves.
+
+> Plan migration waves from `C:\Customers\Contoso\reports\triage.json`, max 8 packages per wave, and write the wave plan to `C:\Customers\Contoso\reports\waves.json`.
+
+Bulk-convertible packages (low/medium complexity) come first, grouped by target pattern so reviewers share context. Design-review packages (high/very_high) follow, hardest-first within each pattern. Parse failures land in a final `triage` wave.
+
+---
+
+### Estimate ADF Costs
+
+Project monthly Azure spend for the proposed estate.
+
+**Default assumptions (1 run/day, 6 activities, 4 DIU, 5 min copy, 100 GB):**
+> Estimate ADF costs for the estate report at `C:\Customers\Contoso\reports\triage.json`.
+
+**Override the runtime profile:**
+> Estimate ADF costs for `C:\Customers\Contoso\reports\triage.json` with 4 runs per day, 12 activities per run, 8 copy DIU, 10 minutes per copy, and 500 GB of storage.
+
+The output breaks costs out by orchestration / Copy DIU / Mapping Data Flow / storage / Key Vault, with monthly and annual totals.
+
+---
+
+### Build the Estate Report PDF
+
+Combine triage + waves + costs into one stakeholder PDF.
+
+> Build the estate report PDF for customer Contoso. Use triage at `C:\Customers\Contoso\reports\triage.json`, waves at `C:\Customers\Contoso\reports\waves.json`, costs at `C:\Customers\Contoso\reports\costs.json`. Output to `C:\Customers\Contoso\reports\estate-report.pdf`.
+
+The PDF includes an executive summary, complexity & pattern composition, the wave plan, projected monthly cost, and per-package detail.
+
+---
+
+### Convert an Estate
+
+Run propose + convert across an entire directory in one shot.
+
+> Convert every SSIS package under `C:\Customers\Contoso\Project` to `C:\Customers\Contoso\adf\`. Save the migration plans alongside.
+
+Each package gets its own subdirectory containing the saved `migration_plan.json`, the generated ADF artifacts, and Function stubs (if applicable). The summary reports per-package status so failures can be triaged immediately.
+
+---
+
+### Provision ADF Infrastructure
+
+Generate Bicep from a plan and deploy ADF + Storage + Key Vault + RBAC.
+
+**Dry run first (validates the deployment without applying):**
+> Do a dry run provision of the ADF environment from plan `C:\plans\LoadFactSales.plan.json` into resource group `rg-contoso-data`, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`. Save the Bicep template to `C:\Customers\Contoso\bicep\main.bicep`.
+
+**Live provisioning:**
+> Provision the ADF environment from plan `C:\plans\LoadFactSales.plan.json` into resource group `rg-contoso-data`, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`.
+
+The Data Factory is created with a system-assigned managed identity. Storage Accounts default to ADLS Gen2 (HNS enabled). Key Vault is created with RBAC authorisation. RBAC assignments declared in the plan (e.g. Storage Blob Data Contributor for the factory MI) are applied automatically.
+
+---
+
+### Smoke-Test a Pipeline
+
+Trigger one ADF pipeline run, poll until terminal, and return per-activity results.
+
+**Default 10-minute timeout:**
+> Smoke-test pipeline `PL_LoadFactSales` in factory `adf-contoso-prod`, resource group `rg-contoso-data`, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`.
+
+**With pipeline parameters and a longer timeout:**
+> Smoke-test pipeline `PL_LoadFactSales` in factory `adf-contoso-prod` with parameters `runDate=2026-04-15` and `region=eastus2`. Use a 30-minute timeout. Resource group `rg-contoso-data`, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`.
+
+The result includes the run ID, terminal status, total duration, ADF-supplied error message (on failure), and per-activity rows with name / type / status / duration / error message.
+
+---
 
 ### Scan for Packages
 

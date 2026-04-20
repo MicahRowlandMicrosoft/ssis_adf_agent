@@ -1,16 +1,19 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes eight tools to GitHub Copilot (and any MCP-compatible client):
+Exposes eleven tools to GitHub Copilot (and any MCP-compatible client):
 
-1. scan_ssis_packages      — discover .dtsx files (local / git / sql server)
-2. analyze_ssis_package    — complexity + gap analysis of a single package
-3. convert_ssis_package    — full conversion of a package to ADF JSON artifacts
-4. validate_adf_artifacts  — structural validation of generated artifacts
-5. deploy_to_adf           — deploy artifacts to Azure Data Factory
-6. consolidate_packages    — merge similar packages into parameterized pipelines
-7. deploy_function_stubs   — zip-deploy Azure Function stubs to an existing Function App
-8. provision_function_app  — create Azure resources (Storage, App Insights, Function App)
+1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
+2. analyze_ssis_package       — complexity + gap analysis of a single package
+3. convert_ssis_package       — full conversion of a package to ADF JSON artifacts
+4. validate_adf_artifacts     — structural validation of generated artifacts
+5. deploy_to_adf              — deploy artifacts to Azure Data Factory
+6. consolidate_packages       — merge similar packages into parameterized pipelines
+7. deploy_function_stubs      — zip-deploy Azure Function stubs to an existing Function App
+8. provision_function_app     — create Azure resources (Storage, App Insights, Function App)
+9. explain_ssis_package       — prose + Mermaid documentation of a source SSIS package
+10. explain_adf_artifacts     — prose + Mermaid documentation of generated ADF artifacts
+11. validate_conversion_parity — SSIS↔ADF parity check + optional pre-migration PDF report
 
 Run as an MCP stdio server::
 
@@ -429,6 +432,114 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["function_app_name", "subscription_id", "resource_group", "location"],
             },
         ),
+        types.Tool(
+            name="explain_ssis_package",
+            description=(
+                "Produce a structured explanation of an SSIS package: what it does, the systems "
+                "involved (databases, file shares, services), step-by-step execution order, and "
+                "Mermaid diagrams of the control flow and each Data Flow Task. Returns both a JSON "
+                "outline (for an LLM to elaborate on) and a deterministic Markdown rendering."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_path": {
+                        "type": "string",
+                        "description": "Absolute path to the .dtsx file.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["markdown", "json", "both"],
+                        "description": "Output format. Default 'both'.",
+                        "default": "both",
+                    },
+                },
+                "required": ["package_path"],
+            },
+        ),
+        types.Tool(
+            name="explain_adf_artifacts",
+            description=(
+                "Produce a structured explanation of generated ADF artifacts: pipeline activities, "
+                "linked services, datasets, mapping data flows, triggers, and Azure Function stubs. "
+                "Includes Mermaid activity-graph diagrams. Reads the directory produced by "
+                "convert_ssis_package."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "output_dir": {
+                        "type": "string",
+                        "description": (
+                            "Directory containing generated ADF JSON artifacts "
+                            "(with pipeline/, linkedService/, dataset/, dataflow/, trigger/ subfolders)."
+                        ),
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["markdown", "json", "both"],
+                        "description": "Output format. Default 'both'.",
+                        "default": "both",
+                    },
+                },
+                "required": ["output_dir"],
+            },
+        ),
+        types.Tool(
+            name="validate_conversion_parity",
+            description=(
+                "Pre-deployment validation: compare an SSIS source package to its converted ADF "
+                "artifacts and verify they preserve the same logic. Reports task coverage, linked "
+                "service mapping, parameter coverage, Script Task stub generation, and event-handler "
+                "considerations. Optionally performs an SDK dry-run (deserialize each artifact via "
+                "azure-mgmt-datafactory) and a target-factory reachability check. Can also produce "
+                "a pre-migration PDF report."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_path": {
+                        "type": "string",
+                        "description": "Absolute path to the source .dtsx file.",
+                    },
+                    "output_dir": {
+                        "type": "string",
+                        "description": "Directory containing the generated ADF JSON artifacts.",
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, additionally deserialize each ADF artifact via the SDK to "
+                            "catch schema errors. Default true."
+                        ),
+                        "default": True,
+                    },
+                    "subscription_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional. If supplied with resource_group + factory_name, also "
+                            "confirm factory reachability."
+                        ),
+                    },
+                    "resource_group": {
+                        "type": "string",
+                        "description": "Optional. Used with subscription_id + factory_name.",
+                    },
+                    "factory_name": {
+                        "type": "string",
+                        "description": "Optional. Used with subscription_id + resource_group.",
+                    },
+                    "pdf_report_path": {
+                        "type": "string",
+                        "description": (
+                            "Optional. If supplied, write a pre-migration PDF report to this path. "
+                            "Requires reportlab to be installed."
+                        ),
+                    },
+                },
+                "required": ["package_path", "output_dir"],
+            },
+        ),
     ]
 
 
@@ -455,6 +566,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _deploy_stubs(arguments)
         elif name == "provision_function_app":
             return await _provision_func_app(arguments)
+        elif name == "explain_ssis_package":
+            return await _explain_ssis(arguments)
+        elif name == "explain_adf_artifacts":
+            return await _explain_adf(arguments)
+        elif name == "validate_conversion_parity":
+            return await _validate_parity(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -975,6 +1092,113 @@ async def _consolidate(args: dict[str, Any]) -> list[types.TextContent]:
         report["conversion_warnings"] = [w.model_dump() for w in wc.warnings]
 
     return [types.TextContent(type="text", text=json.dumps(report, indent=2))]
+
+
+# ---------------------------------------------------------------------------
+# Documentation + parity tools
+# ---------------------------------------------------------------------------
+
+async def _explain_ssis(args: dict[str, Any]) -> list[types.TextContent]:
+    from .documentation import build_ssis_outline, render_ssis_markdown
+    from .parsers.readers.local_reader import LocalReader
+
+    path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
+    fmt = args.get("format", "both")
+
+    with WarningsCollector() as wc:
+        package = LocalReader().read(path)
+        outline = build_ssis_outline(package)
+        outline["conversion_warnings"] = [w.model_dump() for w in wc.warnings]
+
+    if fmt == "json":
+        return [types.TextContent(type="text", text=json.dumps(outline, indent=2, default=str))]
+
+    markdown = render_ssis_markdown(outline)
+    if fmt == "markdown":
+        return [types.TextContent(type="text", text=markdown)]
+
+    # both
+    return [
+        types.TextContent(type="text", text=markdown),
+        types.TextContent(type="text", text=json.dumps(outline, indent=2, default=str)),
+    ]
+
+
+async def _explain_adf(args: dict[str, Any]) -> list[types.TextContent]:
+    from .documentation import build_adf_outline, render_adf_markdown
+
+    output_dir = _safe_resolve(args["output_dir"], must_exist=True, label="output_dir")
+    fmt = args.get("format", "both")
+
+    outline = build_adf_outline(output_dir)
+
+    if fmt == "json":
+        return [types.TextContent(type="text", text=json.dumps(outline, indent=2, default=str))]
+
+    markdown = render_adf_markdown(outline)
+    if fmt == "markdown":
+        return [types.TextContent(type="text", text=markdown)]
+
+    return [
+        types.TextContent(type="text", text=markdown),
+        types.TextContent(type="text", text=json.dumps(outline, indent=2, default=str)),
+    ]
+
+
+async def _validate_parity(args: dict[str, Any]) -> list[types.TextContent]:
+    from .documentation import build_pre_migration_pdf, validate_parity
+    from .documentation.adf_explainer import build_adf_outline
+    from .documentation.parity_validator import render_parity_markdown
+    from .documentation.ssis_explainer import build_ssis_outline
+    from .parsers.readers.local_reader import LocalReader
+
+    package_path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
+    output_dir = _safe_resolve(args["output_dir"], must_exist=True, label="output_dir")
+
+    with WarningsCollector() as wc:
+        package = LocalReader().read(package_path)
+
+        result = validate_parity(
+            package,
+            output_dir,
+            dry_run=args.get("dry_run", True),
+            subscription_id=args.get("subscription_id"),
+            resource_group=args.get("resource_group"),
+            factory_name=args.get("factory_name"),
+        )
+
+        result_dict = result.to_dict()
+        result_dict["conversion_warnings"] = [w.model_dump() for w in wc.warnings]
+
+        markdown = render_parity_markdown(result)
+
+        # Optional PDF
+        pdf_path_arg = args.get("pdf_report_path")
+        if pdf_path_arg:
+            pdf_path = _safe_resolve(pdf_path_arg, label="pdf_report_path")
+            ssis_outline = build_ssis_outline(package)
+            adf_outline = build_adf_outline(output_dir)
+            factory_target = None
+            if args.get("factory_name"):
+                factory_target = {
+                    "Subscription": str(args.get("subscription_id", "")),
+                    "Resource group": str(args.get("resource_group", "")),
+                    "Factory": str(args.get("factory_name", "")),
+                }
+            written = build_pre_migration_pdf(
+                output_pdf=pdf_path,
+                ssis_outline=ssis_outline,
+                adf_outline=adf_outline,
+                parity=result_dict,
+                factory_target=factory_target,
+            )
+            result_dict["pdf_report_path"] = written
+            markdown += f"\n\n_Pre-migration PDF written to:_ `{written}`"
+
+    return [
+        types.TextContent(type="text", text=markdown),
+        types.TextContent(type="text", text=json.dumps(result_dict, indent=2, default=str)),
+    ]
 
 
 # ---------------------------------------------------------------------------

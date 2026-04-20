@@ -36,6 +36,9 @@ dev = [
 llm = [
     "openai>=1.30.0",
 ]
+pdf = [
+    "reportlab>=4.0.0",
+]
 
 [project.scripts]
 ssis-adf-agent = "ssis_adf_agent.mcp_server:main"

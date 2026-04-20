@@ -202,7 +202,7 @@ Test manually:
 # Seed dbo.activity
 # ---------------------------------------------------------------------------
 Write-Host "`nSeeding dbo.activity ..." -ForegroundColor Yellow
-sqlcmd -S $sqlServerFqdn -d $sqlDatabaseName -G -l 30 -b -i (Join-Path $here 'seed_activity.sql')
+sqlcmd -S $sqlServerFqdn -d $sqlDatabaseName -G -b -i (Join-Path $here 'seed_activity.sql')
 if ($LASTEXITCODE -ne 0) { throw "sqlcmd (seed_activity.sql) failed." }
 
 # ---------------------------------------------------------------------------

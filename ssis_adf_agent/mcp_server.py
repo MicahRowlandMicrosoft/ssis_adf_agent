@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes eleven tools to GitHub Copilot (and any MCP-compatible client):
+Exposes fourteen tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -14,6 +14,9 @@ Exposes eleven tools to GitHub Copilot (and any MCP-compatible client):
 9. explain_ssis_package       — prose + Mermaid documentation of a source SSIS package
 10. explain_adf_artifacts     — prose + Mermaid documentation of generated ADF artifacts
 11. validate_conversion_parity — SSIS↔ADF parity check + optional pre-migration PDF report
+12. propose_adf_design        — recommend a best-practice target ADF design (MigrationPlan)
+13. save_migration_plan       — persist a (possibly customer-edited) MigrationPlan to disk
+14. load_migration_plan       — load a MigrationPlan from disk for downstream tools
 
 Run as an MCP stdio server::
 
@@ -221,6 +224,16 @@ async def list_tools() -> list[types.Tool]:
                             "Optional path to a JSON file mapping local/UNC path prefixes to Azure Storage URLs. "
                             "Format: {\"C:\\\\Data\\\\Input\": \"https://mystorage.blob.core.windows.net/input\"}. "
                             "Applies to linked services, pipeline activities, and datasets."
+                        ),
+                    },
+                    "design_path": {
+                        "type": "string",
+                        "description": (
+                            "Optional path to a MigrationPlan JSON file (output of propose_adf_design, "
+                            "possibly customer-edited). When supplied, the converter applies the plan's "
+                            "simplifications before generating ADF artifacts \u2014 e.g. dropping listed "
+                            "FileSystemTasks and rewiring precedence constraints to preserve order. "
+                            "Non-DROP simplifications are recorded in the response as deferred TODOs."
                         ),
                     },
                 },
@@ -540,6 +553,75 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["package_path", "output_dir"],
             },
         ),
+        types.Tool(
+            name="propose_adf_design",
+            description=(
+                "SSIS Migration Copilot: analyze an SSIS package and recommend a best-practice "
+                "target ADF design (a MigrationPlan). The plan describes the target pattern, "
+                "recommended simplifications (e.g. drop SMB atomic-write FileSystemTasks when the "
+                "sink is Blob/ADLS, fold trivial Mapping Data Flows into Copy Activities), "
+                "linked-service auth recommendations (managed identity by default), Azure "
+                "infrastructure to provision, RBAC assignments, risks, and an effort estimate. "
+                "The agent should review the plan with the customer, edit it, persist it via "
+                "save_migration_plan, then pass it to convert_ssis_package and "
+                "provision_adf_environment."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_path": {
+                        "type": "string",
+                        "description": "Absolute path to the .dtsx file to analyze.",
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": (
+                            "Optional. If supplied, also save the proposed plan as JSON to this "
+                            "path. Equivalent to calling propose_adf_design then save_migration_plan."
+                        ),
+                    },
+                },
+                "required": ["package_path"],
+            },
+        ),
+        types.Tool(
+            name="save_migration_plan",
+            description=(
+                "Persist a MigrationPlan (typically the output of propose_adf_design, possibly "
+                "edited by the agent/customer) to a JSON file. Returns the resolved path."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "plan": {
+                        "type": "object",
+                        "description": "The MigrationPlan as a JSON object.",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to write the plan JSON to.",
+                    },
+                },
+                "required": ["plan", "path"],
+            },
+        ),
+        types.Tool(
+            name="load_migration_plan",
+            description=(
+                "Load a MigrationPlan from a JSON file on disk. Validates schema_version. "
+                "Returns the plan as a JSON object plus a Markdown rendering for human review."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path to the plan JSON file.",
+                    },
+                },
+                "required": ["path"],
+            },
+        ),
     ]
 
 
@@ -572,6 +654,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _explain_adf(arguments)
         elif name == "validate_conversion_parity":
             return await _validate_parity(arguments)
+        elif name == "propose_adf_design":
+            return await _propose_design(arguments)
+        elif name == "save_migration_plan":
+            return await _save_plan(arguments)
+        elif name == "load_migration_plan":
+            return await _load_plan(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -775,6 +863,15 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         reader = LocalReader()
         package = reader.read(path)
 
+        # Apply migration plan, if supplied
+        plan_application = None
+        design_path = args.get("design_path")
+        if design_path:
+            from .migration_plan import apply_plan, load_plan
+            safe_design = _safe_resolve(design_path, must_exist=True, label="design_path")
+            plan = load_plan(safe_design)
+            package, plan_application = apply_plan(package, plan)
+
         stubs_dir = output_dir / "stubs"
 
         # Run gap analysis for manual-work checklist
@@ -901,6 +998,8 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
                 "stubs": [str(f) for f in stub_files],
             },
         }
+        if plan_application is not None:
+            summary["migration_plan_applied"] = plan_application.model_dump()
 
     return [types.TextContent(type="text", text=json.dumps(summary, indent=2))]
 
@@ -1199,6 +1298,56 @@ async def _validate_parity(args: dict[str, Any]) -> list[types.TextContent]:
         types.TextContent(type="text", text=markdown),
         types.TextContent(type="text", text=json.dumps(result_dict, indent=2, default=str)),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Tool: propose_adf_design / save_migration_plan / load_migration_plan
+# ---------------------------------------------------------------------------
+
+async def _propose_design(args: dict[str, Any]) -> list[types.TextContent]:
+    from .migration_plan import propose_design, save_plan
+    from .parsers.readers.local_reader import LocalReader
+
+    path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
+    package = LocalReader().read(path)
+    plan = propose_design(package)
+
+    saved_to: str | None = None
+    if args.get("output_path"):
+        out = _safe_resolve(args["output_path"], label="output_path")
+        save_plan(plan, out)
+        saved_to = str(out)
+
+    payload: dict[str, Any] = {
+        "plan": plan.model_dump(mode="json"),
+        "markdown": plan.render_markdown(),
+    }
+    if saved_to:
+        payload["saved_to"] = saved_to
+    return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
+
+
+async def _save_plan(args: dict[str, Any]) -> list[types.TextContent]:
+    from .migration_plan import MigrationPlan, save_plan
+
+    plan = MigrationPlan.model_validate(args["plan"])
+    out = _safe_resolve(args["path"], label="path")
+    saved = save_plan(plan, out)
+    return [types.TextContent(
+        type="text",
+        text=json.dumps({"saved_to": str(saved), "package_name": plan.package_name}),
+    )]
+
+
+async def _load_plan(args: dict[str, Any]) -> list[types.TextContent]:
+    from .migration_plan import load_plan
+
+    p = _safe_resolve(args["path"], must_exist=True, label="path")
+    plan = load_plan(p)
+    return [types.TextContent(type="text", text=json.dumps({
+        "plan": plan.model_dump(mode="json"),
+        "markdown": plan.render_markdown(),
+    }, indent=2, default=str))]
 
 
 # ---------------------------------------------------------------------------

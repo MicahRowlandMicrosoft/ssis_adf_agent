@@ -193,6 +193,183 @@ def _fold_simple_dataflow_simplification(package: SSISPackage, pattern: TargetPa
     )
 
 
+# Keywords used by _fold_to_stored_proc_simplification below
+_TRUNCATE_KEYWORDS = ("TRUNCATE TABLE", "DELETE FROM")
+_MERGE_KEYWORDS = ("MERGE ", "INSERT INTO", "UPDATE ")
+
+
+def _fold_to_stored_proc_simplification(
+    package: SSISPackage, pattern: TargetPattern
+) -> Simplification | None:
+    """Detect a chain of ExecuteSQL tasks against the same connection that look like a
+    classic stage-then-merge pattern (TRUNCATE staging → INSERT/MERGE → optional audit).
+
+    Recommend collapsing them into a single stored procedure call so the work
+    runs in one transaction instead of three orchestrated activities.
+    """
+    sql_tasks = [t for t in _walk(package.tasks) if isinstance(t, ExecuteSQLTask)]
+    if len(sql_tasks) < 2:
+        return None
+
+    # Group tasks by connection_id; we only fold within a single target.
+    by_conn: dict[str | None, list[ExecuteSQLTask]] = {}
+    for t in sql_tasks:
+        by_conn.setdefault(t.connection_id, []).append(t)
+
+    candidates: list[str] = []
+    for tasks in by_conn.values():
+        if len(tasks) < 2:
+            continue
+        # Skip lookup-style queries (Single-row / FullResultSet) — those drive
+        # downstream control flow and shouldn't be silently folded.
+        write_tasks = [t for t in tasks if t.result_set_type in ("None", "")]
+        if len(write_tasks) < 2:
+            continue
+        statements = [(t.sql_statement or "").upper() for t in write_tasks]
+        has_truncate = any(any(k in s for k in _TRUNCATE_KEYWORDS) for s in statements)
+        has_merge_or_insert = any(any(k in s for k in _MERGE_KEYWORDS) for s in statements)
+        if has_truncate and has_merge_or_insert:
+            candidates.extend(t.name for t in write_tasks)
+
+    if not candidates:
+        return None
+    return Simplification(
+        action=SimplificationAction.FOLD_TO_STORED_PROC,
+        items=candidates,
+        reason=(
+            "These ExecuteSQL tasks share a connection and look like a stage-then-merge "
+            "pattern (TRUNCATE/DELETE followed by INSERT/MERGE/UPDATE). Wrapping them in "
+            "a single stored procedure runs the work in one transaction, eliminates "
+            "intermediate-state visibility, and replaces multiple activity hops in ADF "
+            "with one Stored Procedure activity."
+        ),
+        confidence=0.7,
+    )
+
+
+def _fold_lookup_dataflow_simplification(
+    package: SSISPackage, pattern: TargetPattern
+) -> Simplification | None:
+    """Fold a Data Flow whose only transform is a Lookup against a same-server table
+    into a Copy Activity using a JOIN in the source query.
+
+    SSIS Lookup transforms are expensive (cache the lookup table in memory).
+    When the lookup table lives on the same SQL server as the source, the join
+    can be pushed down to SQL and executed as part of the source SELECT.
+    """
+    if pattern not in (
+        TargetPattern.SCHEDULED_FILE_DROP,
+        TargetPattern.INGEST_FILE_TO_SQL,
+        TargetPattern.SQL_TO_SQL_COPY,
+    ):
+        return None
+    folds: list[str] = []
+    for t in _walk(package.tasks):
+        if not isinstance(t, DataFlowTask):
+            continue
+        comps = t.components or []
+        sources = [c for c in comps if "Source" in c.component_type]
+        sinks = [c for c in comps if "Destination" in c.component_type]
+        lookups = [c for c in comps if c.component_type == "Lookup"]
+        other = [
+            c for c in comps
+            if c not in sources and c not in sinks and c not in lookups
+            and c.component_type not in {"DerivedColumn", "DataConversion", "RowCount"}
+        ]
+        if (
+            len(sources) == 1
+            and len(sinks) == 1
+            and 1 <= len(lookups) <= 2
+            and not other
+        ):
+            folds.append(t.name)
+    if not folds:
+        return None
+    return Simplification(
+        action=SimplificationAction.FOLD_TO_COPY_ACTIVITY,
+        items=folds,
+        reason=(
+            "Data flow's only non-trivial transforms are Lookups. If the lookup tables live "
+            "on the same SQL server as the source, push the joins into the source SELECT and "
+            "use a Copy Activity. Eliminates the in-memory cache cost and the Mapping Data "
+            "Flow cluster."
+        ),
+        confidence=0.6,
+    )
+
+
+def _drop_audit_only_tasks_simplification(
+    package: SSISPackage, pattern: TargetPattern
+) -> Simplification | None:
+    """Drop ExecuteSQL tasks whose statement is purely audit logging (INSERT into a
+    log/audit table that the rest of the pipeline does not depend on).
+
+    ADF Copy and pipeline runs already have built-in monitoring / lineage via
+    Activity Runs and Pipeline Runs. Customer-built audit tables are usually
+    a vestige of SSIS's lack of built-in observability and can be replaced by
+    Azure Monitor + Log Analytics queries.
+    """
+    audit_keywords = ("AUDIT", "LOG", "ETL_LOG", "EXECUTION_LOG")
+    drops: list[str] = []
+    for t in _walk(package.tasks):
+        if not isinstance(t, ExecuteSQLTask):
+            continue
+        stmt = (t.sql_statement or "").upper()
+        if not stmt.startswith(("INSERT", "UPDATE")):
+            continue
+        # Tight match: statement targets a table whose name contains an audit keyword.
+        if any(kw in stmt for kw in audit_keywords):
+            # Skip if downstream tasks read from this connection with FullResultSet —
+            # heuristic: presence of a FullResultSet ExecuteSQL on same connection.
+            siblings = [
+                s for s in _walk(package.tasks)
+                if isinstance(s, ExecuteSQLTask)
+                and s.connection_id == t.connection_id
+                and s.result_set_type in ("FullResultSet", "SingleRow")
+            ]
+            if siblings:
+                continue
+            drops.append(t.name)
+    if not drops:
+        return None
+    return Simplification(
+        action=SimplificationAction.DROP,
+        items=drops,
+        reason=(
+            "These tasks write to audit/log tables only. ADF provides activity-level "
+            "monitoring, run history, and lineage natively via Pipeline Runs and Azure "
+            "Monitor — the custom audit table is usually redundant. Verify with the customer "
+            "before dropping if the audit table is read by external dashboards."
+        ),
+        confidence=0.55,
+    )
+
+
+def _send_mail_to_function_simplification(
+    package: SSISPackage, pattern: TargetPattern
+) -> Simplification | None:
+    """SSIS Send Mail Task has no native ADF equivalent. Recommend replacing each one
+    with a Web Activity calling either a Logic App (preferred — no code) or an Azure
+    Function (when the email body needs templating)."""
+    mail_tasks = [
+        t for t in _walk(package.tasks) if t.task_type == TaskType.SEND_MAIL
+    ]
+    if not mail_tasks:
+        return None
+    return Simplification(
+        action=SimplificationAction.REPLACE_WITH_FUNCTION,
+        items=[t.name for t in mail_tasks],
+        reason=(
+            "ADF has no native Send Mail activity. Replace each with a Web Activity "
+            "POSTing to either (a) a Logic App with the 'When an HTTP request is received' "
+            "trigger and a Send Email action — recommended, no code; or (b) an Azure "
+            "Function if the body needs templating. Logic Apps integrate with Office 365 / "
+            "Outlook out of the box and respect organisational mail compliance settings."
+        ),
+        confidence=0.95,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Linked-service & infrastructure recommendations
 # ---------------------------------------------------------------------------
@@ -369,7 +546,14 @@ def propose_design(package: SSISPackage) -> MigrationPlan:
     pattern = detect_target_pattern(package)
 
     simplifications: list[Simplification] = []
-    for builder in (_atomic_write_simplification, _fold_simple_dataflow_simplification):
+    for builder in (
+        _atomic_write_simplification,
+        _fold_simple_dataflow_simplification,
+        _fold_lookup_dataflow_simplification,
+        _fold_to_stored_proc_simplification,
+        _drop_audit_only_tasks_simplification,
+        _send_mail_to_function_simplification,
+    ):
         s = builder(package, pattern)
         if s is not None:
             simplifications.append(s)

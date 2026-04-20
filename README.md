@@ -170,7 +170,7 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
    - `convert_estate` — propose + convert every package in one shot
    - `plan_migration_waves` — group an estate into ordered delivery waves
    - `estimate_adf_costs` — monthly USD projection for the proposed estate
-   - `build_estate_report` — customer-facing PDF combining triage + waves + costs
+   - `build_estate_report` — stakeholder PDF combining triage + waves + costs
    - `smoke_test_pipeline` — trigger one ADF pipeline run + return per-activity results
 
 ---
@@ -200,10 +200,10 @@ The `samples/` directory is intended as a convenient drop zone for `.dtsx` files
 
 ## Migration Copilot Workflow (recommended)
 
-The Migration Copilot tools wrap the per-package backbone into an estate-scale, agent-driven flow. Use this when a customer hands you a folder of SSIS packages and you need to produce a credible plan and deliver it incrementally.
+The Migration Copilot tools wrap the per-package backbone into an estate-scale, agent-driven flow. Use this when you have a folder of SSIS packages and need to produce a credible plan and deliver it incrementally.
 
 ```
-  Customer's SSIS project
+  Your SSIS project
           │
           ▼
   bulk_analyze ............... Walk all .dtsx, score, classify, roll up effort
@@ -218,8 +218,8 @@ The Migration Copilot tools wrap the per-package backbone into an estate-scale, 
      propose_adf_design ...... Recommended MigrationPlan (target pattern,
                                simplifications, linked services, infra,
                                RBAC, risks, effort)
-     edit_migration_plan ..... Customer/agent refinements (auth mode,
-                               region, drop a fold)
+     edit_migration_plan ..... Refinements (auth mode, region,
+                               drop a fold)
      save_migration_plan
           │
           ▼
@@ -255,6 +255,16 @@ The rule-based proposer is opinionated but conservative. It emits a `MigrationPl
 - **Risks** with severity and mitigation.
 - **Effort estimate** in hours, bucketed (low / medium / high / very_high).
 
+### `Project.params`-aware Key Vault recommendations
+
+When a sibling `Project.params` file exists next to a `.dtsx`, its parameters are auto-loaded onto the package. The proposer scans for **Sensitive** parameters whose names look like credentials (`password`, `secret`, `token`, `apikey`, `connectionstring`, `clientsecret`, etc.) and:
+
+- Emits an `AzureKeyVaultSecret` linked service per credential (e.g. `LS_KV_DbPassword` with `secret_name=ssis-dbpassword`).
+- Forces a `Microsoft.KeyVault/vaults` entry into `infrastructure_needed`.
+- Adds a `Key Vault Secrets User` RBAC assignment for `<ADF MI>` on each KV linked service.
+
+No flag required — the proposer just consumes whatever `Project.params` provides.
+
 ### Editing the plan with `edit_migration_plan`
 
 Rather than hand-editing the JSON, apply structured mutations:
@@ -264,7 +274,7 @@ Rather than hand-editing the JSON, apply structured mutations:
   "set_auth_mode": "ManagedIdentity",
   "set_region": "eastus2",
   "set_target_pattern": "scheduled_file_drop",
-  "set_summary": "Customer-approved simplification",
+  "set_summary": "Approved simplification",
   "add_simplification": {
     "action": "drop",
     "items": ["Send Audit Email"],
@@ -282,6 +292,15 @@ Unknown keys are rejected so typos surface immediately.
 - `plan_migration_waves` reads a `bulk_analyze` report and produces ordered waves: bulk-convertible first (grouped by `target_pattern` so reviewers share context), then design-review waves capped at `max_packages_per_wave`. Parse failures land in a final `triage` wave.
 - `estimate_adf_costs` projects monthly USD across orchestration (activity runs), Copy DIU·hours, Mapping Data Flow v-cores, ADLS storage, and Key Vault ops. List-price US East defaults; override via the `rates` parameter.
 - `build_estate_report` rolls all of the above into a PDF deliverable for stakeholders.
+
+### Cross-package shared infrastructure detection
+
+`bulk_analyze` groups packages by their source directory and surfaces shared-infrastructure recommendations in `estate_summary.shared_infra_recommendations`:
+
+- **Single Key Vault per project** when 2+ packages share a `Project.params` file (instead of one KV per package).
+- **Single Self-Hosted Integration Runtime per project** when 2+ packages connect to the same on-prem SQL server.
+
+Each package row also gains `project_dir`, `has_project_params`, and `sensitive_project_params`. A top-level `projects` array provides per-project rollups (package count, shared sensitive params, shared on-prem SQL servers).
 
 ### Provisioning with Bicep
 

@@ -10,6 +10,12 @@ from __future__ import annotations
 
 from .applier import PlanApplication, apply_plan
 from .bicep_generator import generate_bicep
+from .estate_tools import (
+    PlanEditError,
+    edit_migration_plan,
+    estimate_adf_costs,
+    plan_migration_waves,
+)
 from .models import (
     PLAN_SCHEMA_VERSION,
     AuthMode,
@@ -39,6 +45,7 @@ __all__ = [
     "LinkedServiceSpec",
     "MigrationPlan",
     "PlanApplication",
+    "PlanEditError",
     "RbacAssignment",
     "Risk",
     "RiskSeverity",
@@ -49,8 +56,11 @@ __all__ = [
     "apply_plan",
     "deploy_bicep",
     "detect_target_pattern",
+    "edit_migration_plan",
+    "estimate_adf_costs",
     "generate_bicep",
     "load_plan",
+    "plan_migration_waves",
     "propose_design",
     "save_plan",
     "smoke_test_pipeline",

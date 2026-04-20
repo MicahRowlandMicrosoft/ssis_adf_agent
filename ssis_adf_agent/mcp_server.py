@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes seventeen tools to GitHub Copilot (and any MCP-compatible client):
+Exposes twenty-two tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -20,6 +20,11 @@ Exposes seventeen tools to GitHub Copilot (and any MCP-compatible client):
 15. provision_adf_environment — generate Bicep from plan + deploy to Azure (infra + RBAC)
 16. bulk_analyze              — estate-scale triage of a directory of SSIS packages
 17. smoke_test_pipeline       — trigger one ADF pipeline run, poll, return per-activity results
+18. convert_estate            — propose + convert every package in a directory in one shot
+19. edit_migration_plan       — structured mutations on a saved MigrationPlan
+20. plan_migration_waves      — group an estate report into ordered migration waves
+21. estimate_adf_costs        — coarse monthly USD cost projection for the proposed estate
+22. build_estate_report       — PDF deliverable combining triage + waves + costs
 
 Run as an MCP stdio server::
 
@@ -743,6 +748,123 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["subscription_id", "resource_group", "factory_name", "pipeline_name"],
             },
         ),
+        types.Tool(
+            name="convert_estate",
+            description=(
+                "Convert every .dtsx in a directory in one shot. For each package: propose a "
+                "MigrationPlan (saved alongside), then run convert_ssis_package using that plan, "
+                "writing artifacts to <output_dir>/<package_name>/. Returns a summary with per-"
+                "package status (succeeded / failed) so the agent can immediately follow up on "
+                "failures. Use after bulk_analyze to bulk-convert the low/medium tier."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_path": {"type": "string", "description": "Directory of .dtsx files."},
+                    "output_dir": {"type": "string", "description": "Root directory for converted artifacts."},
+                    "recursive": {"type": "boolean", "default": True},
+                    "save_plans": {
+                        "type": "boolean",
+                        "description": "If true (default), persist each MigrationPlan to <output>/<pkg>/migration_plan.json.",
+                        "default": True,
+                    },
+                    "generate_trigger": {"type": "boolean", "default": True},
+                },
+                "required": ["source_path", "output_dir"],
+            },
+        ),
+        types.Tool(
+            name="edit_migration_plan",
+            description=(
+                "Apply structured edits to a saved MigrationPlan and write the result back. "
+                "Supports: set_auth_mode, set_region, set_summary, set_target_pattern, "
+                "add_simplification, drop_simplification, set_customer_decision. Safer than "
+                "hand-editing the JSON because it validates enum values and preserves shape."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "plan_path": {"type": "string", "description": "Path to existing plan JSON."},
+                    "edits": {
+                        "type": "object",
+                        "description": "Mutation payload \u2014 see tool description for keys.",
+                        "additionalProperties": True,
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Optional. Where to write the edited plan. Defaults to overwriting plan_path.",
+                    },
+                },
+                "required": ["plan_path", "edits"],
+            },
+        ),
+        types.Tool(
+            name="plan_migration_waves",
+            description=(
+                "Group a bulk_analyze report into ordered migration waves. Wave 1 is bulk-"
+                "convertible packages grouped by target pattern; later waves cover design-review-"
+                "needed packages, hardest-first. Use to give the customer a sequenced delivery plan."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "estate_report_path": {
+                        "type": "string",
+                        "description": "Path to a JSON file produced by bulk_analyze (output_path).",
+                    },
+                    "max_packages_per_wave": {"type": "integer", "default": 10},
+                    "output_path": {
+                        "type": "string",
+                        "description": "Optional. Write the wave plan JSON to this path.",
+                    },
+                },
+                "required": ["estate_report_path"],
+            },
+        ),
+        types.Tool(
+            name="estimate_adf_costs",
+            description=(
+                "Coarse monthly USD cost projection for the proposed ADF estate. Inputs: "
+                "estate_report (from bulk_analyze) plus runtime assumptions (runs/day, copy DIU, "
+                "data flow v-cores, storage GB). Returns a per-line-item breakdown plus monthly "
+                "and annual totals. List-price US East defaults; override via the rates parameter."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "estate_report_path": {"type": "string", "description": "Path to bulk_analyze report JSON."},
+                    "runs_per_day": {"type": "integer", "default": 1},
+                    "avg_activities_per_run": {"type": "integer", "default": 6},
+                    "avg_copy_diu": {"type": "number", "default": 4.0},
+                    "avg_copy_minutes": {"type": "number", "default": 5.0},
+                    "avg_dataflow_minutes": {"type": "number", "default": 0.0},
+                    "avg_dataflow_vcores": {"type": "integer", "default": 8},
+                    "storage_gb": {"type": "number", "default": 100.0},
+                    "rates": {"type": "object", "additionalProperties": {"type": "number"}},
+                    "output_path": {"type": "string", "description": "Optional JSON output path."},
+                },
+                "required": ["estate_report_path"],
+            },
+        ),
+        types.Tool(
+            name="build_estate_report",
+            description=(
+                "Produce the customer-facing estate-level PDF: executive summary, complexity & "
+                "pattern breakdown, recommended migration waves, projected costs, per-package "
+                "detail. Pulls bulk_analyze + (optional) waves + (optional) cost JSONs from disk."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "estate_report_path": {"type": "string"},
+                    "waves_path": {"type": "string"},
+                    "cost_estimate_path": {"type": "string"},
+                    "output_pdf": {"type": "string", "description": "Path to write the PDF."},
+                    "customer_name": {"type": "string"},
+                },
+                "required": ["estate_report_path", "output_pdf"],
+            },
+        ),
     ]
 
 
@@ -787,6 +909,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _bulk_analyze(arguments)
         elif name == "smoke_test_pipeline":
             return await _smoke_test_pipeline(arguments)
+        elif name == "convert_estate":
+            return await _convert_estate(arguments)
+        elif name == "edit_migration_plan":
+            return await _edit_plan(arguments)
+        elif name == "plan_migration_waves":
+            return await _plan_waves(arguments)
+        elif name == "estimate_adf_costs":
+            return await _estimate_costs(arguments)
+        elif name == "build_estate_report":
+            return await _build_estate_pdf(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -1600,6 +1732,173 @@ async def _smoke_test_pipeline(args: dict[str, Any]) -> list[types.TextContent]:
         poll_interval_seconds=int(args.get("poll_interval_seconds", 10)),
     )
     return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+
+async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
+    from .migration_plan import propose_design, save_plan
+    from .parsers.readers.local_reader import LocalReader
+
+    source_path = _safe_resolve(args["source_path"], must_exist=True, label="source_path")
+    output_dir = _safe_resolve(args["output_dir"], label="output_dir")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    recursive = args.get("recursive", True)
+    save_plans = args.get("save_plans", True)
+    generate_trigger = args.get("generate_trigger", True)
+
+    if source_path.is_file():
+        files = [source_path] if source_path.suffix.lower() == ".dtsx" else []
+    else:
+        pattern = "**/*.dtsx" if recursive else "*.dtsx"
+        files = sorted(source_path.glob(pattern))
+
+    reader = LocalReader()
+    results: list[dict[str, Any]] = []
+    for f in files:
+        pkg_dir_name = f.stem.replace(" ", "_")
+        pkg_output = output_dir / pkg_dir_name
+        try:
+            pkg = reader.read(f)
+            plan = propose_design(pkg)
+            plan_path: Path | None = None
+            if save_plans:
+                pkg_output.mkdir(parents=True, exist_ok=True)
+                plan_path = pkg_output / "migration_plan.json"
+                save_plan(plan, plan_path)
+            convert_args: dict[str, Any] = {
+                "package_path": str(f),
+                "output_dir": str(pkg_output),
+                "generate_trigger": generate_trigger,
+            }
+            if plan_path is not None:
+                convert_args["design_path"] = str(plan_path)
+            convert_result = await _convert(convert_args)
+            # _convert returns the converted summary as TextContent JSON
+            convert_payload = json.loads(convert_result[0].text)
+            results.append({
+                "package_name": pkg.name,
+                "source_path": str(f),
+                "output_dir": str(pkg_output),
+                "plan_path": str(plan_path) if plan_path else None,
+                "status": "succeeded",
+                "convert_summary": {
+                    k: convert_payload.get(k)
+                    for k in ("pipeline", "linked_services", "datasets", "data_flows", "triggers", "stubs")
+                    if k in convert_payload
+                },
+            })
+        except Exception as exc:
+            logger.exception("convert_estate failed for %s", f)
+            results.append({
+                "package_name": f.stem,
+                "source_path": str(f),
+                "output_dir": str(pkg_output),
+                "status": "failed",
+                "error": str(exc),
+            })
+
+    succeeded = sum(1 for r in results if r["status"] == "succeeded")
+    summary = {
+        "scanned_path": str(source_path),
+        "output_dir": str(output_dir),
+        "package_count": len(results),
+        "succeeded_count": succeeded,
+        "failed_count": len(results) - succeeded,
+        "packages": results,
+    }
+    return [types.TextContent(type="text", text=json.dumps(summary, indent=2, default=str))]
+
+
+async def _edit_plan(args: dict[str, Any]) -> list[types.TextContent]:
+    from .migration_plan import edit_migration_plan, load_plan, save_plan
+
+    plan_path = _safe_resolve(args["plan_path"], must_exist=True, label="plan_path")
+    edits = args.get("edits") or {}
+    if not isinstance(edits, dict):
+        return [types.TextContent(type="text", text="Error: 'edits' must be an object")]
+
+    plan = load_plan(plan_path)
+    new_plan = edit_migration_plan(plan, edits)
+    output_path = _safe_resolve(args["output_path"], label="output_path") if args.get("output_path") else plan_path
+    save_plan(new_plan, output_path)
+    return [types.TextContent(type="text", text=json.dumps({
+        "plan_path": str(plan_path),
+        "saved_to": str(output_path),
+        "applied_edits": list(edits.keys()),
+        "plan": new_plan.model_dump(mode="json"),
+    }, indent=2, default=str))]
+
+
+async def _plan_waves(args: dict[str, Any]) -> list[types.TextContent]:
+    from .migration_plan import plan_migration_waves
+
+    report_path = _safe_resolve(args["estate_report_path"], must_exist=True, label="estate_report_path")
+    estate_report = json.loads(report_path.read_text(encoding="utf-8"))
+    waves = plan_migration_waves(
+        estate_report,
+        max_packages_per_wave=int(args.get("max_packages_per_wave", 10)),
+    )
+    if args.get("output_path"):
+        out = _safe_resolve(args["output_path"], label="output_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(waves, indent=2, default=str), encoding="utf-8")
+        waves["saved_to"] = str(out)
+    return [types.TextContent(type="text", text=json.dumps(waves, indent=2, default=str))]
+
+
+async def _estimate_costs(args: dict[str, Any]) -> list[types.TextContent]:
+    from .migration_plan import estimate_adf_costs
+
+    report_path = _safe_resolve(args["estate_report_path"], must_exist=True, label="estate_report_path")
+    estate_report = json.loads(report_path.read_text(encoding="utf-8"))
+    estimate = estimate_adf_costs(
+        estate_report=estate_report,
+        runs_per_day=int(args.get("runs_per_day", 1)),
+        avg_activities_per_run=int(args.get("avg_activities_per_run", 6)),
+        avg_copy_diu=float(args.get("avg_copy_diu", 4.0)),
+        avg_copy_minutes=float(args.get("avg_copy_minutes", 5.0)),
+        avg_dataflow_minutes=float(args.get("avg_dataflow_minutes", 0.0)),
+        avg_dataflow_vcores=int(args.get("avg_dataflow_vcores", 8)),
+        storage_gb=float(args.get("storage_gb", 100.0)),
+        rates=args.get("rates"),
+    )
+    if args.get("output_path"):
+        out = _safe_resolve(args["output_path"], label="output_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(estimate, indent=2, default=str), encoding="utf-8")
+        estimate["saved_to"] = str(out)
+    return [types.TextContent(type="text", text=json.dumps(estimate, indent=2, default=str))]
+
+
+async def _build_estate_pdf(args: dict[str, Any]) -> list[types.TextContent]:
+    from .documentation.estate_pdf_report import build_estate_report_pdf
+
+    report_path = _safe_resolve(args["estate_report_path"], must_exist=True, label="estate_report_path")
+    output_pdf = _safe_resolve(args["output_pdf"], label="output_pdf")
+    estate_report = json.loads(report_path.read_text(encoding="utf-8"))
+
+    waves = None
+    if args.get("waves_path"):
+        waves_path = _safe_resolve(args["waves_path"], must_exist=True, label="waves_path")
+        waves = json.loads(waves_path.read_text(encoding="utf-8"))
+
+    cost_estimate = None
+    if args.get("cost_estimate_path"):
+        cost_path = _safe_resolve(args["cost_estimate_path"], must_exist=True, label="cost_estimate_path")
+        cost_estimate = json.loads(cost_path.read_text(encoding="utf-8"))
+
+    pdf_path = build_estate_report_pdf(
+        output_pdf=output_pdf,
+        estate_report=estate_report,
+        waves=waves,
+        cost_estimate=cost_estimate,
+        customer_name=args.get("customer_name"),
+    )
+    return [types.TextContent(type="text", text=json.dumps({
+        "pdf_path": pdf_path,
+        "package_count": estate_report.get("package_count", 0),
+        "wave_count": (waves or {}).get("wave_count"),
+        "monthly_total_usd": (cost_estimate or {}).get("monthly_total_usd"),
+    }, indent=2, default=str))]
 
 
 # ---------------------------------------------------------------------------

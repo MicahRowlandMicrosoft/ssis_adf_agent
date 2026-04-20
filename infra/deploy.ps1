@@ -148,6 +148,33 @@ Write-Host "  SQL server      : $sqlServerFqdn"
 Write-Host "  SQL database    : $sqlDatabaseName"
 
 # ---------------------------------------------------------------------------
+# Whitelist this client's public IP on the SQL server so sqlcmd can connect.
+# The bicep 'AllowAllAzureServices' rule (0.0.0.0) only opens Azure-internal
+# traffic; it does NOT open this workstation.
+# ---------------------------------------------------------------------------
+$sqlServerShort = ($sqlServerFqdn -split '\.')[0]
+$clientIp = $null
+try {
+    $clientIp = (Invoke-RestMethod -Uri 'https://api.ipify.org' -TimeoutSec 10).Trim()
+} catch {
+    Write-Warning "Could not auto-detect public IP via ipify.org: $_"
+}
+if ($clientIp) {
+    Write-Host "Adding firewall rule for client IP $clientIp ..." -ForegroundColor Yellow
+    az sql server firewall-rule create `
+        --resource-group $ResourceGroup `
+        --server $sqlServerShort `
+        --name "client-$((Get-Date).ToString('yyyyMMddHHmm'))" `
+        --start-ip-address $clientIp `
+        --end-ip-address $clientIp `
+        --only-show-errors -o none
+    if ($LASTEXITCODE -ne 0) { throw "Failed to add client-IP firewall rule." }
+} else {
+    Write-Warning "Skipping firewall rule. If sqlcmd fails, add your IP in the portal:"
+    Write-Warning "  Azure Portal -> $sqlServerShort -> Networking -> Add your client IPv4 address"
+}
+
+# ---------------------------------------------------------------------------
 # Add ADF MI as SQL user (must be done over T-SQL; ARM cannot do this)
 # ---------------------------------------------------------------------------
 Write-Host "`nGranting ADF MI db_datareader on $sqlDatabaseName ..." -ForegroundColor Yellow
@@ -158,14 +185,24 @@ BEGIN
 END
 ALTER ROLE db_datareader ADD MEMBER [$FactoryName];
 "@
-$adfUserSql | sqlcmd -S $sqlServerFqdn -d $sqlDatabaseName -G -b
-if ($LASTEXITCODE -ne 0) { throw "sqlcmd (grant ADF MI) failed." }
+$adfUserSql | sqlcmd -S $sqlServerFqdn -d $sqlDatabaseName -G -l 30 -b
+if ($LASTEXITCODE -ne 0) {
+    throw @"
+sqlcmd (grant ADF MI) failed.
+Common causes:
+  - Your client IP is not whitelisted on the SQL server firewall.
+  - Your sqlcmd version predates Entra ID support (need ODBC 18 / go-sqlcmd).
+  - 'az login' session expired; run 'az login' and retry.
+Test manually:
+  sqlcmd -S $sqlServerFqdn -d $sqlDatabaseName -G -Q "SELECT SUSER_SNAME()"
+"@
+}
 
 # ---------------------------------------------------------------------------
 # Seed dbo.activity
 # ---------------------------------------------------------------------------
 Write-Host "`nSeeding dbo.activity ..." -ForegroundColor Yellow
-sqlcmd -S $sqlServerFqdn -d $sqlDatabaseName -G -b -i (Join-Path $here 'seed_activity.sql')
+sqlcmd -S $sqlServerFqdn -d $sqlDatabaseName -G -l 30 -b -i (Join-Path $here 'seed_activity.sql')
 if ($LASTEXITCODE -ne 0) { throw "sqlcmd (seed_activity.sql) failed." }
 
 # ---------------------------------------------------------------------------

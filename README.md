@@ -713,15 +713,18 @@ SSIS Script Tasks contain C# (or VB.NET) code that cannot be rule-based converte
 1. **Extraction** — The parser decodes the base64-encoded ZIP blob inside `DTS:ObjectData/ScriptProject/BinaryData`, unzips it, and reads all `.cs` / `.vb` source files (excluding `AssemblyInfo` and designer files).
 2. **Translation** — `CSharpToPythonTranslator` sends the source to Azure OpenAI Chat Completions with a structured prompt that preserves business logic and replaces unsupported patterns (SQL calls, file I/O, SMTP) with `# TODO` comments pointing to Azure equivalents.
 3. **Stub output** — The generated `stubs/<FunctionName>/__init__.py` contains the translated Python body. The original C# is preserved as line comments below the implementation for reference.
-4. **Graceful fallback** — If the API key is not configured, the model deployment is unavailable, or the DTSX uses a self-closing stub format (no embedded source), the converter falls back to the standard `TODO` stub without raising an error. A warning comment is embedded in the stub file.
+4. **Graceful fallback** — If credentials are not configured, the model deployment is unavailable, or the DTSX uses a self-closing stub format (no embedded source), the converter falls back to the standard `TODO` stub without raising an error. A warning comment is embedded in the stub file.
 
 ### Required environment variables
 
 | Variable | Description | Default |
 |---|---|---|
 | `AZURE_OPENAI_ENDPOINT` | Your Azure OpenAI resource URL, e.g. `https://my-resource.openai.azure.com/` | required |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | required |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key. **Optional** — if omitted, the translator authenticates via Microsoft Entra ID using `DefaultAzureCredential`. Recommended to leave unset and use Entra ID. | optional |
 | `AZURE_OPENAI_DEPLOYMENT` | Model deployment name | `gpt-4o` |
+| `AZURE_OPENAI_API_VERSION` | API version | `2024-10-21` |
+
+When authenticating via Entra ID, the calling identity needs the **Cognitive Services OpenAI User** role on the Azure OpenAI resource.
 
 ### Installation
 
@@ -789,7 +792,29 @@ The service principal must have the **Data Factory Contributor** role on the tar
 
 ### Azure OpenAI (for LLM Script Task translation)
 
-Set the following environment variables before calling `convert_ssis_package` with `llm_translate=true`:
+**Microsoft Entra ID (recommended; required when API keys are disabled by tenant policy):**
+
+Only the endpoint is required. Credentials come from `DefaultAzureCredential`
+(Azure CLI / managed identity / workload identity / environment service
+principal). The signed-in identity needs the **Cognitive Services OpenAI User**
+role on the Azure OpenAI resource.
+
+```powershell
+# Windows (PowerShell)
+$env:AZURE_OPENAI_ENDPOINT   = "https://my-resource.openai.azure.com/"
+$env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"   # optional, defaults to gpt-4o
+```
+
+```bash
+# macOS / Linux
+export AZURE_OPENAI_ENDPOINT="https://my-resource.openai.azure.com/"
+export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
+```
+
+For local development, run `az login` once. For Azure-hosted compute, assign a
+managed identity and grant it the role above.
+
+**API key (legacy, only when key auth is enabled on the resource):**
 
 ```powershell
 # Windows (PowerShell)

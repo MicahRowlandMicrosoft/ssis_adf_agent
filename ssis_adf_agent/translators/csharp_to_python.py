@@ -7,10 +7,21 @@ Usage::
     if translator.is_configured():
         python_body = translator.translate(source_code, task)
 
-Required environment variables:
-    AZURE_OPENAI_ENDPOINT    — e.g. https://my-resource.openai.azure.com/
-    AZURE_OPENAI_API_KEY     — Azure OpenAI API key
-    AZURE_OPENAI_DEPLOYMENT  — Model deployment name (default: gpt-4o)
+Authentication (one of the following):
+
+* **Microsoft Entra ID (recommended; required when API keys are disabled by
+  tenant policy):** set ``AZURE_OPENAI_ENDPOINT`` and run ``az login`` (or use
+  any other identity supported by ``DefaultAzureCredential`` — managed
+  identity, workload identity, environment service principal, etc.). The
+  caller's identity must have the **Cognitive Services OpenAI User** role on
+  the Azure OpenAI resource.
+* **API key (legacy):** set ``AZURE_OPENAI_API_KEY`` in addition to the
+  endpoint. Used automatically when present.
+
+Other environment variables:
+    AZURE_OPENAI_ENDPOINT     — e.g. https://my-resource.openai.azure.com/
+    AZURE_OPENAI_DEPLOYMENT   — Model deployment name (default: gpt-4o)
+    AZURE_OPENAI_API_VERSION  — API version (default: 2024-10-21)
 """
 from __future__ import annotations
 
@@ -79,11 +90,13 @@ class CSharpToPythonTranslator:
     """)
 
     def is_configured(self) -> bool:
-        """Return True if required Azure OpenAI env vars are present."""
-        return bool(
-            os.environ.get("AZURE_OPENAI_ENDPOINT")
-            and os.environ.get("AZURE_OPENAI_API_KEY")
-        )
+        """Return True if Azure OpenAI is reachable.
+
+        Requires only ``AZURE_OPENAI_ENDPOINT``. Authentication is then either
+        ``AZURE_OPENAI_API_KEY`` (if set) or ``DefaultAzureCredential`` /
+        Entra ID (handled lazily inside ``translate``).
+        """
+        return bool(os.environ.get("AZURE_OPENAI_ENDPOINT"))
 
     def translate(self, source_code: str, task: ScriptTask) -> str:
         """
@@ -104,11 +117,11 @@ class CSharpToPythonTranslator:
         endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
         api_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
         deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
 
-        if not endpoint or not api_key:
+        if not endpoint:
             raise TranslationError(
-                "AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY must be set "
-                "in environment variables to use LLM translation."
+                "AZURE_OPENAI_ENDPOINT must be set to use LLM translation."
             )
 
         # Truncate large scripts to stay within token budget
@@ -129,12 +142,38 @@ class CSharpToPythonTranslator:
             source_code=source_code,
         )
 
-        try:
-            client = AzureOpenAI(
-                azure_endpoint=endpoint,
-                api_key=api_key,
-                api_version="2024-02-01",
+        # Build the AzureOpenAI client. Prefer Entra ID (DefaultAzureCredential)
+        # when no API key is set — required for tenants where API-key auth on
+        # Azure OpenAI is disabled by policy. The caller's identity needs the
+        # "Cognitive Services OpenAI User" role on the Azure OpenAI resource.
+        client_kwargs: dict = {
+            "azure_endpoint": endpoint,
+            "api_version": api_version,
+        }
+        if api_key:
+            client_kwargs["api_key"] = api_key
+        else:
+            try:
+                from azure.identity import (  # type: ignore[import-untyped]
+                    DefaultAzureCredential,
+                    get_bearer_token_provider,
+                )
+            except ImportError as exc:
+                raise TranslationError(
+                    "AZURE_OPENAI_API_KEY is not set and the 'azure-identity' "
+                    "package is not installed for Entra ID authentication. "
+                    "Either set AZURE_OPENAI_API_KEY or install azure-identity "
+                    "(pip install azure-identity) and run 'az login'.",
+                    exc,
+                ) from exc
+            token_provider = get_bearer_token_provider(
+                DefaultAzureCredential(),
+                "https://cognitiveservices.azure.com/.default",
             )
+            client_kwargs["azure_ad_token_provider"] = token_provider
+
+        try:
+            client = AzureOpenAI(**client_kwargs)
             response = client.chat.completions.create(
                 model=deployment,
                 messages=[

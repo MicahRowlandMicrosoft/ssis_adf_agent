@@ -607,7 +607,16 @@ Identify data flow sources that could read from your existing Enterprise Source 
 
 Use Azure OpenAI to translate C# Script Task code to Python automatically.
 
-**Before you start,** set these environment variables:
+**Before you start,** authenticate to Azure OpenAI. Two options:
+
+*Microsoft Entra ID (recommended; required when API keys are disabled by tenant policy):*
+```powershell
+$env:AZURE_OPENAI_ENDPOINT   = "https://my-resource.openai.azure.com/"
+$env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
+az login   # signed-in account needs the "Cognitive Services OpenAI User" role
+```
+
+*API key (legacy):*
 ```powershell
 $env:AZURE_OPENAI_ENDPOINT   = "https://my-resource.openai.azure.com/"
 $env:AZURE_OPENAI_API_KEY    = "<your-key>"

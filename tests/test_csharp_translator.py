@@ -125,6 +125,15 @@ class TestTranslatorConfig:
             t = CSharpToPythonTranslator()
             assert t.is_configured()
 
+    def test_configured_with_endpoint_only_for_entra_id(self):
+        # Entra ID auth: only endpoint is required; credentials come from
+        # DefaultAzureCredential at translate time.
+        with patch.dict("os.environ", {
+            "AZURE_OPENAI_ENDPOINT": "https://x.openai.azure.com/",
+        }, clear=True):
+            t = CSharpToPythonTranslator()
+            assert t.is_configured()
+
     def test_translate_without_config_raises(self):
         with patch.dict("os.environ", {}, clear=True):
             t = CSharpToPythonTranslator()
@@ -178,3 +187,42 @@ class _patch_openai_call:
 
     def __exit__(self, *exc_info):
         self._patcher.__exit__(*exc_info)
+
+
+class TestEntraIdAuth:
+    """When AZURE_OPENAI_API_KEY is unset, the translator must use
+    DefaultAzureCredential via azure_ad_token_provider, not api_key.
+    """
+
+    def test_entra_path_passes_token_provider(self):
+        from types import SimpleNamespace
+        captured: dict = {}
+
+        client = MagicMock()
+        msg = SimpleNamespace(content="x = 1")
+        choice = SimpleNamespace(message=msg)
+        client.chat.completions.create.return_value = SimpleNamespace(choices=[choice])
+
+        fake_openai = MagicMock()
+        def _factory(**kwargs):
+            captured.update(kwargs)
+            return client
+        fake_openai.AzureOpenAI.side_effect = _factory
+        fake_openai.APIError = Exception
+
+        fake_identity = MagicMock()
+        sentinel_provider = object()
+        fake_identity.get_bearer_token_provider.return_value = sentinel_provider
+
+        env = {"AZURE_OPENAI_ENDPOINT": "https://x.openai.azure.com/"}
+        with patch.dict("os.environ", env, clear=True), \
+             patch.dict("sys.modules", {"openai": fake_openai, "azure.identity": fake_identity}):
+            translator = CSharpToPythonTranslator()
+            result = translator.translate("int x = 1;", _make_task())
+
+        assert result == "x = 1"
+        assert "api_key" not in captured, "api_key must NOT be passed in Entra mode"
+        assert captured.get("azure_ad_token_provider") is sentinel_provider
+        # And confirm we asked for the Cognitive Services audience scope
+        scope = fake_identity.get_bearer_token_provider.call_args.args[1]
+        assert scope == "https://cognitiveservices.azure.com/.default"

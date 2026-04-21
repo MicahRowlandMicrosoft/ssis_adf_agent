@@ -1939,6 +1939,7 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
     recursive = args.get("recursive", True)
     save_plans = args.get("save_plans", True)
     generate_trigger = args.get("generate_trigger", True)
+    shared_artifacts_dir = args.get("shared_artifacts_dir")
 
     if source_path.is_file():
         files = [source_path] if source_path.suffix.lower() == ".dtsx" else []
@@ -1964,6 +1965,8 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
                 "output_dir": str(pkg_output),
                 "generate_trigger": generate_trigger,
             }
+            if shared_artifacts_dir:
+                convert_args["shared_artifacts_dir"] = shared_artifacts_dir
             if plan_path is not None:
                 convert_args["design_path"] = str(plan_path)
             convert_result = await _convert(convert_args)
@@ -2024,15 +2027,23 @@ async def _edit_plan(args: dict[str, Any]) -> list[types.TextContent]:
 
 
 def _load_plans_from_dir(plans_dir: str) -> list:
-    """Load all *_plan.json files from a directory as MigrationPlan instances."""
+    """Load all migration plan JSON files from a directory as MigrationPlan instances.
+
+    Accepts either flat layouts (``<plans_dir>/<pkg>_plan.json``) or the nested
+    layout produced by ``convert_estate`` (``<plans_dir>/<pkg>/migration_plan.json``).
+    """
     from .migration_plan import MigrationPlan
 
     dir_path = _safe_resolve(plans_dir, must_exist=True, label="plans_dir")
     plan_files = sorted(dir_path.glob("*_plan.json"))
     if not plan_files:
+        plan_files = sorted(dir_path.glob("*/migration_plan.json"))
+    if not plan_files:
         raise FileNotFoundError(
-            f"No *_plan.json files found in {dir_path}. "
-            "Run propose_adf_design + save_migration_plan first."
+            f"No migration plan files found in {dir_path}. Looked for "
+            "'*_plan.json' (flat) and '*/migration_plan.json' (convert_estate "
+            "layout). Run propose_adf_design + save_migration_plan, or "
+            "convert_estate with save_plans=True first."
         )
     plans = []
     for f in plan_files:

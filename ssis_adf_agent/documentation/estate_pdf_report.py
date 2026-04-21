@@ -129,6 +129,12 @@ def build_estate_report_pdf(
             "Estimated effort — range (low / high)",
             f"{low_h or 0}h / {high_h or 0}h",
         ])
+    saved_h = summary.get("mcp_automated_hours_saved")
+    if saved_h:
+        exec_rows.append([
+            "Hand-authoring hours absorbed by MCP tooling",
+            f"{saved_h}h (informational)",
+        ])
     exec_rows.append(["Manual-required items", str(summary.get("manual_required_total", 0))])
     if cost_estimate:
         exec_rows.append(["Projected monthly run cost (USD)", f"${cost_estimate.get('monthly_total_usd', 0):,.2f}"])
@@ -196,12 +202,14 @@ def build_estate_report_pdf(
     # -- Per-package detail --
     story.append(PageBreak())
     story.append(Paragraph("Per-package detail", styles["h1"]))
-    pkg_rows = [["Package", "Bucket", "Pattern", "Score", "Likely h", "Range (low–high)", "Manual"]]
+    pkg_rows = [["Package", "Bucket", "Pattern", "Score", "Likely h", "Range (low–high)", "MCP saves", "Manual"]]
     for p in estate_report.get("packages", []):
         likely = p.get("estimated_total_hours", "")
         low = p.get("estimated_low_hours")
         high = p.get("estimated_high_hours")
+        saved = p.get("mcp_automated_hours_saved")
         range_cell = f"{low}–{high}" if (low or high) else ""
+        saved_cell = f"{saved}h" if saved else ""
         pkg_rows.append([
             p.get("package_name", ""),
             p.get("complexity_bucket", ""),
@@ -209,11 +217,12 @@ def build_estate_report_pdf(
             str(p.get("complexity_score", "")),
             str(likely),
             range_cell,
+            saved_cell,
             str(p.get("manual_required_count", 0)),
         ])
     story.append(_table(
         pkg_rows,
-        [2.0 * inch, 0.7 * inch, 1.3 * inch, 0.5 * inch, 0.6 * inch, 0.9 * inch, 0.5 * inch],
+        [1.7 * inch, 0.6 * inch, 1.2 * inch, 0.5 * inch, 0.6 * inch, 0.9 * inch, 0.6 * inch, 0.5 * inch],
     ))
 
     failures = estate_report.get("failures", [])

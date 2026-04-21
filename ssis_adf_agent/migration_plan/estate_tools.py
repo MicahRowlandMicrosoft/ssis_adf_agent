@@ -47,6 +47,7 @@ def _plan_to_pkg_summary(plan: MigrationPlan) -> dict[str, Any]:
         "estimated_total_hours": plan.effort.total_hours,
         "estimated_low_hours": plan.effort.low_hours,
         "estimated_high_hours": plan.effort.high_hours,
+        "mcp_automated_hours_saved": plan.effort.mcp_automated_hours_saved,
         "task_counts": ri.get("task_counts", {}),
         "simplifications": [s.action.value for s in plan.simplifications],
         "linked_service_count": len(plan.linked_services),

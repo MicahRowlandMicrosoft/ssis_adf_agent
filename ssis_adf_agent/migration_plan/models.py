@@ -159,6 +159,16 @@ class EffortEstimate(BaseModel):
     high_hours: float = 0.0
     script_porting_hours: float = 0.0
     dataflow_hours: float = 0.0
+    mcp_automated_hours_saved: float = Field(
+        default=0.0,
+        description=(
+            "Estimated hours of mechanical work (pipeline, linked service, "
+            "dataset, data-flow scaffold, trigger, deployment wiring) that the "
+            "MCP tools handle for this package — i.e. hours the human would "
+            "have spent hand-authoring JSON without the converter. Informational; "
+            "total_hours is already the post-MCP human estimate."
+        ),
+    )
     bucket: str = Field(default="medium", description="low | medium | high | very_high")
     notes: list[str] = Field(
         default_factory=list,

@@ -2092,6 +2092,7 @@ async def _build_estate_pdf(args: dict[str, Any]) -> list[types.TextContent]:
     total_hours = round(sum(p["estimated_total_hours"] for p in packages), 1)
     total_low = round(sum(p.get("estimated_low_hours", 0) for p in packages), 1)
     total_high = round(sum(p.get("estimated_high_hours", 0) for p in packages), 1)
+    total_saved = round(sum(p.get("mcp_automated_hours_saved", 0) for p in packages), 1)
     bulk_count = sum(v for k, v in by_bucket.items() if k in ("low", "medium"))
     review_count = sum(v for k, v in by_bucket.items() if k in ("high", "very_high"))
     estate_report = {
@@ -2103,6 +2104,7 @@ async def _build_estate_pdf(args: dict[str, Any]) -> list[types.TextContent]:
             "estimated_total_hours": total_hours,
             "estimated_low_hours": total_low,
             "estimated_high_hours": total_high,
+            "mcp_automated_hours_saved": total_saved,
             "manual_required_total": 0,
             "bulk_convertible_count": bulk_count,
             "needs_design_review_count": review_count,

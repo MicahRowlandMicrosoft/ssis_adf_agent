@@ -130,6 +130,24 @@ def test_effort_has_range_and_breakdown():
     assert e.high_hours == pytest.approx(e.total_hours * 1.6, rel=0.02)
 
 
+def test_mcp_automated_hours_saved_is_populated():
+    pkg = _simple_package(tasks=[
+        DataFlowTask(id="d1", name="df1", components=[
+            DataFlowComponent(id="c1", name="src", component_class_id="x", component_type="OLEDBSource"),
+            DataFlowComponent(id="c2", name="dst", component_class_id="x", component_type="OLEDBDestination"),
+        ]),
+        ScriptTask(id="s1", name="Script1", task_type=TaskType.SCRIPT,
+                   source_code="Dts.Variables['x'].Value = 1;"),
+    ])
+    plan = propose_design(pkg)
+    # Savings should be non-zero for a package with a data flow + script: MCP
+    # generates the pipeline, linked services, datasets, data-flow scaffold,
+    # stub, trigger, and deployment glue.
+    assert plan.effort.mcp_automated_hours_saved > 3.0
+    # Savings are strictly informational — they do not reduce total_hours.
+    assert plan.effort.total_hours > plan.effort.mcp_automated_hours_saved
+
+
 def test_complex_script_dominates_estimate():
     simple_pkg = _simple_package(name="simple", tasks=[
         DataFlowTask(id="d1", name="df1", components=[

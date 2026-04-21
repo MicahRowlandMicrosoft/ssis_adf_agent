@@ -649,15 +649,58 @@ def _dataflow_hours(task: "DataFlowTask") -> tuple[float, int, int, int]:
     return round(hours, 1), heavy, medium, light
 
 
+def _mcp_automated_hours_saved(
+    package: "SSISPackage",
+    n_linked_services: int,
+    n_dataflow_tasks: int,
+    n_script_tasks: int,
+) -> float:
+    """Estimate the hand-authoring work MCP absorbs for this package.
+
+    This is **informational only** — ``total_hours`` is already the post-MCP
+    human estimate. This value answers "how much time does using MCP save
+    versus hand-authoring the ADF JSON?" so stakeholders can see the tool's
+    contribution inside the total.
+
+    Component costs (hours of hand-work MCP eliminates):
+    - Pipeline shell (activities, dependsOn, parameters): 1.5h
+    - Each linked service (incl. MI / Key Vault wiring): 0.5h
+    - Each dataset (derived from data flow endpoints): 0.5h
+    - Each data flow scaffold (source/destination/path wiring): 1.0h
+    - Each Script Task stub (project files, function.json, TODO comments): 0.5h
+    - Trigger template: 0.25h
+    - Deployment glue (ARM naming, validation, deploy_to_adf): 1.0h
+    """
+    # Datasets roughly track data-flow components (sources + destinations);
+    # two per data flow is a reasonable stand-in until the caller has the real
+    # count (which isn't known before convert_ssis_package runs).
+    approx_datasets = max(1, n_dataflow_tasks * 2)
+    saved = (
+        1.5
+        + 0.5 * n_linked_services
+        + 0.5 * approx_datasets
+        + 1.0 * n_dataflow_tasks
+        + 0.5 * n_script_tasks
+        + 0.25
+        + 1.0
+    )
+    return round(saved, 1)
+
+
 def _effort_from_package(
     package: "SSISPackage",
     score: int,
     n_simplifications: int,
+    n_linked_services: int = 0,
 ) -> EffortEstimate:
     """Compute a breakdown-aware effort estimate for a package.
 
     Architecture / Testing percentages and the low/likely/high envelope are
     intentionally coarse — this is a budgeting aid, not a promise.
+
+    ``n_linked_services`` is informational only: it feeds the MCP-automation
+    savings estimate so the report can show how much hand-work the tools
+    absorb.  It does not change ``total_hours``.
     """
     if score <= 30:
         bucket, base = "low", 4.0
@@ -672,11 +715,14 @@ def _effort_from_package(
     df_hours = 0.0
     notes: list[str] = []
     heavy_total = medium_total = light_total = 0
+    n_script_tasks = 0
+    n_dataflow_tasks = 0
 
     for task, _depth in _walk_tasks_with_depth(package.tasks):
         if isinstance(task, ScriptTask):
             h, note = _script_porting_hours(task)
             script_hours += h
+            n_script_tasks += 1
             if len(notes) < 8:
                 notes.append(note)
         elif isinstance(task, DataFlowTask):
@@ -685,6 +731,7 @@ def _effort_from_package(
             heavy_total += heavy
             medium_total += medium
             light_total += light
+            n_dataflow_tasks += 1
 
     if heavy_total or medium_total or light_total:
         notes.append(
@@ -708,6 +755,13 @@ def _effort_from_package(
     low = total * 0.7
     high = total * 1.6
 
+    saved = _mcp_automated_hours_saved(
+        package,
+        n_linked_services=n_linked_services,
+        n_dataflow_tasks=n_dataflow_tasks,
+        n_script_tasks=n_script_tasks,
+    )
+
     return EffortEstimate(
         architecture_hours=round(arch, 1),
         development_hours=round(dev, 1),
@@ -717,6 +771,7 @@ def _effort_from_package(
         high_hours=round(high, 1),
         script_porting_hours=round(script_hours, 1),
         dataflow_hours=round(df_hours, 1),
+        mcp_automated_hours_saved=saved,
         bucket=bucket,
         notes=notes,
     )
@@ -788,7 +843,10 @@ def propose_design(package: SSISPackage) -> MigrationPlan:
     risks = _detect_risks(package)
 
     score = score_package(package).score
-    effort = _effort_from_package(package, score, len(simplifications))
+    effort = _effort_from_package(
+        package, score, len(simplifications),
+        n_linked_services=len(linked_services),
+    )
 
     counts = _count_by_type(package)
     summary = (

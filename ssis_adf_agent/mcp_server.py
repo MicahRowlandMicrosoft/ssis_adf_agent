@@ -1769,6 +1769,7 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
     reader = LocalReader()
     rows: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
+    parsed_packages: list[Any] = []  # Retained for cross-package consolidation analysis.
     # Per-project-directory grouping for shared-infra detection. Key is the
     # parent directory path (where Project.params would live); value tracks
     # which packages share it and what credentials/connections recur.
@@ -1777,6 +1778,7 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
     for f in files:
         try:
             pkg = reader.read(f)
+            parsed_packages.append(pkg)
             score = score_package(pkg).score
             gaps = analyze_gaps(pkg)
             plan = propose_design(pkg)
@@ -1877,6 +1879,10 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
                 "shared_on_prem_sql_servers": sorted(proj["shared_sql_servers"]),
             })
 
+    # Estate-level deduplication & consolidation findings.
+    from .analyzers.consolidation_analyzer import analyze_estate_consolidation
+    consolidation = analyze_estate_consolidation(parsed_packages)
+
     report = {
         "scanned_path": str(source_path),
         "package_count": len(rows),
@@ -1890,7 +1896,10 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
             "needs_design_review_count": by_bucket.get("high", 0) + by_bucket.get("very_high", 0),
             "project_count": len(projects),
             "shared_infra_recommendations": shared_infra_recs,
+            "deduplication_hours_saved": consolidation["deduplication"]["total_hours_saved"],
+            "consolidation_potential_hours_saved": consolidation["consolidation"]["potential_hours_saved"],
         },
+        "consolidation": consolidation,
         "projects": sorted(project_summaries, key=lambda p: -p["package_count"]),
         "packages": sorted(rows, key=lambda r: -r["complexity_score"]),
         "failures": failures,
@@ -2112,6 +2121,33 @@ async def _build_estate_pdf(args: dict[str, Any]) -> list[types.TextContent]:
         "packages": packages,
         "failures": [],
     }
+
+    # Re-parse the source packages so we can compute estate-level dedup +
+    # consolidation findings.  Failure to read any individual file is non-fatal
+    # — we just skip that one and still produce the report.
+    consolidation = None
+    try:
+        from .analyzers.consolidation_analyzer import analyze_estate_consolidation
+        from .parsers.readers.local_reader import LocalReader
+
+        reader = LocalReader()
+        parsed = []
+        for plan in plans:
+            try:
+                parsed.append(reader.read(plan.package_path))
+            except Exception:
+                continue
+        if parsed:
+            consolidation = analyze_estate_consolidation(parsed)
+            estate_report["consolidation"] = consolidation
+            estate_report["estate_summary"]["deduplication_hours_saved"] = (
+                consolidation["deduplication"]["total_hours_saved"]
+            )
+            estate_report["estate_summary"]["consolidation_potential_hours_saved"] = (
+                consolidation["consolidation"]["potential_hours_saved"]
+            )
+    except Exception as exc:
+        logger.warning("Consolidation analysis skipped: %s", exc)
 
     waves = None
     if args.get("waves_path"):

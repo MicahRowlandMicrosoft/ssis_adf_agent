@@ -135,6 +135,18 @@ def build_estate_report_pdf(
             "Hand-authoring hours absorbed by MCP tooling",
             f"{saved_h}h (informational)",
         ])
+    dedup_h = summary.get("deduplication_hours_saved")
+    if dedup_h:
+        exec_rows.append([
+            "Additional hours saved via shared linked services",
+            f"{dedup_h}h (recommended action — see consolidation section)",
+        ])
+    consol_h = summary.get("consolidation_potential_hours_saved")
+    if consol_h:
+        exec_rows.append([
+            "Potential hours saved via pipeline consolidation",
+            f"{consol_h}h (judgment call — see consolidation section)",
+        ])
     exec_rows.append(["Manual-required items", str(summary.get("manual_required_total", 0))])
     if cost_estimate:
         exec_rows.append(["Projected monthly run cost (USD)", f"${cost_estimate.get('monthly_total_usd', 0):,.2f}"])
@@ -186,6 +198,66 @@ def build_estate_report_pdf(
                 hours_cell,
             ])
         story.append(_table(wave_rows, [0.4 * inch, 2.6 * inch, 1.3 * inch, 0.6 * inch, 1.3 * inch]))
+
+    # -- Consolidation & deduplication opportunities --
+    consolidation = estate_report.get("consolidation")
+    if consolidation:
+        story.append(PageBreak())
+        story.append(Paragraph("Consolidation & deduplication opportunities", styles["h1"]))
+
+        # --- Deduplication (safe, recommended) ---
+        dedup = consolidation.get("deduplication", {})
+        story.append(Paragraph("Deduplication (recommended)", styles["h2"]))
+        story.append(Paragraph(_esc(dedup.get("recommended_action", "")), styles["body"]))
+        if dedup.get("candidates"):
+            story.append(Paragraph(
+                f"<b>Total hours saved if shared:</b> {dedup.get('total_hours_saved', 0)}h",
+                styles["body"],
+            ))
+            story.append(Spacer(1, 0.1 * inch))
+            dedup_rows = [["Connection", "Type", "Used in N packages", "Hours saved"]]
+            for c in dedup["candidates"][:20]:
+                dedup_rows.append([
+                    _esc(c.get("label", "")),
+                    _esc(c.get("connection_type", "")),
+                    str(c.get("duplicate_count", 0)),
+                    f"{c.get('hours_saved_if_shared', 0)}h",
+                ])
+            story.append(_table(dedup_rows, [3.0 * inch, 1.2 * inch, 1.4 * inch, 1.0 * inch]))
+            extras = max(0, len(dedup["candidates"]) - 20)
+            if extras:
+                story.append(Paragraph(f"…and {extras} more candidate(s).", styles["small"]))
+        story.append(Spacer(1, 0.2 * inch))
+
+        # --- Consolidation (judgment call) ---
+        consol = consolidation.get("consolidation", {})
+        story.append(Paragraph("Pipeline consolidation (judgment call)", styles["h2"]))
+        story.append(Paragraph(_esc(consol.get("guidance", "")), styles["body"]))
+        if consol.get("candidates"):
+            story.append(Paragraph(
+                f"<b>Potential hours saved:</b> {consol.get('potential_hours_saved', 0)}h "
+                "(net of consolidation build effort)",
+                styles["body"],
+            ))
+            story.append(Spacer(1, 0.1 * inch))
+            consol_rows = [["Group fingerprint", "Shape", "Pkgs", "Net hours"]]
+            for c in consol["candidates"][:20]:
+                consol_rows.append([
+                    _esc(c.get("fingerprint", "")),
+                    _esc(c.get("shape", ""))[:60],
+                    str(c.get("package_count", 0)),
+                    f"{c.get('estimated_hours_saved', 0)}h",
+                ])
+            story.append(_table(consol_rows, [1.1 * inch, 3.4 * inch, 0.6 * inch, 1.4 * inch]))
+            story.append(Spacer(1, 0.1 * inch))
+            story.append(Paragraph(
+                "<i>Tradeoffs:</i> consolidation reduces N pipelines to 1 with parameters. "
+                "Pros: single deployment, single alerting target, less duplication. "
+                "Cons: ownership/lineage becomes implicit, debugging requires parameter context, "
+                "per-package SLAs must be re-modelled. Recommended only when packages share an "
+                "owner and schedule.",
+                styles["small"],
+            ))
 
     # -- Cost detail --
     if cost_estimate:

@@ -858,6 +858,14 @@ def propose_design(package: SSISPackage) -> MigrationPlan:
         f"{len(infrastructure)} infra resource(s), "
         f"{len(rbac)} RBAC assignment(s)."
     )
+    if linked_services:
+        summary += (
+            "\n\n_Linked services in this plan should be treated as "
+            "**shareable across the estate**. Run conversion with "
+            "`shared_artifacts_dir` so duplicates are authored once and "
+            "reused; the estate-level report's deduplication section quantifies "
+            "the savings._"
+        )
 
     return MigrationPlan(
         package_name=package.name,
@@ -877,5 +885,6 @@ def propose_design(package: SSISPackage) -> MigrationPlan:
             "variable_count": len(package.variables),
             "parameter_count": len(package.parameters),
             "event_handler_count": len(package.event_handlers),
+            "shared_artifacts_recommended": bool(linked_services),
         },
     )

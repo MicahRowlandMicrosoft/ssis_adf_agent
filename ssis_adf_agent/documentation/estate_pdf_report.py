@@ -120,9 +120,16 @@ def build_estate_report_pdf(
         ["Parse failures", str(estate_report.get("failure_count", 0))],
         ["Bulk-convertible (low/medium)", str(summary.get("bulk_convertible_count", 0))],
         ["Needs design review (high/very_high)", str(summary.get("needs_design_review_count", 0))],
-        ["Estimated total effort (hours)", str(summary.get("estimated_total_hours", 0))],
-        ["Manual-required items", str(summary.get("manual_required_total", 0))],
+        ["Estimated effort — likely (hours)", str(summary.get("estimated_total_hours", 0))],
     ]
+    low_h = summary.get("estimated_low_hours")
+    high_h = summary.get("estimated_high_hours")
+    if low_h or high_h:
+        exec_rows.append([
+            "Estimated effort — range (low / high)",
+            f"{low_h or 0}h / {high_h or 0}h",
+        ])
+    exec_rows.append(["Manual-required items", str(summary.get("manual_required_total", 0))])
     if cost_estimate:
         exec_rows.append(["Projected monthly run cost (USD)", f"${cost_estimate.get('monthly_total_usd', 0):,.2f}"])
         exec_rows.append(["Projected annual run cost (USD)", f"${cost_estimate.get('annual_total_usd', 0):,.2f}"])
@@ -148,22 +155,31 @@ def build_estate_report_pdf(
     if waves and waves.get("waves"):
         story.append(PageBreak())
         story.append(Paragraph("Recommended migration waves", styles["h1"]))
-        story.append(Paragraph(
+        wave_caption = (
             f"{waves.get('wave_count', 0)} waves \u2014 "
-            f"total estimated effort: {waves.get('total_estimated_hours', 0)}h",
-            styles["body"],
-        ))
+            f"total estimated effort: {waves.get('total_estimated_hours', 0)}h"
+        )
+        if waves.get("estate_setup_hours"):
+            wave_caption += (
+                f" (includes {waves['estate_setup_hours']}h one-time estate bring-up in Wave 1)"
+            )
+        if waves.get("learning_curve_applied"):
+            wave_caption += " — learning-curve discount applied inside each wave."
+        story.append(Paragraph(wave_caption, styles["body"]))
         story.append(Spacer(1, 0.1 * inch))
         wave_rows = [["#", "Label", "Strategy", "Pkgs", "Hours"]]
         for w in waves["waves"]:
+            hours_cell = str(w["estimated_hours"])
+            if w.get("setup_surcharge_hours"):
+                hours_cell += f" (incl. {w['setup_surcharge_hours']}h setup)"
             wave_rows.append([
                 str(w["wave"]),
                 w["label"],
                 w.get("strategy", ""),
                 str(w["package_count"]),
-                str(w["estimated_hours"]),
+                hours_cell,
             ])
-        story.append(_table(wave_rows, [0.4 * inch, 3.0 * inch, 1.4 * inch, 0.6 * inch, 0.8 * inch]))
+        story.append(_table(wave_rows, [0.4 * inch, 2.6 * inch, 1.3 * inch, 0.6 * inch, 1.3 * inch]))
 
     # -- Cost detail --
     if cost_estimate:
@@ -180,17 +196,25 @@ def build_estate_report_pdf(
     # -- Per-package detail --
     story.append(PageBreak())
     story.append(Paragraph("Per-package detail", styles["h1"]))
-    pkg_rows = [["Package", "Bucket", "Pattern", "Score", "Hours", "Manual"]]
+    pkg_rows = [["Package", "Bucket", "Pattern", "Score", "Likely h", "Range (low–high)", "Manual"]]
     for p in estate_report.get("packages", []):
+        likely = p.get("estimated_total_hours", "")
+        low = p.get("estimated_low_hours")
+        high = p.get("estimated_high_hours")
+        range_cell = f"{low}–{high}" if (low or high) else ""
         pkg_rows.append([
             p.get("package_name", ""),
             p.get("complexity_bucket", ""),
             p.get("target_pattern", ""),
             str(p.get("complexity_score", "")),
-            str(p.get("estimated_total_hours", "")),
+            str(likely),
+            range_cell,
             str(p.get("manual_required_count", 0)),
         ])
-    story.append(_table(pkg_rows, [2.4 * inch, 0.8 * inch, 1.6 * inch, 0.6 * inch, 0.6 * inch, 0.6 * inch]))
+    story.append(_table(
+        pkg_rows,
+        [2.0 * inch, 0.7 * inch, 1.3 * inch, 0.5 * inch, 0.6 * inch, 0.9 * inch, 0.5 * inch],
+    ))
 
     failures = estate_report.get("failures", [])
     if failures:

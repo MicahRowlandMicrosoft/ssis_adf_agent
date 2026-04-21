@@ -138,13 +138,32 @@ class Risk(BaseModel):
 
 
 class EffortEstimate(BaseModel):
-    """Coarse effort prediction in hours, for budgeting conversations."""
+    """Coarse effort prediction in hours, for budgeting conversations.
+
+    Hours are presented as a **range** (``low_hours`` / ``total_hours`` /
+    ``high_hours``) because a point estimate implies a precision we don't
+    have.  ``total_hours`` is the "likely" (P50-ish) value.  The range is
+    a coarse ±30% / +60% envelope to reflect real-world variance in SSIS
+    migration effort.
+
+    ``script_porting_hours`` and ``dataflow_hours`` are informational
+    breakdowns showing *which* content drove the estimate — useful when a
+    customer pushes back on the number.
+    """
 
     architecture_hours: float = 0.0
     development_hours: float = 0.0
     testing_hours: float = 0.0
     total_hours: float = 0.0
+    low_hours: float = 0.0
+    high_hours: float = 0.0
+    script_porting_hours: float = 0.0
+    dataflow_hours: float = 0.0
     bucket: str = Field(default="medium", description="low | medium | high | very_high")
+    notes: list[str] = Field(
+        default_factory=list,
+        description="Short human-readable notes explaining the major drivers.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -238,8 +257,19 @@ class MigrationPlan(BaseModel):
         lines.append(
             f"## Effort estimate\n"
             f"- Architecture: {e.architecture_hours}h\n"
-            f"- Development: {e.development_hours}h\n"
+            f"- Development: {e.development_hours}h"
+            + (f" (script porting: {e.script_porting_hours}h, data flows: {e.dataflow_hours}h)"
+               if (e.script_porting_hours or e.dataflow_hours) else "")
+            + "\n"
             f"- Testing: {e.testing_hours}h\n"
-            f"- **Total: {e.total_hours}h** ({e.bucket})\n"
+            f"- **Likely total: {e.total_hours}h** ({e.bucket})"
+            + (f"\n- Range: {e.low_hours}h (low) / {e.total_hours}h (likely) / {e.high_hours}h (high)"
+               if (e.low_hours or e.high_hours) else "")
+            + "\n"
         )
+        if e.notes:
+            lines.append("**Drivers:**")
+            for n in e.notes:
+                lines.append(f"- {n}")
+            lines.append("")
         return "\n".join(lines)

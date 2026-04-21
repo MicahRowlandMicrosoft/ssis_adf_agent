@@ -45,6 +45,8 @@ def _plan_to_pkg_summary(plan: MigrationPlan) -> dict[str, Any]:
         "complexity_score": ri.get("complexity_score", 0),
         "target_pattern": plan.target_pattern.value,
         "estimated_total_hours": plan.effort.total_hours,
+        "estimated_low_hours": plan.effort.low_hours,
+        "estimated_high_hours": plan.effort.high_hours,
         "task_counts": ri.get("task_counts", {}),
         "simplifications": [s.action.value for s in plan.simplifications],
         "linked_service_count": len(plan.linked_services),
@@ -59,6 +61,8 @@ def plan_migration_waves(
     plans: list[MigrationPlan],
     *,
     max_packages_per_wave: int = 10,
+    estate_setup_hours: float = 0.0,
+    apply_learning_curve: bool = False,
 ) -> dict[str, Any]:
     """Group an estate into ordered migration waves.
 
@@ -74,6 +78,16 @@ def plan_migration_waves(
       target_pattern, each wave capped at ``max_packages_per_wave`` so a single
       reviewer can hold the design conversation in their head.
 
+    Accuracy knobs (both default off to preserve backward-compatible totals):
+
+    * ``estate_setup_hours`` — one-time hours added to Wave 1 to cover estate
+      bring-up work that per-package estimates don't include: IR / Key Vault
+      provisioning, naming conventions, CI/CD pipeline setup, RBAC, observability.
+    * ``apply_learning_curve`` — when True, packages within a wave are
+      progressively discounted (100%, 90%, 85%, 80%, ...) to reflect that later
+      packages reuse design decisions, linked services, and reviewer context
+      established by the first package in the wave.
+
     The output mirrors the bulk_analyze report shape so the agent can hand it
     straight to a customer.
     """
@@ -81,6 +95,16 @@ def plan_migration_waves(
 
     bulk = [p for p in packages if p["complexity_bucket"] in ("low", "medium")]
     review = [p for p in packages if p["complexity_bucket"] in ("high", "very_high")]
+
+    def _wave_hours(chunk: list[dict]) -> float:
+        if not apply_learning_curve:
+            return round(sum(p["estimated_total_hours"] for p in chunk), 1)
+        total = 0.0
+        for i, p in enumerate(chunk):
+            # 100%, 90%, 85%, 80%, 75%, 70%, 65%, 60%, ... floor 0.5
+            discount = max(0.5, 1.0 - max(0, i) * 0.05 - (0.05 if i >= 1 else 0.0))
+            total += p["estimated_total_hours"] * discount
+        return round(total, 1)
 
     waves: list[dict[str, Any]] = []
     wave_num = 1
@@ -97,7 +121,7 @@ def plan_migration_waves(
                 "label": f"Bulk convert — {pattern}",
                 "strategy": "bulk_convert",
                 "package_count": len(chunk),
-                "estimated_hours": round(sum(p["estimated_total_hours"] for p in chunk), 1),
+                "estimated_hours": _wave_hours(chunk),
                 "target_pattern": pattern,
                 "packages": [p["package_name"] for p in chunk],
             })
@@ -116,16 +140,26 @@ def plan_migration_waves(
                 "label": f"Design review — {pattern}",
                 "strategy": "design_review",
                 "package_count": len(chunk),
-                "estimated_hours": round(sum(p["estimated_total_hours"] for p in chunk), 1),
+                "estimated_hours": _wave_hours(chunk),
                 "target_pattern": pattern,
                 "packages": [p["package_name"] for p in chunk],
             })
             wave_num += 1
 
+    # Estate-setup surcharge is attached to Wave 1 as a separate line so
+    # reviewers can see it explicitly.
+    setup_applied = 0.0
+    if estate_setup_hours and waves:
+        setup_applied = round(float(estate_setup_hours), 1)
+        waves[0]["setup_surcharge_hours"] = setup_applied
+        waves[0]["estimated_hours"] = round(waves[0]["estimated_hours"] + setup_applied, 1)
+
     return {
         "wave_count": len(waves),
         "total_packages": len(packages),
         "total_estimated_hours": round(sum(w["estimated_hours"] for w in waves), 1),
+        "estate_setup_hours": setup_applied,
+        "learning_curve_applied": bool(apply_learning_curve),
         "waves": waves,
     }
 

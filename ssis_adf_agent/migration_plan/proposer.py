@@ -562,29 +562,197 @@ def _detect_risks(package: SSISPackage) -> list[Risk]:
 # Effort estimate
 # ---------------------------------------------------------------------------
 
-def _effort_from_complexity(score: int, n_simplifications: int) -> EffortEstimate:
-    if score <= 30:
-        bucket = "low"
-        dev = 4.0
-    elif score <= 55:
-        bucket = "medium"
-        dev = 12.0
-    elif score <= 80:
-        bucket = "high"
-        dev = 32.0
+# Tier-based multipliers for per-Script-Task porting hours.  LOC is divided by
+# these divisors to get hours: trivial scripts take ~0h regardless of length,
+# complex ones take ~1h per 15 LOC.
+_SCRIPT_TIER_DIVISOR = {
+    "trivial": 120.0,   # very cheap; mostly expressible as ADF variables
+    "simple": 40.0,     # set-variable or tiny string manipulation
+    "moderate": 25.0,   # needs a Function but well-scoped
+    "complex": 15.0,    # real porting work
+}
+_SCRIPT_TIER_FLOOR = {
+    "trivial": 0.25,
+    "simple": 0.5,
+    "moderate": 2.0,
+    "complex": 6.0,
+}
+_SCRIPT_TIER_CEIL = 40.0  # cap a single Script Task at 40h
+
+# Data Flow component type weights (hours of dev per component, on top of the
+# bucket base).  Type strings come from SSIS ComponentClassID / componentType
+# shortnames.
+_DF_HEAVY = {
+    "FuzzyLookup", "FuzzyGrouping", "ScriptComponent",
+    "SlowlyChangingDimension", "Pivot", "Unpivot",
+    "TermExtraction", "TermLookup", "DataMiningQuery",
+}
+_DF_MEDIUM = {
+    "Aggregate", "Sort", "Merge", "MergeJoin", "Lookup",
+    "ConditionalSplit", "Multicast", "UnionAll", "Union All",
+    "CacheTransform", "RowSampling", "PercentageSampling",
+}
+# anything else (OLEDBSource, DerivedColumn, DataConversion, etc.) = 0.25h
+
+
+def _script_loc(task: "ScriptTask") -> int:
+    """Count non-blank, non-comment lines of script source. Falls back to 0
+    when source is unavailable (binary-compressed scripts)."""
+    src = task.source_code or ""
+    if not src:
+        return 0
+    loc = 0
+    for line in src.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        # C# and VB single-line comment markers
+        if s.startswith("//") or s.startswith("'") or s.startswith("*"):
+            continue
+        loc += 1
+    return loc
+
+
+def _script_porting_hours(task: "ScriptTask") -> tuple[float, str]:
+    """Hours to port a single Script Task, plus a short human note."""
+    from ..analyzers.script_classifier import classify_script
+
+    classification = classify_script(task)
+    tier = classification.tier.value
+    loc = _script_loc(task)
+    divisor = _SCRIPT_TIER_DIVISOR.get(tier, 25.0)
+    floor = _SCRIPT_TIER_FLOOR.get(tier, 1.0)
+    if loc == 0:
+        # Binary-compressed script — be cautious and assume the tier floor.
+        hours = floor
+        note = f"{task.name}: {tier} script, source unavailable → {hours:.1f}h"
     else:
-        bucket = "very_high"
-        dev = 80.0
-    arch = max(2.0, dev * 0.15)
-    test = max(2.0, dev * 0.25)
-    # Simplifications add architectural review time but reduce dev time slightly
-    arch += n_simplifications * 0.5
-    dev = max(1.0, dev - n_simplifications * 0.5)
+        hours = max(floor, loc / divisor)
+        hours = min(_SCRIPT_TIER_CEIL, hours)
+        note = f"{task.name}: {tier}, {loc} LOC → {hours:.1f}h"
+    return round(hours, 1), note
+
+
+def _dataflow_hours(task: "DataFlowTask") -> tuple[float, int, int, int]:
+    """Hours to build a single Data Flow (component-weighted) and bucket counts."""
+    heavy = medium = light = 0
+    for c in task.components:
+        # component_type may be a fully-qualified namespace; take the short form
+        ct = (c.component_type or "").split(".")[-1]
+        if ct in _DF_HEAVY:
+            heavy += 1
+        elif ct in _DF_MEDIUM:
+            medium += 1
+        else:
+            light += 1
+    hours = heavy * 2.5 + medium * 1.0 + light * 0.25
+    return round(hours, 1), heavy, medium, light
+
+
+def _effort_from_package(
+    package: "SSISPackage",
+    score: int,
+    n_simplifications: int,
+) -> EffortEstimate:
+    """Compute a breakdown-aware effort estimate for a package.
+
+    Architecture / Testing percentages and the low/likely/high envelope are
+    intentionally coarse — this is a budgeting aid, not a promise.
+    """
+    if score <= 30:
+        bucket, base = "low", 4.0
+    elif score <= 55:
+        bucket, base = "medium", 10.0
+    elif score <= 80:
+        bucket, base = "high", 24.0
+    else:
+        bucket, base = "very_high", 56.0
+
+    script_hours = 0.0
+    df_hours = 0.0
+    notes: list[str] = []
+    heavy_total = medium_total = light_total = 0
+
+    for task, _depth in _walk_tasks_with_depth(package.tasks):
+        if isinstance(task, ScriptTask):
+            h, note = _script_porting_hours(task)
+            script_hours += h
+            if len(notes) < 8:
+                notes.append(note)
+        elif isinstance(task, DataFlowTask):
+            h, heavy, medium, light = _dataflow_hours(task)
+            df_hours += h
+            heavy_total += heavy
+            medium_total += medium
+            light_total += light
+
+    if heavy_total or medium_total or light_total:
+        notes.append(
+            f"Data flows: {heavy_total} heavy / {medium_total} medium / "
+            f"{light_total} light components → {round(df_hours, 1)}h"
+        )
+
+    # Development hours: bucket base + explicit script/data-flow contributions.
+    # Simplifications shave a little off dev and add it to architecture review.
+    dev = base + script_hours + df_hours
+    dev = max(1.0, dev - 0.5 * n_simplifications)
+
+    arch = max(2.0, base * 0.15) + 0.5 * n_simplifications
+    # Testing at 35% of dev reflects parallel-run and UAT overhead, which the
+    # old flat 25% underestimated.
+    test = max(2.0, dev * 0.35)
+
+    total = arch + dev + test
+    # Coarse ±30% / +60% envelope.  Asymmetric because overruns are more common
+    # than under-runs on migration projects.
+    low = total * 0.7
+    high = total * 1.6
+
     return EffortEstimate(
         architecture_hours=round(arch, 1),
         development_hours=round(dev, 1),
         testing_hours=round(test, 1),
-        total_hours=round(arch + dev + test, 1),
+        total_hours=round(total, 1),
+        low_hours=round(low, 1),
+        high_hours=round(high, 1),
+        script_porting_hours=round(script_hours, 1),
+        dataflow_hours=round(df_hours, 1),
+        bucket=bucket,
+        notes=notes,
+    )
+
+
+def _walk_tasks_with_depth(tasks, depth: int = 0):
+    """Yield (task, depth) recursively across container children."""
+    for t in tasks:
+        yield t, depth
+        inner = getattr(t, "tasks", None)
+        if inner:
+            yield from _walk_tasks_with_depth(inner, depth + 1)
+
+
+# Kept for backward compatibility with older callers / tests.
+def _effort_from_complexity(score: int, n_simplifications: int) -> EffortEstimate:
+    """Legacy bucket-only estimator.  Prefer ``_effort_from_package``."""
+    if score <= 30:
+        bucket, dev = "low", 4.0
+    elif score <= 55:
+        bucket, dev = "medium", 12.0
+    elif score <= 80:
+        bucket, dev = "high", 32.0
+    else:
+        bucket, dev = "very_high", 80.0
+    arch = max(2.0, dev * 0.15) + n_simplifications * 0.5
+    test = max(2.0, dev * 0.25)
+    dev = max(1.0, dev - n_simplifications * 0.5)
+    total = arch + dev + test
+    return EffortEstimate(
+        architecture_hours=round(arch, 1),
+        development_hours=round(dev, 1),
+        testing_hours=round(test, 1),
+        total_hours=round(total, 1),
+        low_hours=round(total * 0.7, 1),
+        high_hours=round(total * 1.6, 1),
         bucket=bucket,
     )
 
@@ -620,7 +788,7 @@ def propose_design(package: SSISPackage) -> MigrationPlan:
     risks = _detect_risks(package)
 
     score = score_package(package).score
-    effort = _effort_from_complexity(score, len(simplifications))
+    effort = _effort_from_package(package, score, len(simplifications))
 
     counts = _count_by_type(package)
     summary = (

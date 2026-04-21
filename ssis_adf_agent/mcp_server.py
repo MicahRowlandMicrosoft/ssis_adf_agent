@@ -819,6 +819,23 @@ async def list_tools() -> list[types.Tool]:
                         ),
                     },
                     "max_packages_per_wave": {"type": "integer", "default": 10},
+                    "estate_setup_hours": {
+                        "type": "number",
+                        "description": (
+                            "One-time estate bring-up hours added to Wave 1 "
+                            "(IR / Key Vault / CI-CD / RBAC / observability). "
+                            "Default: 24."
+                        ),
+                        "default": 24,
+                    },
+                    "apply_learning_curve": {
+                        "type": "boolean",
+                        "description": (
+                            "Discount later packages within a wave (100%, 90%, 85%, 80%, ...) "
+                            "to reflect reuse of design decisions and linked services. Default: true."
+                        ),
+                        "default": True,
+                    },
                     "output_path": {
                         "type": "string",
                         "description": "Optional. Write the wave plan JSON to this path.",
@@ -887,6 +904,16 @@ async def list_tools() -> list[types.Tool]:
                         "type": "number",
                         "description": "Cost knob: average pipeline runs per day per package. Ignored if cost_estimate_path is supplied. Default: 1.",
                         "default": 1,
+                    },
+                    "estate_setup_hours": {
+                        "type": "number",
+                        "description": "One-time estate bring-up hours added to Wave 1. Ignored if waves_path is supplied. Default: 24.",
+                        "default": 24,
+                    },
+                    "apply_learning_curve": {
+                        "type": "boolean",
+                        "description": "Apply learning-curve discount inside waves. Ignored if waves_path is supplied. Default: true.",
+                        "default": True,
                     },
                     "output_pdf": {"type": "string", "description": "Path to write the PDF."},
                     "customer_name": {"type": "string"},
@@ -2012,6 +2039,8 @@ async def _plan_waves(args: dict[str, Any]) -> list[types.TextContent]:
     waves = plan_migration_waves(
         plans,
         max_packages_per_wave=int(args.get("max_packages_per_wave", 10)),
+        estate_setup_hours=float(args.get("estate_setup_hours", 24)),
+        apply_learning_curve=bool(args.get("apply_learning_curve", True)),
     )
     if args.get("output_path"):
         out = _safe_resolve(args["output_path"], label="output_path")
@@ -2061,6 +2090,8 @@ async def _build_estate_pdf(args: dict[str, Any]) -> list[types.TextContent]:
         pattern = pkg["target_pattern"]
         by_pattern[pattern] = by_pattern.get(pattern, 0) + 1
     total_hours = round(sum(p["estimated_total_hours"] for p in packages), 1)
+    total_low = round(sum(p.get("estimated_low_hours", 0) for p in packages), 1)
+    total_high = round(sum(p.get("estimated_high_hours", 0) for p in packages), 1)
     bulk_count = sum(v for k, v in by_bucket.items() if k in ("low", "medium"))
     review_count = sum(v for k, v in by_bucket.items() if k in ("high", "very_high"))
     estate_report = {
@@ -2070,6 +2101,8 @@ async def _build_estate_pdf(args: dict[str, Any]) -> list[types.TextContent]:
             "by_complexity_bucket": by_bucket,
             "by_target_pattern": by_pattern,
             "estimated_total_hours": total_hours,
+            "estimated_low_hours": total_low,
+            "estimated_high_hours": total_high,
             "manual_required_total": 0,
             "bulk_convertible_count": bulk_count,
             "needs_design_review_count": review_count,
@@ -2086,6 +2119,8 @@ async def _build_estate_pdf(args: dict[str, Any]) -> list[types.TextContent]:
         waves = plan_migration_waves(
             plans,
             max_packages_per_wave=int(args.get("max_packages_per_wave", 10)),
+            estate_setup_hours=float(args.get("estate_setup_hours", 24)),
+            apply_learning_curve=bool(args.get("apply_learning_curve", True)),
         )
 
     cost_estimate = None

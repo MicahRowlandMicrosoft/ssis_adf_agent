@@ -676,6 +676,14 @@ class SSISParser:
     def _parse_package(self, root: etree._Element, source: str, raw_xml: str) -> SSISPackage:
         pkg_id = _clean_id(_attr(root, "DTSID"))
         pkg_name = _attr(root, "ObjectName") or Path(source).stem
+        # SSIS designer default is "Package" or "Package1"; if developers never
+        # renamed it we get useless duplicates across an estate. Fall back to
+        # the filename stem in that case so estate-scale tooling can tell
+        # packages apart.
+        if pkg_name in {"Package", "Package1"}:
+            stem = Path(source).stem
+            if stem and stem != pkg_name:
+                pkg_name = stem
 
         protection_str = _attr(root, "ProtectionLevel") or "0"
         protection_map = {

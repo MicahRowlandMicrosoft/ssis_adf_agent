@@ -9,3 +9,5 @@ build/
 *.egg
 infra/
 ssis_adf_agent.code-workspace
+.scratch/
+

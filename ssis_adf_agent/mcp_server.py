@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import logging
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -651,11 +652,11 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "subscription_id": {
                         "type": "string",
-                        "description": "Azure subscription ID to deploy into.",
+                        "description": "Azure subscription ID to deploy into. Required unless dry_run=true and you only want offline Bicep compilation.",
                     },
                     "resource_group": {
                         "type": "string",
-                        "description": "Target resource group (must already exist).",
+                        "description": "Target resource group (must already exist). Required unless dry_run=true and you only want offline Bicep compilation.",
                     },
                     "name_prefix": {
                         "type": "string",
@@ -673,11 +674,11 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "dry_run": {
                         "type": "boolean",
-                        "description": "If true, validate the deployment without applying it. Default: false.",
+                        "description": "If true, do not actually apply the deployment. If subscription_id and resource_group are supplied, the template is validated against Azure. If they are omitted, the Bicep is only compiled locally (requires Azure CLI on PATH) so you can preview it without any Azure access. Default: false.",
                         "default": False,
                     },
                 },
-                "required": ["plan_path", "subscription_id", "resource_group"],
+                "required": ["plan_path"],
             },
         ),
         types.Tool(
@@ -875,8 +876,18 @@ async def list_tools() -> list[types.Tool]:
                             "(produced by save_migration_plan)."
                         ),
                     },
-                    "waves_path": {"type": "string", "description": "Optional pre-computed waves JSON."},
-                    "cost_estimate_path": {"type": "string", "description": "Optional pre-computed cost JSON."},
+                    "waves_path": {"type": "string", "description": "Optional pre-computed waves JSON. If supplied, wave settings are taken from this file and max_packages_per_wave is ignored."},
+                    "cost_estimate_path": {"type": "string", "description": "Optional pre-computed cost JSON. If supplied, runs_per_day and the other cost knobs are ignored."},
+                    "max_packages_per_wave": {
+                        "type": "integer",
+                        "description": "Maximum packages per wave when deriving waves inline. Ignored if waves_path is supplied. Default: 10.",
+                        "default": 10,
+                    },
+                    "runs_per_day": {
+                        "type": "number",
+                        "description": "Cost knob: average pipeline runs per day per package. Ignored if cost_estimate_path is supplied. Default: 1.",
+                        "default": 1,
+                    },
                     "output_pdf": {"type": "string", "description": "Path to write the PDF."},
                     "customer_name": {"type": "string"},
                 },
@@ -1646,33 +1657,69 @@ async def _load_plan(args: dict[str, Any]) -> list[types.TextContent]:
 
 async def _provision_adf_env(args: dict[str, Any]) -> list[types.TextContent]:
     from .migration_plan import deploy_bicep, generate_bicep, load_plan
+    from .migration_plan.provisioner import _compile_bicep
 
     plan_path = _safe_resolve(args["plan_path"], must_exist=True, label="plan_path")
     plan = load_plan(plan_path)
     name_prefix = args.get("name_prefix", "ssismig")
     bicep = generate_bicep(plan, name_prefix=name_prefix)
+    dry_run = bool(args.get("dry_run", False))
+    subscription_id = args.get("subscription_id")
+    resource_group = args.get("resource_group")
 
+    # Always write the Bicep first so the user has something to inspect
+    # regardless of whether the Azure round-trip succeeds.
+    bicep_saved_to: str | None = None
     if args.get("output_bicep_path"):
         out = _safe_resolve(args["output_bicep_path"], label="output_bicep_path")
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(bicep, encoding="utf-8")
+        bicep_saved_to = str(out)
 
-    result = deploy_bicep(
-        bicep_source=bicep,
-        subscription_id=args["subscription_id"],
-        resource_group=args["resource_group"],
-        deployment_name=args.get("deployment_name", "ssis-migration-copilot"),
-        parameters={"prefix": name_prefix},
-        dry_run=args.get("dry_run", False),
-    )
-    payload = {
+    payload: dict[str, Any] = {
         "plan_package": plan.package_name,
         "name_prefix": name_prefix,
         "bicep_lines": len(bicep.splitlines()),
-        **result,
     }
-    if args.get("output_bicep_path"):
-        payload["bicep_saved_to"] = str(_safe_resolve(args["output_bicep_path"], label="output_bicep_path"))
+    if bicep_saved_to:
+        payload["bicep_saved_to"] = bicep_saved_to
+
+    # Live deployment requires both Azure identifiers.
+    azure_required = not dry_run
+    if azure_required and (not subscription_id or not resource_group):
+        raise ValueError(
+            "subscription_id and resource_group are required unless dry_run=true."
+        )
+
+    # Offline dry run: compile Bicep locally and return without touching Azure.
+    if dry_run and (not subscription_id or not resource_group):
+        if bicep_saved_to is None:
+            # Need a file on disk so `az bicep build` can compile it.
+            tmp_dir = Path(tempfile.mkdtemp(prefix="ssis_adf_bicep_"))
+            tmp_bicep = tmp_dir / "main.bicep"
+            tmp_bicep.write_text(bicep, encoding="utf-8")
+        else:
+            tmp_bicep = Path(bicep_saved_to)
+        try:
+            _compile_bicep(tmp_bicep)
+            payload["status"] = "bicep_compiled"
+            payload["mode"] = "offline_dry_run"
+        except RuntimeError as exc:
+            payload["status"] = "bicep_compile_failed"
+            payload["mode"] = "offline_dry_run"
+            payload["details"] = str(exc)
+        return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
+
+    # Online path (live deploy or dry_run with credentials).
+    result = deploy_bicep(
+        bicep_source=bicep,
+        subscription_id=subscription_id,
+        resource_group=resource_group,
+        deployment_name=args.get("deployment_name", "ssis-migration-copilot"),
+        parameters={"prefix": name_prefix},
+        dry_run=dry_run,
+    )
+    payload.update(result)
     return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
 
 
@@ -1680,6 +1727,7 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
     from .analyzers.complexity_scorer import score_package
     from .analyzers.gap_analyzer import analyze_gaps
     from .migration_plan import propose_design
+    from .parsers.models import ConnectionManagerType
     from .parsers.readers.local_reader import LocalReader
 
     source_path = _safe_resolve(args["source_path"], must_exist=True, label="source_path")
@@ -1710,9 +1758,19 @@ async def _bulk_analyze(args: dict[str, Any]) -> list[types.TextContent]:
             sensitive_param_names = sorted({
                 p.name for p in (pkg.project_parameters or []) if p.sensitive
             })
+            # Only count SQL-flavored connection managers; Excel/Flat File/FTP
+            # connections also populate `cm.server` with a file path or URL,
+            # which is not what "shared on-prem SQL server" means.
+            sql_cm_types = {
+                ConnectionManagerType.OLEDB,
+                ConnectionManagerType.ADO_NET,
+                ConnectionManagerType.ODBC,
+            }
             sql_servers = sorted({
                 cm.server for cm in pkg.connection_managers
-                if cm.server and "database.windows.net" not in (cm.server or "").lower()
+                if cm.type in sql_cm_types
+                and cm.server
+                and "database.windows.net" not in cm.server.lower()
             })
             rows.append({
                 "package_name": pkg.name,
@@ -2025,14 +2083,20 @@ async def _build_estate_pdf(args: dict[str, Any]) -> list[types.TextContent]:
         waves_path = _safe_resolve(args["waves_path"], must_exist=True, label="waves_path")
         waves = json.loads(waves_path.read_text(encoding="utf-8"))
     else:
-        waves = plan_migration_waves(plans)
+        waves = plan_migration_waves(
+            plans,
+            max_packages_per_wave=int(args.get("max_packages_per_wave", 10)),
+        )
 
     cost_estimate = None
     if args.get("cost_estimate_path"):
         cost_path = _safe_resolve(args["cost_estimate_path"], must_exist=True, label="cost_estimate_path")
         cost_estimate = json.loads(cost_path.read_text(encoding="utf-8"))
     else:
-        cost_estimate = estimate_adf_costs(plans=plans)
+        cost_estimate = estimate_adf_costs(
+            plans=plans,
+            runs_per_day=int(args.get("runs_per_day", 1)),
+        )
 
     pdf_path = build_estate_report_pdf(
         output_pdf=output_pdf,

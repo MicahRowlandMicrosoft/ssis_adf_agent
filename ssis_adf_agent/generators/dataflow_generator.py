@@ -27,6 +27,7 @@ from ..parsers.models import (
     TaskType,
 )
 from ..warnings_collector import warn
+from .naming import df_name as _df_name, ds_name as _ds_name, resolve_ls_name
 
 # ---------------------------------------------------------------------------
 # SSIS DataType → ADF Mapping Data Flow DSL type
@@ -94,6 +95,9 @@ _DEST_TYPES = frozenset({
 def generate_data_flows(
     package: SSISPackage,
     output_dir: Path,
+    *,
+    ls_name_map: dict[str, str] | None = None,
+    name_overrides: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     For every complex Data Flow Task in the package, generate a Mapping Data Flow JSON.
@@ -123,15 +127,21 @@ def generate_data_flows(
         if not transform_comps and len(sources_comps) <= 1 and len(dest_comps) <= 1:
             continue  # handled as Copy Activity
 
-        df_name = f"DF_{task.name.replace(' ', '_')}"
+        df_nm = _df_name(package.name, task.name, name_overrides=name_overrides)
 
-        sources = [convert_source(c) for c in sources_comps]
-        sinks = [convert_destination(c) for c in dest_comps]
+        sources = [convert_source(c, package_name=package.name, ls_name_map=ls_name_map) for c in sources_comps]
+        sinks = [convert_destination(c, package_name=package.name, ls_name_map=ls_name_map) for c in dest_comps]
         transformations: list[dict[str, Any]] = []
         for comp in transform_comps:
             t = convert_transformation(comp)
             if t is not None:
                 transformations.append(t)
+
+        # Re-check after conversion: if all transforms were no-ops (e.g. empty
+        # DerivedColumn) and there's a single source → single sink, skip the
+        # data flow and let the pipeline generator emit a Copy Activity instead.
+        if not transformations and len(sources_comps) <= 1 and len(dest_comps) <= 1:
+            continue
 
         # Collect key columns from destination components for upsert config
         key_cols: list[str] = []
@@ -142,13 +152,23 @@ def generate_data_flows(
         # Build data flow script using topology from parsed paths
         script = _build_dsl_script(sources, transformations, sinks, key_cols, task)
 
-        # Strip private metadata fields (Pydantic models) before JSON serialization
+        # Strip internal fields before JSON serialization.
+        # Private metadata (_output_columns, etc.) was used by _build_dsl_script;
+        # typeProperties/type are used by _emit_transformation but are NOT valid
+        # in the ADF Mapping Data Flow REST schema (all config lives in scriptLines).
+        # linkedService is also removed from sources/sinks — the LS is already
+        # defined in the referenced dataset; including it at the source/sink
+        # level causes "Unable to parse" errors.
         for _d in (*sources, *sinks):
-            for _k in ("_output_columns", "_input_columns", "_key_columns"):
+            for _k in ("_output_columns", "_input_columns", "_key_columns",
+                        "typeProperties", "linkedService"):
+                _d.pop(_k, None)
+        for _d in transformations:
+            for _k in ("type", "typeProperties"):
                 _d.pop(_k, None)
 
         df: dict[str, Any] = {
-            "name": df_name,
+            "name": df_nm,
             "properties": {
                 "description": f"Mapping Data Flow for SSIS Data Flow Task: {task.name}",
                 "type": "MappingDataFlow",
@@ -156,14 +176,13 @@ def generate_data_flows(
                     "sources": sources,
                     "sinks": sinks,
                     "transformations": transformations,
-                    "script": script,
                     "scriptLines": script.splitlines(),
                 },
                 "annotations": ["ssis-adf-agent"],
             },
         }
 
-        (df_dir / f"{df_name}.json").write_text(
+        (df_dir / f"{df_nm}.json").write_text(
             json.dumps(df, indent=4, ensure_ascii=False),
             encoding="utf-8",
         )

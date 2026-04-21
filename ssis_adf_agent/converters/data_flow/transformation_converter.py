@@ -77,18 +77,33 @@ def _base(component: DataFlowComponent, transform_type: str) -> dict[str, Any]:
 # DerivedColumn — reads Expression from each output column's properties
 # ---------------------------------------------------------------------------
 
-def _derived_column(component: DataFlowComponent) -> dict[str, Any]:
+def _derived_column(component: DataFlowComponent) -> dict[str, Any] | None:
     t = _base(component, "DerivedColumn")
     columns: list[dict] = []
     for col in component.output_columns:
-        ssis_expr = col.properties.get("Expression") or col.properties.get("FriendlyExpression")
+        # Prefer FriendlyExpression (uses column names) over Expression (uses
+        # lineage IDs like #{Package\...\Columns[X]} that ADF cannot parse).
+        ssis_expr = col.properties.get("FriendlyExpression") or col.properties.get("Expression")
         if ssis_expr:
             adf_expr = translate_expression(ssis_expr)
         else:
             # Fallback: check component-level properties keyed by column name
             ssis_expr = component.properties.get(col.name)
             adf_expr = translate_expression(ssis_expr) if ssis_expr else f"/* TODO: expression for {col.name} */"
+
+        # Skip pure pass-through columns (expression is just the column name
+        # with no transformation).  These flow automatically via allowSchemaDrift.
+        stripped = adf_expr.strip()
+        if stripped == col.name or stripped == col.name.strip("{}"):
+            continue
+
         columns.append({"name": col.name, "expression": adf_expr})
+
+    # If no meaningful columns remain, this DerivedColumn is a no-op — skip it
+    # so the generator can fall back to a Copy Activity if no other transforms exist.
+    if not columns:
+        return None
+
     t["typeProperties"]["columns"] = columns
     return t
 

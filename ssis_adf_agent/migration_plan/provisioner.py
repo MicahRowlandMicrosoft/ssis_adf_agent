@@ -73,8 +73,9 @@ def deploy_bicep(
     :return: ``{"status": "succeeded"|"validated"|"failed", "outputs": {...},
         "deployment_id": "...", "details": "..."}``
     """
-    from azure.identity import DefaultAzureCredential
     from azure.mgmt.resource import ResourceManagementClient
+
+    from ..credential import get_credential
     from azure.mgmt.resource.resources.models import (
         Deployment,
         DeploymentMode,
@@ -96,7 +97,7 @@ def deploy_bicep(
 
         wrapped_params = {k: {"value": v} for k, v in (parameters or {}).items()}
 
-        credential = DefaultAzureCredential()
+        credential = get_credential()
         client = ResourceManagementClient(credential, subscription_id)
 
         deployment = Deployment(

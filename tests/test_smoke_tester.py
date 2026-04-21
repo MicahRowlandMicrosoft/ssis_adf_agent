@@ -29,7 +29,12 @@ def _install_fake_sdk(monkeypatch):
         def __init__(self, *a, **kw):
             captured["credential_init"] += 1
 
+    class _AzureCliCredential:
+        def __init__(self, *a, **kw):
+            captured["credential_init"] += 1
+
     identity_mod.DefaultAzureCredential = _DefaultAzureCredential
+    identity_mod.AzureCliCredential = _AzureCliCredential
     monkeypatch.setitem(sys.modules, "azure.identity", identity_mod)
 
     # azure.mgmt.datafactory + .models
@@ -82,6 +87,8 @@ def _make_activity(name, atype, status, start, end, error=None):
 def test_smoke_test_pipeline_succeeds_and_returns_activities(monkeypatch):
     captured = _install_fake_sdk(monkeypatch)
     # Reload to pick up new sys.modules entries.
+    if "ssis_adf_agent.credential" in sys.modules:
+        del sys.modules["ssis_adf_agent.credential"]
     if "ssis_adf_agent.migration_plan.smoke_tester" in sys.modules:
         del sys.modules["ssis_adf_agent.migration_plan.smoke_tester"]
     from ssis_adf_agent.migration_plan import smoke_tester  # noqa: WPS433
@@ -133,6 +140,8 @@ def test_smoke_test_pipeline_succeeds_and_returns_activities(monkeypatch):
 
 def test_smoke_test_pipeline_reports_timeout(monkeypatch):
     _install_fake_sdk(monkeypatch)
+    if "ssis_adf_agent.credential" in sys.modules:
+        del sys.modules["ssis_adf_agent.credential"]
     if "ssis_adf_agent.migration_plan.smoke_tester" in sys.modules:
         del sys.modules["ssis_adf_agent.migration_plan.smoke_tester"]
     from ssis_adf_agent.migration_plan import smoke_tester  # noqa: WPS433
@@ -173,6 +182,8 @@ def test_smoke_test_pipeline_reports_timeout(monkeypatch):
 
 def test_smoke_test_pipeline_captures_activity_errors(monkeypatch):
     _install_fake_sdk(monkeypatch)
+    if "ssis_adf_agent.credential" in sys.modules:
+        del sys.modules["ssis_adf_agent.credential"]
     if "ssis_adf_agent.migration_plan.smoke_tester" in sys.modules:
         del sys.modules["ssis_adf_agent.migration_plan.smoke_tester"]
     from ssis_adf_agent.migration_plan import smoke_tester  # noqa: WPS433

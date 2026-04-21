@@ -28,6 +28,8 @@ try:
         ServiceResponseError,
     )
     from azure.identity import DefaultAzureCredential
+
+    from ..credential import get_credential
     from azure.mgmt.datafactory import DataFactoryManagementClient
     from azure.mgmt.datafactory.models import (
         DataFlowResource,
@@ -119,7 +121,7 @@ class AdfDeployer:
         self.subscription_id = subscription_id
         self.resource_group = resource_group
         self.factory_name = factory_name
-        self._credential = credential or DefaultAzureCredential()
+        self._credential = credential or get_credential()
         self._client: DataFactoryManagementClient | None = None
 
     @property

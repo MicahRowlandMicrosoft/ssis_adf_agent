@@ -43,6 +43,7 @@ class PlanApplication(BaseModel):
     rewired_constraint_count: int = 0
     deferred_simplifications: list[dict] = Field(default_factory=list)
     linked_service_overrides: dict[str, dict] = Field(default_factory=dict)
+    name_overrides: dict[str, str] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
 
 
@@ -262,6 +263,10 @@ def apply_plan(package: SSISPackage, plan: MigrationPlan) -> tuple[SSISPackage, 
             "auth": ls.auth.value,
             "secret_name": ls.secret_name,
         }
+
+    # Pass through artifact name overrides from the plan
+    if plan.name_overrides:
+        app.name_overrides = dict(plan.name_overrides)
 
     if app.dropped_task_count:
         app.notes.append(

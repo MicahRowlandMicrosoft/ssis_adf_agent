@@ -390,8 +390,9 @@ def _check_factory(
 ) -> None:
     """Confirm the target factory exists and the caller can authenticate."""
     try:
-        from azure.identity import DefaultAzureCredential
         from azure.mgmt.datafactory import DataFactoryManagementClient
+
+        from ..credential import get_credential
     except ImportError:
         result.add(
             "warning", "factory_check",
@@ -400,7 +401,7 @@ def _check_factory(
         return
 
     try:
-        client = DataFactoryManagementClient(DefaultAzureCredential(), subscription_id)
+        client = DataFactoryManagementClient(get_credential(), subscription_id)
         factory_obj = client.factories.get(resource_group, factory_name)
         if factory_obj is None:
             result.add(

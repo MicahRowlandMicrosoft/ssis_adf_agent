@@ -301,13 +301,14 @@ class TestMultiIRSupport:
     def test_generate_with_ir_mapping(self, tmp_path):
         from ssis_adf_agent.parsers.models import ConnectionManagerType
         pkg = SimpleNamespace(
+            name="TestPackage",
             connection_managers=[
                 _cm(name="EU_Sales", server="10.0.0.1"),
                 _cm(name="US_Orders", server="10.0.0.2", id="US_Orders"),
             ],
         )
         mapping = {"eu_*": "SHIR_EU", "us_*": "SHIR_US"}
-        results = generate_linked_services(
+        results, _ = generate_linked_services(
             pkg, tmp_path,
             on_prem_ir_name="DefaultSHIR",
             ir_mapping=mapping,

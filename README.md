@@ -168,9 +168,9 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
    **Migration Copilot — estate scale:**
    - `bulk_analyze` — triage every `.dtsx` in a directory
    - `convert_estate` — propose + convert every package in one shot
-   - `plan_migration_waves` — group an estate into ordered delivery waves
-   - `estimate_adf_costs` — monthly USD projection for the proposed estate
-   - `build_estate_report` — stakeholder PDF combining triage + waves + costs
+   - `plan_migration_waves` — group saved plans into ordered delivery waves *(requires saved plans)*
+   - `estimate_adf_costs` — plan-aware monthly USD projection from activity mix *(requires saved plans)*
+   - `build_estate_report` — stakeholder PDF from saved plans + waves + costs *(requires saved plans)*
    - `smoke_test_pipeline` — trigger one ADF pipeline run + return per-activity results
 
 ---
@@ -209,11 +209,6 @@ The Migration Copilot tools wrap the per-package backbone into an estate-scale, 
   bulk_analyze ............... Walk all .dtsx, score, classify, roll up effort
           │
           ▼
-  plan_migration_waves ....... Bulk-convertible first, then design-review waves
-  estimate_adf_costs ......... Coarse monthly $ projection
-  build_estate_report ........ Stakeholder PDF (executive summary + waves + cost)
-          │
-          ▼
   Per package (or convert_estate to do all at once):
      propose_adf_design ...... Recommended MigrationPlan (target pattern,
                                simplifications, linked services, infra,
@@ -221,6 +216,11 @@ The Migration Copilot tools wrap the per-package backbone into an estate-scale, 
      edit_migration_plan ..... Refinements (auth mode, region,
                                drop a fold)
      save_migration_plan
+          │
+          ▼
+  plan_migration_waves ....... Groups saved plans into delivery waves
+  estimate_adf_costs ......... Plan-aware monthly $ projection (activity mix)
+  build_estate_report ........ Stakeholder PDF (executive summary + waves + cost)
           │
           ▼
   provision_adf_environment .. Generate Bicep + deploy ADF / Storage / KV / RBAC
@@ -287,11 +287,13 @@ Rather than hand-editing the JSON, apply structured mutations:
 
 Unknown keys are rejected so typos surface immediately.
 
-### Wave planning & costs
+### Wave planning & costs (design-first)
 
-- `plan_migration_waves` reads a `bulk_analyze` report and produces ordered waves: bulk-convertible first (grouped by `target_pattern` so reviewers share context), then design-review waves capped at `max_packages_per_wave`. Parse failures land in a final `triage` wave.
-- `estimate_adf_costs` projects monthly USD across orchestration (activity runs), Copy DIU·hours, Mapping Data Flow v-cores, ADLS storage, and Key Vault ops. List-price US East defaults; override via the `rates` parameter.
-- `build_estate_report` rolls all of the above into a PDF deliverable for stakeholders.
+These tools **require saved MigrationPlans** — call `propose_adf_design` and `save_migration_plan` first. Estimating effort, cost, and delivery sequence before the architectural blueprints are agreed is like creating a project plan before the design is made.
+
+- `plan_migration_waves` reads saved plans (from a `plans_dir`) and produces ordered waves: bulk-convertible first (grouped by `target_pattern` so reviewers share context), then design-review waves capped at `max_packages_per_wave`.
+- `estimate_adf_costs` introspects each plan's `reasoning_input.task_counts` and `simplifications` to derive per-pipeline Copy vs Data Flow vs orchestration activity counts, then projects monthly USD across orchestration (activity runs), Copy DIU·hours, Mapping Data Flow v-cores, ADLS storage, and Key Vault ops. List-price US East defaults; override via the `rates` parameter.
+- `build_estate_report` rolls plans + waves + costs into a PDF deliverable for stakeholders. If no pre-computed wave or cost JSON is supplied, it derives both automatically from the plans.
 
 ### Cross-package shared infrastructure detection
 

@@ -3,6 +3,18 @@
 These are all small, deterministic functions consumed by the MCP server.
 They sit in the migration_plan package because they all operate on (or produce)
 ``MigrationPlan`` instances or ``bulk_analyze``-style estate reports.
+
+Design-first workflow
+---------------------
+``plan_migration_waves``, ``estimate_adf_costs``, and the estate PDF report
+**require saved MigrationPlans** as input.  This enforces the correct order:
+
+1. scan → analyze → propose ADF design → customer reviews/edits → save plan
+2. **then** estimate LOE, project costs, and sequence migration waves
+
+Estimating before the architectural blueprints are agreed makes no sense —
+these tools refuse to run without plans so the agent (and customer) are guided
+to complete the design conversation first.
 """
 from __future__ import annotations
 
@@ -21,15 +33,38 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Helpers — extract summary dicts from MigrationPlan for wave / cost logic
+# ---------------------------------------------------------------------------
+
+def _plan_to_pkg_summary(plan: MigrationPlan) -> dict[str, Any]:
+    """Distil a MigrationPlan into the flat dict shape that wave/cost logic needs."""
+    ri = plan.reasoning_input or {}
+    return {
+        "package_name": plan.package_name,
+        "complexity_bucket": plan.effort.bucket,
+        "complexity_score": ri.get("complexity_score", 0),
+        "target_pattern": plan.target_pattern.value,
+        "estimated_total_hours": plan.effort.total_hours,
+        "task_counts": ri.get("task_counts", {}),
+        "simplifications": [s.action.value for s in plan.simplifications],
+        "linked_service_count": len(plan.linked_services),
+    }
+
+
+# ---------------------------------------------------------------------------
 # plan_migration_waves
 # ---------------------------------------------------------------------------
 
 def plan_migration_waves(
-    estate_report: dict[str, Any],
+    plans: list[MigrationPlan],
     *,
     max_packages_per_wave: int = 10,
 ) -> dict[str, Any]:
     """Group an estate into ordered migration waves.
+
+    **Requires saved MigrationPlans** — call ``propose_adf_design`` and
+    ``save_migration_plan`` first so the estimates reflect the *agreed* design,
+    not a preliminary analysis.
 
     Strategy (deliberately simple, deterministic, easy to override):
 
@@ -38,16 +73,14 @@ def plan_migration_waves(
     * **Wave 2..N** — design-review-needed (high / very_high), grouped by
       target_pattern, each wave capped at ``max_packages_per_wave`` so a single
       reviewer can hold the design conversation in their head.
-    * Failures from bulk_analyze (parse errors) become a final ``triage`` wave.
 
     The output mirrors the bulk_analyze report shape so the agent can hand it
     straight to a customer.
     """
-    packages = list(estate_report.get("packages", []))
-    failures = list(estate_report.get("failures", []))
+    packages = [_plan_to_pkg_summary(p) for p in plans]
 
-    bulk = [p for p in packages if p.get("complexity_bucket") in ("low", "medium")]
-    review = [p for p in packages if p.get("complexity_bucket") in ("high", "very_high")]
+    bulk = [p for p in packages if p["complexity_bucket"] in ("low", "medium")]
+    review = [p for p in packages if p["complexity_bucket"] in ("high", "very_high")]
 
     waves: list[dict[str, Any]] = []
     wave_num = 1
@@ -64,7 +97,7 @@ def plan_migration_waves(
                 "label": f"Bulk convert — {pattern}",
                 "strategy": "bulk_convert",
                 "package_count": len(chunk),
-                "estimated_hours": round(sum(p.get("estimated_total_hours", 0) for p in chunk), 1),
+                "estimated_hours": round(sum(p["estimated_total_hours"] for p in chunk), 1),
                 "target_pattern": pattern,
                 "packages": [p["package_name"] for p in chunk],
             })
@@ -75,7 +108,7 @@ def plan_migration_waves(
     for p in review:
         by_pattern_review[p.get("target_pattern", "custom")].append(p)
     for pattern, pkgs in sorted(by_pattern_review.items()):
-        pkgs_sorted = sorted(pkgs, key=lambda p: -p.get("complexity_score", 0))
+        pkgs_sorted = sorted(pkgs, key=lambda p: -p["complexity_score"])
         for chunk_start in range(0, len(pkgs_sorted), max_packages_per_wave):
             chunk = pkgs_sorted[chunk_start:chunk_start + max_packages_per_wave]
             waves.append({
@@ -83,26 +116,15 @@ def plan_migration_waves(
                 "label": f"Design review — {pattern}",
                 "strategy": "design_review",
                 "package_count": len(chunk),
-                "estimated_hours": round(sum(p.get("estimated_total_hours", 0) for p in chunk), 1),
+                "estimated_hours": round(sum(p["estimated_total_hours"] for p in chunk), 1),
                 "target_pattern": pattern,
                 "packages": [p["package_name"] for p in chunk],
             })
             wave_num += 1
 
-    if failures:
-        waves.append({
-            "wave": wave_num,
-            "label": "Triage — parse failures",
-            "strategy": "triage",
-            "package_count": len(failures),
-            "estimated_hours": 0.0,
-            "target_pattern": None,
-            "packages": [f.get("path", "?") for f in failures],
-        })
-
     return {
         "wave_count": len(waves),
-        "total_packages": len(packages) + len(failures),
+        "total_packages": len(packages),
         "total_estimated_hours": round(sum(w["estimated_hours"] for w in waves), 1),
         "waves": waves,
     }
@@ -125,57 +147,115 @@ _DEFAULT_RATES = {
 }
 
 
+def _activity_mix_from_plans(
+    plans: list[MigrationPlan],
+) -> dict[str, Any]:
+    """Derive per-pipeline activity counts from saved plans.
+
+    Returns aggregate counts the cost estimator can use instead of flat
+    assumptions:
+
+    * ``total_copy_activities``    — tasks that become Copy Activity
+    * ``total_dataflow_activities`` — tasks that become Execute Data Flow
+    * ``total_other_activities``    — remaining orchestration activities
+    * ``total_activities``         — grand total
+    * ``total_linked_services``    — distinct linked services across estate
+    """
+    total_copy = 0
+    total_df = 0
+    total_other = 0
+    total_ls = 0
+
+    for plan in plans:
+        ri = plan.reasoning_input or {}
+        task_counts: dict[str, int] = ri.get("task_counts", {})
+        simps = {s.action.value for s in plan.simplifications}
+        dropped_items = set()
+        for s in plan.simplifications:
+            if s.action == SimplificationAction.DROP:
+                dropped_items.update(s.items)
+
+        df_tasks = task_counts.get("DataFlowTask", 0)
+        copy_like = 0
+
+        # Simplifications that fold data flows into copies reduce DF count
+        if "fold_to_copy_activity" in simps:
+            folded = max(1, df_tasks)  # at least 1 gets folded
+            copy_like += folded
+            df_tasks = max(0, df_tasks - folded)
+
+        total_df += df_tasks
+        total_copy += max(1, copy_like)  # every pipeline has at least 1 copy
+
+        # Everything else: ExecuteSQL, FileSystem, ForEachLoop, etc.
+        other = sum(
+            v for k, v in task_counts.items()
+            if k != "DataFlowTask"
+        )
+        total_other += other
+        total_ls += len(plan.linked_services)
+
+    return {
+        "total_copy_activities": total_copy,
+        "total_dataflow_activities": total_df,
+        "total_other_activities": total_other,
+        "total_activities": total_copy + total_df + total_other,
+        "total_linked_services": total_ls,
+    }
+
+
 def estimate_adf_costs(
     *,
-    estate_report: dict[str, Any] | None = None,
-    plans: list[MigrationPlan] | None = None,
+    plans: list[MigrationPlan],
     runs_per_day: int = 1,
-    avg_activities_per_run: int = 6,
     avg_copy_diu: float = 4.0,
     avg_copy_minutes: float = 5.0,
-    avg_dataflow_minutes: float = 0.0,
+    avg_dataflow_minutes: float = 10.0,
     avg_dataflow_vcores: int = 8,
     storage_gb: float = 100.0,
     rates: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Coarse monthly Azure cost projection for the proposed estate.
 
-    Inputs come from ``bulk_analyze`` (estate_report) and/or a list of
-    ``MigrationPlan``s. We avoid live pricing API calls so the tool stays
-    offline-friendly; pass ``rates`` to override the documented defaults.
+    **Requires saved MigrationPlans** so the estimate reflects the *agreed*
+    design (activity mix, linked-service count, simplifications applied).
+
+    Instead of flat ``avg_activities_per_run`` the function introspects each
+    plan's ``reasoning_input.task_counts`` and ``simplifications`` to derive
+    per-pipeline Copy vs Data Flow vs orchestration activity counts.
 
     Returns a per-line-item breakdown plus a monthly total. Annual figures are
     a simple ×12 — sufficient for a budgeting conversation, not a quote.
     """
     rate_table = {**_DEFAULT_RATES, **(rates or {})}
-
-    if estate_report is not None:
-        package_count = estate_report.get("package_count", 0)
-    elif plans is not None:
-        package_count = len(plans)
-    else:
-        package_count = 1
+    package_count = len(plans)
+    mix = _activity_mix_from_plans(plans)
 
     runs_per_month = runs_per_day * 30 * max(package_count, 1)
-    activities_per_month = runs_per_month * avg_activities_per_run
 
+    # Orchestration: all activities × runs
+    activities_per_month = runs_per_month * max(mix["total_activities"] / max(package_count, 1), 1)
     orchestration_cost = (activities_per_month / 1000.0) * rate_table["activity_run_per_1k"]
 
-    copy_diu_hours = runs_per_month * (avg_copy_minutes / 60.0) * avg_copy_diu
+    # Copy: only copy activities contribute DIU·hours
+    copy_runs_per_month = runs_per_month * (mix["total_copy_activities"] / max(package_count, 1))
+    copy_diu_hours = copy_runs_per_month * (avg_copy_minutes / 60.0) * avg_copy_diu
     copy_cost = copy_diu_hours * rate_table["azure_ir_diu_hour"]
 
-    df_vcore_hours = runs_per_month * (avg_dataflow_minutes / 60.0) * avg_dataflow_vcores
+    # Data Flows: only DF activities contribute v-core·hours
+    df_runs_per_month = runs_per_month * (mix["total_dataflow_activities"] / max(package_count, 1))
+    df_vcore_hours = df_runs_per_month * (avg_dataflow_minutes / 60.0) * avg_dataflow_vcores
     dataflow_cost = df_vcore_hours * rate_table["data_flow_vcore_hour"]
 
     storage_cost = storage_gb * rate_table["storage_gb_month_hot"]
 
-    # Key Vault: assume ~2 secret reads per pipeline run for MI-bootstrapped LSes
-    kv_ops = runs_per_month * 2
+    # Key Vault: ~2 secret reads per linked service per run
+    kv_ops = runs_per_month * mix["total_linked_services"] * 2 / max(package_count, 1)
     kv_cost = (kv_ops / 10_000.0) * rate_table["key_vault_op_per_10k"]
 
     line_items = [
         {"name": "ADF orchestration (activity runs)", "monthly_usd": round(orchestration_cost, 2),
-         "basis": f"{activities_per_month:,} activity runs/mo"},
+         "basis": f"{activities_per_month:,.0f} activity runs/mo"},
         {"name": "Copy activity (Azure IR DIU·hours)", "monthly_usd": round(copy_cost, 2),
          "basis": f"{copy_diu_hours:.1f} DIU·hours/mo"},
         {"name": "Mapping Data Flows (v-core·hours)", "monthly_usd": round(dataflow_cost, 2),
@@ -183,15 +263,15 @@ def estimate_adf_costs(
         {"name": "ADLS Gen2 hot storage", "monthly_usd": round(storage_cost, 2),
          "basis": f"{storage_gb:.0f} GB"},
         {"name": "Key Vault operations", "monthly_usd": round(kv_cost, 2),
-         "basis": f"{kv_ops:,} ops/mo"},
+         "basis": f"{kv_ops:,.0f} ops/mo"},
     ]
     monthly_total = round(sum(li["monthly_usd"] for li in line_items), 2)
 
     return {
         "package_count": package_count,
+        "activity_mix": mix,
         "assumptions": {
             "runs_per_day": runs_per_day,
-            "avg_activities_per_run": avg_activities_per_run,
             "avg_copy_diu": avg_copy_diu,
             "avg_copy_minutes": avg_copy_minutes,
             "avg_dataflow_minutes": avg_dataflow_minutes,
@@ -205,7 +285,8 @@ def estimate_adf_costs(
         "currency": "USD",
         "note": (
             "List-price estimate (US East). Reservations, support tier, egress, "
-            "and SHIR VM costs are not included. Override via the rates parameter."
+            "and SHIR VM costs are not included. Override via the rates parameter. "
+            "Activity counts derived from saved MigrationPlans."
         ),
     }
 
@@ -242,6 +323,7 @@ def edit_migration_plan(plan: MigrationPlan, edits: dict[str, Any]) -> Migration
     allowed = {
         "set_auth_mode", "set_region", "set_summary", "set_target_pattern",
         "add_simplification", "drop_simplification", "set_customer_decision",
+        "set_name_override", "remove_name_override",
     }
     unknown = set(edits) - allowed
     if unknown:
@@ -296,5 +378,28 @@ def edit_migration_plan(plan: MigrationPlan, edits: dict[str, Any]) -> Migration
         if not isinstance(decision, dict):
             raise PlanEditError("set_customer_decision must be a dict")
         new_plan.customer_decisions.update(decision)
+
+    if "set_name_override" in edits:
+        override = edits["set_name_override"]
+        if not isinstance(override, dict):
+            raise PlanEditError("set_name_override must be a dict, e.g. {'LS:MyConn': 'LS_Custom'}")
+        _valid_prefixes = ("LS:", "DS:", "DF:", "PL", "TR")
+        for key in override:
+            if not any(key.upper().startswith(p) for p in _valid_prefixes):
+                raise PlanEditError(
+                    f"Invalid name_override key: {key!r}. "
+                    f"Must start with one of: {', '.join(_valid_prefixes)}"
+                )
+        new_plan.name_overrides.update(override)
+
+    if "remove_name_override" in edits:
+        key_to_remove = edits["remove_name_override"]
+        if isinstance(key_to_remove, str):
+            new_plan.name_overrides.pop(key_to_remove, None)
+        elif isinstance(key_to_remove, list):
+            for k in key_to_remove:
+                new_plan.name_overrides.pop(k, None)
+        else:
+            raise PlanEditError("remove_name_override must be a string or list of strings")
 
     return new_plan

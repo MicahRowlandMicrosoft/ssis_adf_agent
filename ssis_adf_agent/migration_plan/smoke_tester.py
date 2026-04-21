@@ -64,8 +64,9 @@ def smoke_test_pipeline(
         activity status it could observe; it does NOT cancel the run.
     """
     try:
-        from azure.identity import DefaultAzureCredential
         from azure.mgmt.datafactory import DataFactoryManagementClient
+
+        from ..credential import get_credential
         from azure.mgmt.datafactory.models import RunFilterParameters
     except ImportError as exc:  # pragma: no cover - import-time guard
         raise ImportError(
@@ -73,7 +74,7 @@ def smoke_test_pipeline(
             "Install with: pip install azure-mgmt-datafactory azure-identity"
         ) from exc
 
-    credential = DefaultAzureCredential()
+    credential = get_credential()
     client = DataFactoryManagementClient(credential, subscription_id)
 
     logger.info(

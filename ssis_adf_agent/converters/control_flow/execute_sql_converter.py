@@ -26,6 +26,7 @@ import re
 from typing import Any
 
 from ...parsers.models import ExecuteSQLTask, PrecedenceConstraint, SSISTask
+from ...generators.naming import resolve_ls_name
 from ..base_converter import BaseConverter
 
 _PROC_PATTERN = re.compile(
@@ -124,6 +125,9 @@ def apply_schema_remap(sql: str | None, schema_remap: dict[str, str] | None) -> 
 
 
 class ExecuteSQLConverter(BaseConverter):
+    def __init__(self, *, ls_name_map: dict[str, str] | None = None) -> None:
+        self._ls_name_map = ls_name_map
+
     def convert(
         self,
         task: SSISTask,
@@ -137,7 +141,7 @@ class ExecuteSQLConverter(BaseConverter):
 
         # Build linked service reference from connection_id placeholder
         linked_service_ref = {
-            "referenceName": f"LS_{task.connection_id or 'unknown'}",
+            "referenceName": resolve_ls_name(task.connection_id or "unknown", self._ls_name_map),
             "type": "LinkedServiceReference",
         }
 

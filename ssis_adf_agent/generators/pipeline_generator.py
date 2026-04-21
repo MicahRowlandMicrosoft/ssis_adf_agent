@@ -35,6 +35,7 @@ from ..parsers.models import (
     SSISPackage,
 )
 from ..warnings_collector import warn as _warn
+from .naming import pl_name as _pl_name
 
 # ADF hard limit on activities per pipeline
 _ADF_ACTIVITY_LIMIT = 40
@@ -99,6 +100,8 @@ def generate_pipeline(
     cdm_gaps: list | None = None,
     esi_gaps: list | None = None,
     schema_remap: dict[str, str] | None = None,
+    ls_name_map: dict[str, str] | None = None,
+    name_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """
     Convert an SSISPackage to a full ADF pipeline JSON and write it to *output_dir*.
@@ -108,6 +111,8 @@ def generate_pipeline(
         cdm_gaps: CDM pattern gap items to annotate pipeline.
         esi_gaps: ESI reuse gap items to annotate pipeline.
         schema_remap: Schema remap config for database consolidation.
+        ls_name_map: Mapping from CM ID to linked service name.
+        name_overrides: Optional artifact name overrides from the migration plan.
 
     Returns the pipeline dict.
     """
@@ -115,8 +120,10 @@ def generate_pipeline(
         stubs_dir=stubs_dir or output_dir / "stubs",
         llm_translate=llm_translate,
         pipeline_prefix=pipeline_prefix,
+        ls_name_map=ls_name_map,
+        package_name=package.name,
     )
-    pipeline_name = f"{pipeline_prefix}{package.name.replace(' ', '_')}"
+    pipeline_name = _pl_name(package.name, pipeline_prefix, name_overrides=name_overrides)
 
     # Topological task ordering
     task_by_id = {t.id: t for t in package.tasks}

@@ -8,7 +8,9 @@ from typing import Any
 
 from ...parsers.models import DataFlowComponent
 from ...warnings_collector import warn
+from ...generators.naming import ds_name as _ds_name, resolve_ls_name
 from ._naming import safe_node_name
+
 
 _SINK_DATASET_TYPE: dict[str, str] = {
     "OleDbDestination": "AzureSqlTable",
@@ -29,7 +31,12 @@ _WRITE_BEHAVIOR: dict[str, str] = {
 }
 
 
-def convert_destination(component: DataFlowComponent) -> dict[str, Any]:
+def convert_destination(
+    component: DataFlowComponent,
+    *,
+    package_name: str = "",
+    ls_name_map: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """
     Return an ADF Mapping Data Flow ``sink`` transformation dict.
 
@@ -41,7 +48,7 @@ def convert_destination(component: DataFlowComponent) -> dict[str, Any]:
     # ADF Mapping Data Flow node names must be alphanumeric only.
     safe_name = safe_node_name(component.name, fallback="Sink")
     # Dataset resource names allow underscores; keep the underscore form for refs.
-    ds_ref_name = component.name.replace(" ", "_")
+    ds_ref = _ds_name(package_name, component.name) if package_name else f"DS_{component.name.replace(' ', '_')}"
 
     # Guard: only allow upsert if the component has key columns defined
     has_keys = bool(component.key_columns)
@@ -60,11 +67,11 @@ def convert_destination(component: DataFlowComponent) -> dict[str, Any]:
         "name": safe_name,
         "description": f"Sink from SSIS {comp_type}: {component.name}",
         "dataset": {
-            "referenceName": f"DS_{ds_ref_name}",
+            "referenceName": ds_ref,
             "type": "DatasetReference",
         },
         "linkedService": {
-            "referenceName": f"LS_{conn_ref}",
+            "referenceName": resolve_ls_name(conn_ref, ls_name_map),
             "type": "LinkedServiceReference",
         },
         "typeProperties": {

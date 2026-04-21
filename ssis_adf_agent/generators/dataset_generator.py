@@ -19,6 +19,8 @@ from ..parsers.models import (
     SSISPackage,
     TaskType,
 )
+from .naming import ds_name as _ds_name, resolve_ls_name, sanitize_adf_name
+
 
 # ---------------------------------------------------------------------------
 # SSIS DataType → ADF dataset schema type mapping
@@ -170,6 +172,8 @@ def generate_datasets(
     *,
     schema_remap: dict[str, str] | None = None,
     shared_artifacts_dir: Path | None = None,
+    ls_name_map: dict[str, str] | None = None,
+    name_overrides: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Generate ADF dataset JSON files for every Data Flow source and destination.
@@ -208,16 +212,18 @@ def generate_datasets(
                     _generate_lookup_dataset(
                         comp, conn_by_id, ds_dir, seen, existing_ds,
                         results, schema_remap,
+                        package_name=package.name,
+                        ls_name_map=ls_name_map,
                     )
                 continue  # other transformations — no dataset needed
 
-            ds_name = f"DS_{comp.name.replace(' ', '_')}"
-            if ds_name in seen or ds_name in existing_ds:
+            ds_nm = _ds_name(package.name, comp.name, name_overrides=name_overrides)
+            if ds_nm in seen or ds_nm in existing_ds:
                 continue
-            seen.add(ds_name)
+            seen.add(ds_nm)
 
             conn = conn_by_id.get(comp.connection_id or "")
-            ls_name = f"LS_{comp.connection_id or 'unknown'}"
+            ls_nm = resolve_ls_name(comp.connection_id or "unknown", ls_name_map)
             table = (
                 comp.properties.get("OpenRowset")
                 or comp.properties.get("TableOrViewName")
@@ -228,16 +234,16 @@ def generate_datasets(
             columns = comp.output_columns or comp.input_columns or []
 
             ds = _build_dataset(
-                name=ds_name,
+                name=ds_nm,
                 ds_type=ds_type,
-                linked_service_name=ls_name,
+                linked_service_name=ls_nm,
                 table_name=table,
                 file_path=file_path,
                 description=f"Dataset for SSIS component: {comp.name}",
                 schema_remap=schema_remap,
                 columns=columns if columns else None,
             )
-            (ds_dir / f"{ds_name}.json").write_text(
+            (ds_dir / f"{ds_nm}.json").write_text(
                 json.dumps(ds, indent=4, ensure_ascii=False),
                 encoding="utf-8",
             )
@@ -254,15 +260,18 @@ def _generate_lookup_dataset(
     existing_ds: set[str],
     results: list[dict[str, Any]],
     schema_remap: dict[str, str] | None,
+    *,
+    package_name: str = "",
+    ls_name_map: dict[str, str] | None = None,
 ) -> None:
     """Generate a dataset for a Lookup transformation's reference table."""
-    ds_name = f"DS_{comp.name.replace(' ', '_')}_lookup"
-    if ds_name in seen or ds_name in existing_ds:
+    ds_nm = _ds_name(package_name, f"{comp.name}_lookup") if package_name else f"DS_{comp.name.replace(' ', '_')}_lookup"
+    if ds_nm in seen or ds_nm in existing_ds:
         return
-    seen.add(ds_name)
+    seen.add(ds_nm)
 
     conn = conn_by_id.get(comp.connection_id or "")
-    ls_name = f"LS_{comp.connection_id or 'unknown'}"
+    ls_nm = resolve_ls_name(comp.connection_id or "unknown", ls_name_map)
     table = (
         comp.properties.get("OpenRowset")
         or comp.properties.get("TableOrViewName")
@@ -274,14 +283,14 @@ def _generate_lookup_dataset(
         ds_type = "DelimitedText"
 
     ds = _build_dataset(
-        name=ds_name,
+        name=ds_nm,
         ds_type=ds_type,
-        linked_service_name=ls_name,
+        linked_service_name=ls_nm,
         table_name=table,
         description=f"Lookup reference dataset for SSIS component: {comp.name}",
         schema_remap=schema_remap,
     )
-    (ds_dir / f"{ds_name}.json").write_text(
+    (ds_dir / f"{ds_nm}.json").write_text(
         json.dumps(ds, indent=4, ensure_ascii=False),
         encoding="utf-8",
     )

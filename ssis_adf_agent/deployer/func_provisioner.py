@@ -38,6 +38,8 @@ try:
         ResourceExistsError,
     )
     from azure.identity import DefaultAzureCredential
+
+    from ..credential import get_credential
     from azure.mgmt.applicationinsights import ApplicationInsightsManagementClient
     from azure.mgmt.applicationinsights.models import (
         ApplicationInsightsComponent,
@@ -154,7 +156,7 @@ class FuncProvisioner:
         self.subscription_id = subscription_id
         self.resource_group = resource_group
         self.location = location
-        self._credential = credential or DefaultAzureCredential()
+        self._credential = credential or get_credential()
         self._web_client: Any = None
         self._storage_client: Any = None
         self._insights_client: Any = None

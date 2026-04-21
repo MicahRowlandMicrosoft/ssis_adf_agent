@@ -38,6 +38,8 @@ try:
         HttpResponseError,
     )
     from azure.identity import DefaultAzureCredential
+
+    from ..credential import get_credential
     from azure.mgmt.web import WebSiteManagementClient  # type: ignore[import-not-found]
     _AZURE_WEB_AVAILABLE = True
 except ImportError:
@@ -153,7 +155,7 @@ class FuncDeployer:
         self.subscription_id = subscription_id
         self.resource_group = resource_group
         self.function_app_name = function_app_name
-        self._credential = credential or DefaultAzureCredential()
+        self._credential = credential or get_credential()
         self._web_client: Any = None
 
     @property

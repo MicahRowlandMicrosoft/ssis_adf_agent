@@ -185,6 +185,14 @@ class MigrationPlan(BaseModel):
         default_factory=dict,
         description="Free-form bag for agent to record agreed deviations or notes.",
     )
+    name_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional artifact name overrides. Keys use prefixed identifiers: "
+            "'LS:<cm_name>', 'DS:<component_name>', 'DF:<task_name>', 'PL', 'TR'. "
+            "Values are the desired ADF artifact names (must be valid ADF names)."
+        ),
+    )
 
     def render_markdown(self) -> str:  # pragma: no cover - presentation
         """Render a human-readable Markdown summary for the agent to show."""

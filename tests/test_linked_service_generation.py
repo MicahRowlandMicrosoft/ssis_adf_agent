@@ -2,6 +2,7 @@
 
 Covers:
 1. Connection string parsing
+2. Name override support
 2. Service Principal auth
 3. SAS token support for Blob Storage
 4. Account key support for Blob Storage
@@ -238,7 +239,7 @@ class TestServicePrincipalAuth:
                 database="mydb",
             ),
         ])
-        results = generate_linked_services(
+        results, _ = generate_linked_services(
             pkg, tmp_path, auth_type="ServicePrincipal"
         )
         assert len(results) == 1
@@ -261,7 +262,7 @@ class TestServicePrincipalAuth:
                 ),
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path)
+        results, _ = generate_linked_services(pkg, tmp_path)
         tp = results[0]["properties"]["typeProperties"]
         assert tp["authenticationType"] == "ServicePrincipal"
         assert tp["servicePrincipalId"] == "app-id"
@@ -276,7 +277,7 @@ class TestServicePrincipalAuth:
                 database="mydb",
             ),
         ])
-        results = generate_linked_services(
+        results, _ = generate_linked_services(
             pkg, tmp_path,
             auth_type="ServicePrincipal",
             use_key_vault=True,
@@ -304,7 +305,7 @@ class TestBlobStorageSAS:
                 ),
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path)
+        results, _ = generate_linked_services(pkg, tmp_path)
         tp = results[0]["properties"]["typeProperties"]
         assert "sasUri" in tp
         # When not using KV, it should be a SecureString
@@ -322,7 +323,7 @@ class TestBlobStorageSAS:
                 ),
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path, use_key_vault=True)
+        results, _ = generate_linked_services(pkg, tmp_path, use_key_vault=True)
         actual_ls = [r for r in results if r["name"] != "LS_KeyVault"]
         tp = actual_ls[0]["properties"]["typeProperties"]
         assert tp["sasUri"]["type"] == "AzureKeyVaultSecret"
@@ -337,7 +338,7 @@ class TestBlobStorageSAS:
                 ),
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path)
+        results, _ = generate_linked_services(pkg, tmp_path)
         tp = results[0]["properties"]["typeProperties"]
         assert "connectionString" in tp
         assert "mystorage" in tp["connectionString"]
@@ -351,7 +352,7 @@ class TestBlobStorageSAS:
                 connection_string="DefaultEndpointsProtocol=https;AccountName=act;AccountKey=key==",
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path, use_key_vault=True)
+        results, _ = generate_linked_services(pkg, tmp_path, use_key_vault=True)
         actual_ls = [r for r in results if r["name"] != "LS_KeyVault"]
         tp = actual_ls[0]["properties"]["typeProperties"]
         assert "accountKey" in tp
@@ -366,7 +367,7 @@ class TestBlobStorageSAS:
                 connection_string="DefaultEndpointsProtocol=https;AccountName=myacct",
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path)
+        results, _ = generate_linked_services(pkg, tmp_path)
         tp = results[0]["properties"]["typeProperties"]
         assert "serviceEndpoint" in tp
         assert "myacct" in tp["serviceEndpoint"]
@@ -380,7 +381,7 @@ class TestBlobStorageSAS:
                 file_path="C:\\data\\export.csv",
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path)
+        results, _ = generate_linked_services(pkg, tmp_path)
         tp = results[0]["properties"]["typeProperties"]
         assert "connectionString" in tp
         assert "TODO" in tp["connectionString"]
@@ -399,7 +400,7 @@ class TestConnectionStringExtraction:
                 connection_string="Data Source=SQLPROD01;Initial Catalog=Sales;User ID=app;Password=pw",
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path)
+        results, _ = generate_linked_services(pkg, tmp_path)
         tp = results[0]["properties"]["typeProperties"]
         assert tp["server"] == "SQLPROD01"
         assert tp["database"] == "Sales"
@@ -416,7 +417,7 @@ class TestConnectionStringExtraction:
                 connection_string="Server=cs-server;Database=cs-db",
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path)
+        results, _ = generate_linked_services(pkg, tmp_path)
         tp = results[0]["properties"]["typeProperties"]
         assert tp["server"] == "explicit-server"
         assert tp["database"] == "explicit-db"
@@ -430,7 +431,7 @@ class TestConnectionStringExtraction:
                 connection_string="Server=SQLPROD01;Database=db;Integrated Security=SSPI",
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path)
+        results, _ = generate_linked_services(pkg, tmp_path)
         tp = results[0]["properties"]["typeProperties"]
         assert tp["authenticationType"] == "Windows"
 
@@ -442,7 +443,7 @@ class TestConnectionStringExtraction:
                 connection_string="Server=svr.database.windows.net;Database=db;Authentication=ActiveDirectoryManagedIdentity",
             ),
         ])
-        results = generate_linked_services(pkg, tmp_path, auth_type="SQL")
+        results, _ = generate_linked_services(pkg, tmp_path, auth_type="SQL")
         tp = results[0]["properties"]["typeProperties"]
         # CS auth hint should override the passed-in auth_type
         assert tp["authenticationType"] == "SystemAssignedManagedIdentity"
@@ -459,3 +460,113 @@ def _make_package(cms: list[SSISConnectionManager]) -> SSISPackage:
         source_file="test.dtsx",
         connection_managers=cms,
     )
+
+
+# ---------------------------------------------------------------------------
+# Name override tests
+# ---------------------------------------------------------------------------
+
+class TestNameOverrides:
+    def test_ls_name_override_via_cm_name(self, tmp_path):
+        """LS:<cm_name> override replaces the auto-generated LS name."""
+        pkg = _make_package([
+            SSISConnectionManager(
+                id="cm1", name="MyConn",
+                type=ConnectionManagerType.OLEDB,
+                server="svr", database="db",
+            ),
+        ])
+        results, ls_map = generate_linked_services(
+            pkg, tmp_path,
+            name_overrides={"LS:MyConn": "LS_Custom_Name"},
+        )
+        assert len(results) == 1
+        assert results[0]["name"] == "LS_Custom_Name"
+        assert ls_map["cm1"] == "LS_Custom_Name"
+
+    def test_ls_name_override_case_insensitive(self, tmp_path):
+        """LS override key matching is case-insensitive."""
+        pkg = _make_package([
+            SSISConnectionManager(
+                id="cm1", name="Database Source Connection Manager",
+                type=ConnectionManagerType.OLEDB,
+                server="svr", database="db",
+            ),
+        ])
+        results, ls_map = generate_linked_services(
+            pkg, tmp_path,
+            name_overrides={"ls:database source connection manager": "LS_MySql"},
+        )
+        assert results[0]["name"] == "LS_MySql"
+
+    def test_override_sanitizes_value(self, tmp_path):
+        """Override values are sanitized to valid ADF names."""
+        pkg = _make_package([
+            SSISConnectionManager(
+                id="cm1", name="MyConn",
+                type=ConnectionManagerType.OLEDB,
+                server="svr", database="db",
+            ),
+        ])
+        results, _ = generate_linked_services(
+            pkg, tmp_path,
+            name_overrides={"LS:MyConn": "LS-Has-Hyphens!"},
+        )
+        assert results[0]["name"] == "LS_Has_Hyphens"
+
+    def test_non_overridden_cms_keep_auto_names(self, tmp_path):
+        """CMs without an override keep their auto-generated names."""
+        pkg = _make_package([
+            SSISConnectionManager(
+                id="cm1", name="ConnA",
+                type=ConnectionManagerType.OLEDB,
+                server="svr", database="db",
+            ),
+            SSISConnectionManager(
+                id="cm2", name="ConnB",
+                type=ConnectionManagerType.OLEDB,
+                server="svr2", database="db2",
+            ),
+        ])
+        results, ls_map = generate_linked_services(
+            pkg, tmp_path,
+            name_overrides={"LS:ConnA": "LS_Custom"},
+        )
+        assert ls_map["cm1"] == "LS_Custom"
+        # cm2 should have auto-generated name
+        assert ls_map["cm2"].startswith("LS_TestPackage_")
+
+
+class TestNamingFunctionOverrides:
+    """Test ds_name, df_name, pl_name, tr_name with name_overrides."""
+
+    def test_ds_name_override(self):
+        from ssis_adf_agent.generators.naming import ds_name
+        result = ds_name("Pkg", "MySource", name_overrides={"DS:MySource": "DS_Custom"})
+        assert result == "DS_Custom"
+
+    def test_ds_name_no_override(self):
+        from ssis_adf_agent.generators.naming import ds_name
+        result = ds_name("Pkg", "MySource", name_overrides={"DS:Other": "DS_X"})
+        assert result == "DS_Pkg_MySource"
+
+    def test_df_name_override(self):
+        from ssis_adf_agent.generators.naming import df_name
+        result = df_name("Pkg", "LoadData", name_overrides={"DF:LoadData": "DF_Custom"})
+        assert result == "DF_Custom"
+
+    def test_pl_name_override(self):
+        from ssis_adf_agent.generators.naming import pl_name
+        result = pl_name("Pkg", name_overrides={"PL": "PL_MyPipeline"})
+        assert result == "PL_MyPipeline"
+
+    def test_tr_name_override(self):
+        from ssis_adf_agent.generators.naming import tr_name
+        result = tr_name("Pkg", name_overrides={"TR": "TR_MyTrigger"})
+        assert result == "TR_MyTrigger"
+
+    def test_overrides_are_case_insensitive(self):
+        from ssis_adf_agent.generators.naming import pl_name
+        result = pl_name("Pkg", name_overrides={"pl": "PL_Custom"})
+        assert result == "PL_Custom"
+

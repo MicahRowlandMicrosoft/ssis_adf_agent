@@ -22,6 +22,7 @@ from ...parsers.models import (
     PrecedenceConstraint,
     SSISTask,
 )
+from ...generators.naming import ds_name as _ds_name, df_name as _df_name
 from ..base_converter import BaseConverter
 
 # Component types treated as "pure source"
@@ -47,14 +48,27 @@ _TRANSFORM_TYPES = frozenset({
 
 
 def _is_simple_copy(task: DataFlowTask) -> bool:
-    """True if the data flow has exactly one source and one destination, no transforms."""
+    """True if the data flow has exactly one source and one destination, no meaningful transforms.
+
+    A DerivedColumn with no output columns is a no-op and doesn't count as
+    a transform — the dataflow generator would skip it too.
+    """
     sources = [c for c in task.components if c.component_type in _SOURCE_TYPES]
     dests = [c for c in task.components if c.component_type in _DEST_TYPES]
     transforms = [c for c in task.components if c.component_type in _TRANSFORM_TYPES]
-    return len(sources) == 1 and len(dests) == 1 and len(transforms) == 0
+    # Filter out no-op DerivedColumns (0 output columns)
+    meaningful = [
+        t for t in transforms
+        if not (t.component_type == "DerivedColumn" and not t.output_columns)
+    ]
+    return len(sources) == 1 and len(dests) == 1 and len(meaningful) == 0
 
 
 class DataFlowConverter(BaseConverter):
+    def __init__(self, *, package_name: str = "", ls_name_map: dict[str, str] | None = None) -> None:
+        self._package_name = package_name
+        self._ls_name_map = ls_name_map
+
     def convert(
         self,
         task: SSISTask,
@@ -76,8 +90,8 @@ class DataFlowConverter(BaseConverter):
         src = next((c for c in task.components if c.component_type in _SOURCE_TYPES), None)
         dst = next((c for c in task.components if c.component_type in _DEST_TYPES), None)
 
-        src_ds = f"DS_{src.name.replace(' ', '_')}" if src else f"DS_src_{safe_name}"
-        dst_ds = f"DS_{dst.name.replace(' ', '_')}" if dst else f"DS_dst_{safe_name}"
+        src_ds = _ds_name(self._package_name, src.name) if src else f"DS_src_{safe_name}"
+        dst_ds = _ds_name(self._package_name, dst.name) if dst else f"DS_dst_{safe_name}"
 
         # Determine sink pattern based on ingestion pattern
         ingestion = task.ingestion_pattern
@@ -165,7 +179,7 @@ class DataFlowConverter(BaseConverter):
             },
             "typeProperties": {
                 "dataflow": {
-                    "referenceName": f"DF_{safe_name}",
+                    "referenceName": _df_name(self._package_name, task.name),
                     "type": "DataFlowReference",
                 },
                 "compute": {

@@ -570,3 +570,42 @@ class TestNamingFunctionOverrides:
         result = pl_name("Pkg", name_overrides={"pl": "PL_Custom"})
         assert result == "PL_Custom"
 
+
+
+class TestConnectViaStripping:
+    """Linked services targeting the implicit default IR must omit connectVia.
+
+    ADF rejects explicit `connectVia.referenceName=AutoResolveIntegrationRuntime`
+    on factories where the default IR has not been materialized yet
+    (HTTP 400: "Could not get integration runtime details for
+    AutoResolveIntegrationRuntime"). Treat absence as the default.
+    """
+
+    def test_cloud_ls_omits_connectvia(self, tmp_path):
+        # Azure SQL connection -> Azure-native LS -> default IR -> connectVia stripped
+        pkg = _make_package([
+            SSISConnectionManager(
+                id="cm1", name="AzureSql",
+                type=ConnectionManagerType.OLEDB,
+                server="svr.database.windows.net",
+                database="mydb",
+            ),
+        ])
+        results, _ = generate_linked_services(pkg, tmp_path)
+        assert len(results) == 1
+        assert "connectVia" not in results[0]["properties"], (
+            "Cloud LSes targeting AutoResolveIntegrationRuntime should omit connectVia"
+        )
+
+    def test_on_prem_ls_keeps_connectvia(self, tmp_path):
+        # On-prem SQL -> SHIR -> connectVia retained
+        pkg = _make_package([
+            SSISConnectionManager(
+                id="cm1", name="OnPrem",
+                type=ConnectionManagerType.OLEDB,
+                server=".\\sql2016",
+                database="AdventureWorks2016",
+            ),
+        ])
+        results, _ = generate_linked_services(pkg, tmp_path)
+        assert results[0]["properties"]["connectVia"]["referenceName"] == "SelfHostedIR"

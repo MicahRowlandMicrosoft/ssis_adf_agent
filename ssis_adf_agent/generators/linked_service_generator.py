@@ -708,6 +708,15 @@ def generate_linked_services(
         if ls_type in _AZURE_NATIVE_LS_TYPES:
             ls["properties"]["connectVia"]["referenceName"] = cloud_ir_name
 
+        # Strip connectVia when it points at the implicit default IR
+        # (AutoResolveIntegrationRuntime). ADF treats absence of connectVia as
+        # the default; explicitly referencing it can fail with
+        # "Could not get integration runtime details" on factories where the
+        # default IR has not been materialized yet.
+        cv = ls.get("properties", {}).get("connectVia") or {}
+        if cv.get("referenceName") == _DEFAULT_IR:
+            del ls["properties"]["connectVia"]
+
         # Generate Key Vault linked service once if needed
         if use_key_vault and not generated_kv:
             kv_ls = _generate_kv_linked_service(kv_ls_name, kv_url, output_dir)

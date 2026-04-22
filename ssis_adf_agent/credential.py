@@ -44,3 +44,51 @@ def get_credential():
 
     logger.debug("Using AzureCliCredential")
     return AzureCliCredential()
+
+
+# ── Subscription name → ID resolver ─────────────────────────────────────────
+
+_UUID_RE = __import__("re").compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    __import__("re").IGNORECASE,
+)
+
+
+def resolve_subscription_id(value: str) -> str:
+    """Accept a subscription ID (GUID) *or* display name and return the GUID.
+
+    If *value* already looks like a UUID it is returned as-is (lower-cased).
+    Otherwise the Azure SubscriptionClient is used to list accessible
+    subscriptions and find one whose ``display_name`` matches
+    (case-insensitive).  Raises ``ValueError`` if no match is found.
+    """
+    if _UUID_RE.match(value):
+        return value.lower()
+
+    from azure.mgmt.resource import SubscriptionClient
+
+    credential = get_credential()
+    client = SubscriptionClient(credential)
+
+    matches: list[tuple[str, str]] = []
+    for sub in client.subscriptions.list():
+        if sub.display_name and sub.display_name.lower() == value.lower():
+            matches.append((sub.subscription_id, sub.display_name))
+
+    if not matches:
+        raise ValueError(
+            f"No accessible subscription found with display name '{value}'. "
+            "Pass a subscription GUID instead, or check `az account list`."
+        )
+    if len(matches) > 1:
+        ids = ", ".join(m[0] for m in matches)
+        raise ValueError(
+            f"Multiple subscriptions match '{value}': {ids}. "
+            "Pass the subscription GUID to disambiguate."
+        )
+
+    resolved_id = matches[0][0]
+    logger.info(
+        "Resolved subscription name '%s' → %s", value, resolved_id
+    )
+    return resolved_id

@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes twenty-two tools to GitHub Copilot (and any MCP-compatible client):
+Exposes twenty-three tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -25,6 +25,7 @@ Exposes twenty-two tools to GitHub Copilot (and any MCP-compatible client):
 20. plan_migration_waves      — group saved plans into ordered migration waves
 21. estimate_adf_costs        — plan-aware monthly USD cost projection for the estate
 22. build_estate_report       — PDF deliverable from saved plans + waves + costs
+23. build_predeployment_report — engineer-facing Markdown report with diagrams + checklists
 
 Run as an MCP stdio server::
 
@@ -284,7 +285,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "subscription_id": {
                         "type": "string",
-                        "description": "Azure subscription ID.",
+                        "description": "Azure subscription ID (GUID) or display name.",
                     },
                     "resource_group": {
                         "type": "string",
@@ -374,7 +375,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "subscription_id": {
                         "type": "string",
-                        "description": "Azure subscription ID.",
+                        "description": "Azure subscription ID (GUID) or display name.",
                     },
                     "resource_group": {
                         "type": "string",
@@ -415,7 +416,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "subscription_id": {
                         "type": "string",
-                        "description": "Azure subscription ID.",
+                        "description": "Azure subscription ID (GUID) or display name.",
                     },
                     "resource_group": {
                         "type": "string",
@@ -539,8 +540,8 @@ async def list_tools() -> list[types.Tool]:
                     "subscription_id": {
                         "type": "string",
                         "description": (
-                            "Optional. If supplied with resource_group + factory_name, also "
-                            "confirm factory reachability."
+                            "Optional. Subscription ID (GUID) or display name. If supplied with "
+                            "resource_group + factory_name, also confirm factory reachability."
                         ),
                     },
                     "resource_group": {
@@ -652,7 +653,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "subscription_id": {
                         "type": "string",
-                        "description": "Azure subscription ID to deploy into. Required unless dry_run=true and you only want offline Bicep compilation.",
+                        "description": "Azure subscription ID (GUID) or display name. Required unless dry_run=true and you only want offline Bicep compilation.",
                     },
                     "resource_group": {
                         "type": "string",
@@ -726,7 +727,7 @@ async def list_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "subscription_id": {"type": "string", "description": "Azure subscription ID."},
+                    "subscription_id": {"type": "string", "description": "Azure subscription ID (GUID) or display name."},
                     "resource_group": {"type": "string", "description": "Resource group of the factory."},
                     "factory_name": {"type": "string", "description": "Data Factory name."},
                     "pipeline_name": {"type": "string", "description": "Pipeline to run (must already exist)."},
@@ -921,6 +922,48 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["plans_dir", "output_pdf"],
             },
         ),
+        types.Tool(
+            name="build_predeployment_report",
+            description=(
+                "Generate a comprehensive pre-deployment Markdown report for an SSIS migration estate. "
+                "For each package: SSIS summary, Mermaid control-flow and data-flow diagrams, "
+                "component descriptions, ADF solution overview with pipeline activity graphs, "
+                "and detailed pre- and post-deployment checklists of manual tasks. "
+                "Targets the engineer/admin persona. Requires converted ADF artifacts on disk."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entries": {
+                        "type": "array",
+                        "description": (
+                            "List of packages to include. Each entry has: "
+                            "package_path (absolute .dtsx path), "
+                            "adf_dir (absolute path to ADF output directory), "
+                            "plan_path (optional, absolute path to migration plan JSON)."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "package_path": {"type": "string", "description": "Absolute path to the .dtsx file."},
+                                "adf_dir": {"type": "string", "description": "Absolute path to the ADF output directory for this package."},
+                                "plan_path": {"type": "string", "description": "Optional. Absolute path to the migration plan JSON."},
+                            },
+                            "required": ["package_path", "adf_dir"],
+                        },
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Absolute path to write the Markdown report. If omitted, the report is returned inline.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional custom report title.",
+                    },
+                },
+                "required": ["entries"],
+            },
+        ),
     ]
 
 
@@ -931,6 +974,13 @@ async def list_tools() -> list[types.Tool]:
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
     try:
+        # Resolve subscription name → GUID before dispatching to any tool.
+        if "subscription_id" in arguments and arguments["subscription_id"]:
+            from .credential import resolve_subscription_id
+            arguments["subscription_id"] = resolve_subscription_id(
+                arguments["subscription_id"]
+            )
+
         if name == "scan_ssis_packages":
             return await _scan(arguments)
         elif name == "analyze_ssis_package":
@@ -975,6 +1025,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _estimate_costs(arguments)
         elif name == "build_estate_report":
             return await _build_estate_pdf(arguments)
+        elif name == "build_predeployment_report":
+            return await _build_predeployment_report(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -2213,6 +2265,44 @@ def main() -> None:
             )
 
     asyncio.run(_run())
+
+
+async def _build_predeployment_report(args: dict[str, Any]) -> list[types.TextContent]:
+    from .documentation.predeployment_report import build_predeployment_report
+
+    entries = args.get("entries", [])
+    if not entries:
+        return [types.TextContent(type="text", text="Error: 'entries' must be a non-empty list.")]
+
+    # Validate paths
+    resolved: list[dict[str, str]] = []
+    for entry in entries:
+        r: dict[str, str] = {
+            "package_path": str(_safe_resolve(entry["package_path"], must_exist=True, label="package_path")),
+            "adf_dir": str(_safe_resolve(entry["adf_dir"], must_exist=True, label="adf_dir")),
+        }
+        if entry.get("plan_path"):
+            r["plan_path"] = str(_safe_resolve(entry["plan_path"], must_exist=True, label="plan_path"))
+        resolved.append(r)
+
+    report = build_predeployment_report(resolved, title=args.get("title"))
+
+    result: dict[str, Any] = {
+        "package_count": len(entries),
+    }
+
+    if args.get("output_path"):
+        out = _safe_resolve(args["output_path"], label="output_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(report, encoding="utf-8")
+        result["saved_to"] = str(out)
+
+    result["report_lines"] = len(report.splitlines())
+
+    return [
+        types.TextContent(type="text", text=report),
+        types.TextContent(type="text", text=json.dumps(result, indent=2)),
+    ]
 
 
 if __name__ == "__main__":

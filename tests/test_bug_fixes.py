@@ -230,3 +230,75 @@ def test_build_estate_report_honors_max_packages_per_wave(tmp_path: Path) -> Non
     payload = json.loads(result[0].text)
     # 6 packages with cap 2 → 3 waves.
     assert payload["wave_count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Subscription name → GUID resolution
+# ---------------------------------------------------------------------------
+
+def test_resolve_subscription_id_passes_guid_through() -> None:
+    from ssis_adf_agent.credential import resolve_subscription_id
+
+    guid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    assert resolve_subscription_id(guid) == guid.lower()
+
+
+def test_resolve_subscription_id_passes_uppercase_guid() -> None:
+    from ssis_adf_agent.credential import resolve_subscription_id
+
+    guid = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
+    assert resolve_subscription_id(guid) == guid.lower()
+
+
+def test_resolve_subscription_id_name_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When given a non-GUID string, resolve via SubscriptionClient."""
+    from types import SimpleNamespace
+    from ssis_adf_agent import credential
+
+    fake_sub = SimpleNamespace(
+        subscription_id="11111111-2222-3333-4444-555555555555",
+        display_name="Sub1",
+    )
+
+    class FakeSubList:
+        def list(self):
+            return [fake_sub]
+
+    class FakeSubClient:
+        def __init__(self, cred):
+            self.subscriptions = FakeSubList()
+
+    monkeypatch.setattr(
+        "ssis_adf_agent.credential.SubscriptionClient",
+        FakeSubClient,
+        raising=False,
+    )
+    # Ensure the import inside the function resolves to our fake
+    import ssis_adf_agent.credential as cred_mod
+    monkeypatch.setattr(cred_mod, "SubscriptionClient", FakeSubClient, raising=False)
+
+    # Patch the lazy import path used by resolve_subscription_id
+    import azure.mgmt.resource
+    monkeypatch.setattr(azure.mgmt.resource, "SubscriptionClient", FakeSubClient, raising=False)
+
+    result = credential.resolve_subscription_id("Sub1")
+    assert result == "11111111-2222-3333-4444-555555555555"
+
+
+def test_resolve_subscription_id_name_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+    from ssis_adf_agent import credential
+
+    class FakeSubList:
+        def list(self):
+            return []
+
+    class FakeSubClient:
+        def __init__(self, cred):
+            self.subscriptions = FakeSubList()
+
+    import azure.mgmt.resource
+    monkeypatch.setattr(azure.mgmt.resource, "SubscriptionClient", FakeSubClient, raising=False)
+
+    with pytest.raises(ValueError, match="No accessible subscription"):
+        credential.resolve_subscription_id("NonExistent")

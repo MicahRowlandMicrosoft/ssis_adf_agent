@@ -20,6 +20,7 @@ from typing import Any
 from ..converters.data_flow.destination_converter import convert_destination
 from ..converters.data_flow.source_converter import convert_source
 from ..converters.data_flow.transformation_converter import convert_transformation
+from ..converters.substitution_registry import SubstitutionRegistry  # noqa: F401  (used in type hint)
 from ..parsers.models import (
     DataFlowTask,
     DataType,
@@ -98,6 +99,7 @@ def generate_data_flows(
     *,
     ls_name_map: dict[str, str] | None = None,
     name_overrides: dict[str, str] | None = None,
+    substitution_registry: "SubstitutionRegistry | None" = None,
 ) -> list[dict[str, Any]]:
     """
     For every complex Data Flow Task in the package, generate a Mapping Data Flow JSON.
@@ -133,7 +135,10 @@ def generate_data_flows(
         sinks = [convert_destination(c, package_name=package.name, ls_name_map=ls_name_map) for c in dest_comps]
         transformations: list[dict[str, Any]] = []
         for comp in transform_comps:
-            t = convert_transformation(comp)
+            if substitution_registry is not None:
+                t = convert_transformation(comp, registry=substitution_registry)
+            else:
+                t = convert_transformation(comp)
             if t is not None:
                 transformations.append(t)
 

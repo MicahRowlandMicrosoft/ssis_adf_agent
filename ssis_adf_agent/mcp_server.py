@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes twenty-four tools to GitHub Copilot (and any MCP-compatible client):
+Exposes twenty-five tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -27,6 +27,7 @@ Exposes twenty-four tools to GitHub Copilot (and any MCP-compatible client):
 22. build_estate_report       — PDF deliverable from saved plans + waves + costs
 23. build_predeployment_report — engineer-facing Markdown report with diagrams + checklists
 24. activate_triggers         — bulk-activate ADF triggers (dry-run by default; H7)
+25. export_arm_template       — bundle ADF artifacts into an ARM template (M2)
 
 Run as an MCP stdio server::
 
@@ -235,6 +236,18 @@ async def list_tools() -> list[types.Tool]:
                             "Optional path to a JSON file mapping local/UNC path prefixes to Azure Storage URLs. "
                             "Format: {\"C:\\\\Data\\\\Input\": \"https://mystorage.blob.core.windows.net/input\"}. "
                             "Applies to linked services, pipeline activities, and datasets."
+                        ),
+                    },
+                    "substitution_registry_path": {
+                        "type": "string",
+                        "description": (
+                            "Optional path to a substitution-registry JSON file (M7) that "
+                            "maps 3rd-party SSIS Data Flow / Control Flow components "
+                            "(Cozyroc, KingswaySoft, in-house) to specific ADF activity "
+                            "or transformation types. Use this when the agent reports "
+                            "'Unknown component type' or 'Unsupported' and you have a "
+                            "deterministic ADF replacement in mind. See "
+                            "docs/SUBSTITUTION_REGISTRY.md for the schema."
                         ),
                     },
                     "design_path": {
@@ -1029,6 +1042,35 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["subscription_id", "resource_group", "factory_name"],
             },
         ),
+        types.Tool(
+            name="export_arm_template",
+            description=(
+                "Bundle an ADF artifacts directory into an ARM template (M2). "
+                "Useful for customers who deploy ADF content via azd / "
+                "az deployment instead of the agent's deploy_to_adf path. "
+                "The template assumes the target Data Factory already exists "
+                "(it only declares child resources: linkedservices, datasets, "
+                "dataflows, pipelines, triggers). Triggers are written with "
+                "runtimeState='Stopped' to match deploy_to_adf semantics."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "artifacts_dir": {
+                        "type": "string",
+                        "description": "Directory containing the generated ADF JSON artifacts.",
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": (
+                            "Optional explicit output path for the ARM template. "
+                            "Defaults to <artifacts_dir>/adf_content.arm.json."
+                        ),
+                    },
+                },
+                "required": ["artifacts_dir"],
+            },
+        ),
     ]
 
 
@@ -1094,6 +1136,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _build_predeployment_report(arguments)
         elif name == "activate_triggers":
             return await _activate_triggers(arguments)
+        elif name == "export_arm_template":
+            return await _export_arm_template(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -1293,6 +1337,15 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         safe_fpm = _safe_resolve(file_path_map_path, must_exist=True, label="file_path_map_path")
         file_path_map = json.loads(safe_fpm.read_text(encoding="utf-8"))
 
+    # M7 — optional substitution registry for 3rd-party (Cozyroc/KingswaySoft/in-house)
+    # components.  Loaded once and threaded into the data-flow generator.
+    substitution_registry = None
+    sub_reg_path = args.get("substitution_registry_path")
+    if sub_reg_path:
+        from .converters.substitution_registry import load_registry
+        safe_reg = _safe_resolve(sub_reg_path, must_exist=True, label="substitution_registry_path")
+        substitution_registry = load_registry(safe_reg)
+
     with WarningsCollector() as wc:
         reader = LocalReader()
         package = reader.read(path)
@@ -1343,6 +1396,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
             package, output_dir,
             ls_name_map=ls_name_map,
             name_overrides=name_overrides,
+            substitution_registry=substitution_registry,
         )
         pipeline = generate_pipeline(
             package, output_dir,
@@ -1399,6 +1453,14 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         from .deployer.adf_deployer import AdfDeployer
         deployer = AdfDeployer.__new__(AdfDeployer)
         validation_issues = deployer.validate_artifacts(output_dir)
+
+        # M1 — emit lineage manifest (package -> artifact files; deploy IDs
+        # are filled in later by deploy_to_adf).
+        from .generators.lineage_generator import generate_lineage_manifest
+        try:
+            generate_lineage_manifest(package, output_dir, pipeline)
+        except Exception as exc:  # noqa: BLE001 — never block conversion
+            logger.warning("lineage manifest generation failed: %s", exc)
 
         # Check for unresolved ExecutePipeline references
         pipeline_refs = _check_execute_pipeline_refs(
@@ -1516,12 +1578,30 @@ async def _deploy(args: dict[str, Any]) -> list[types.TextContent]:
             skip_if_exists=args.get("skip_if_exists", False),
         )
 
+        # M1 — backfill the lineage manifest with Azure resource IDs for every
+        # successfully-deployed artifact (skipped artifacts still exist under
+        # the same name, so they are also resolvable).
+        if not args.get("dry_run", False):
+            from .generators.lineage_generator import update_lineage_with_deployment
+            try:
+                update_lineage_with_deployment(
+                    _safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir"),
+                    results,
+                    subscription_id=args["subscription_id"],
+                    resource_group=args["resource_group"],
+                    factory_name=args["factory_name"],
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("lineage manifest backfill failed: %s", exc)
+
         summary = {
             "total": len(results),
             "succeeded": sum(1 for r in results if r.success),
             "failed": sum(1 for r in results if not r.success),
+            "skipped": sum(1 for r in results if getattr(r, "skipped", False)),
             "results": [
                 {"type": r.artifact_type, "name": r.name, "success": r.success,
+                 "skipped": getattr(r, "skipped", False),
                  "error": r.error, "retries": r.retries}
                 for r in results
             ],
@@ -2415,6 +2495,32 @@ async def _activate_triggers(args: dict[str, Any]) -> list[types.TextContent]:
             "Re-run with dry_run=false to actually start the triggers reported as "
             "'would_activate'. Triggers reported as 'already_started' will be skipped."
         )
+    return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
+
+
+async def _export_arm_template(args: dict[str, Any]) -> list[types.TextContent]:
+    """Bundle an ADF artifacts directory into an ARM template (M2)."""
+    from .generators.arm_template_generator import export_arm_template
+
+    artifacts_dir = _safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir")
+    output_path = (
+        _safe_resolve(args["output_path"], label="output_path")
+        if args.get("output_path") else None
+    )
+
+    with WarningsCollector() as wc:
+        paths = export_arm_template(artifacts_dir, output_path=output_path)
+
+    payload = {
+        "template": str(paths["template"]),
+        "parameters": str(paths["parameters"]),
+        "warnings": [w.model_dump() for w in wc.warnings],
+        "next_step": (
+            "Edit the parameters file (set factoryName) and deploy with: "
+            "az deployment group create --resource-group <rg> "
+            "--template-file <template> --parameters @<parameters>"
+        ),
+    }
     return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
 
 

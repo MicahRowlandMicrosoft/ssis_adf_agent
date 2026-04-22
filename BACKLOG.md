@@ -61,30 +61,29 @@ Priority legend:
 
 ## P2 — Medium
 
-### M1. Lineage manifest
-- **Acceptance:** Each conversion emits a manifest mapping `package_name → artifact_paths → deployed_resource_ids`. Surfaced in PDF.
+### M1. Lineage manifest — **DONE**
+- **Resolution:** Every `convert_ssis_package` run now emits `lineage.json` next to the artifact tree (see [`generators/lineage_generator.py`](ssis_adf_agent/generators/lineage_generator.py)). The manifest carries source-side metadata (sha256 of the .dtsx, parsed protection level, counts), the file path of every generated artifact, and the per-activity SSIS-task origin (`ssis_task_id` / `ssis_task_name` from userProperties). `deploy_to_adf` patches it in place with full ARM resource IDs for every successfully-deployed artifact, so a single JSON file answers "where did this come from" *and* "where does it live in Azure". 7 unit tests in [test_lineage_manifest.py](tests/test_lineage_manifest.py).
 
-### M2. ARM / azd export of ADF *content* (not just infra)
-- **Acceptance:** Optional output that wraps generated ADF JSON for an ARM / Synapse-publish CI/CD model.
+### M2. ARM / azd export of ADF *content* (not just infra) — **DONE**
+- **Resolution:** New `export_arm_template` MCP tool (#25) and `generators/arm_template_generator.py` produce `adf_content.arm.json` + `adf_content.parameters.json` from any ADF artifacts directory. The template assumes the factory already exists (so it composes cleanly with `infra/main.bicep` / azd) and declares each linkedService → dataset → dataflow → pipeline → trigger as a child resource with correct `dependsOn` ordering. Triggers default to `runtimeState='Stopped'` to match `deploy_to_adf` semantics. 6 unit tests in [test_arm_template_export.py](tests/test_arm_template_export.py).
 
-### M3. Headless CI recipe
-- **Acceptance:** Documented `python -m ssis_adf_agent <command>` (or CLI) recipe per tool, with an Azure DevOps / GitHub Actions sample.
+### M3. Headless CI recipe — **DONE**
+- **Resolution:** New [`ssis_adf_agent/cli.py`](ssis_adf_agent/cli.py) + `__main__.py` expose a headless CLI mirroring every long-running MCP tool 1:1 (`analyze` / `convert` / `validate` / `deploy` / `activate-triggers`). Each subcommand prints the same JSON the MCP tool would and exits 0 on success, 1 on `issues_found` / `failed`, 2 on a Python exception — so CI pipelines fail loudly. [CI_RECIPES.md](CI_RECIPES.md) ships GitHub Actions and Azure DevOps recipes. 8 unit tests in [test_cli.py](tests/test_cli.py).
 
-### M4. Cost estimate calibration
-- **Acceptance:** One actual-vs-estimated cost comparison for a deployed pipeline running ≥30 days. Variance disclosed in cost report.
+### M4. Cost estimate calibration — **BLOCKED (customer-side)**
+- **Why blocked:** Acceptance requires a deployed pipeline running ≥30 days against real data — that is customer-time, not engineering-time. The agent ships everything needed: `estimate_adf_costs` produces the prediction, `lineage.json` (M1) anchors every Azure resource id so actuals can be pulled from Cost Management and joined back. Once a customer ships the first 30-day actual-vs-estimated comparison, that data feeds M4 closure and a revision of [EFFORT_METHODOLOGY.md](EFFORT_METHODOLOGY.md).
 
-### M5. Effort range tightening / methodology disclosure
-- **Evidence:** Per-package ranges like 36.8h–84.0h (2.3× spread) in [PreDeployment_Report.md](../test-lni-packages/PreDeployment_Report.md).
-- **Acceptance:** Range methodology documented; calibration data from real migrations narrows the spread or explains drivers.
+### M5. Effort range tightening / methodology disclosure — **DONE**
+- **Resolution:** [EFFORT_METHODOLOGY.md](EFFORT_METHODOLOGY.md) documents the full per-package formula (bucket bases, Script Task / Data Flow weighting, the 0.5h-per-simplification rebalance, the asymmetric –30 / +60% envelope) plus the wave-level adjustments (`apply_learning_curve`, `estate_setup_hours`). The doc cites `migration_plan/proposer.py` line by line as the source of truth and explicitly invites customers to file calibration data when actuals fall outside the band — that data feeds M4.
 
-### M6. EncryptAllWithPassword end-to-end recipe
-- **Acceptance:** Documented flow: extract → KV upload → linked service rewrite, with a working sample.
+### M6. EncryptAllWithPassword end-to-end recipe — **DONE**
+- **Resolution:** [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md) ships a six-step recipe: dtutil decrypt to a working folder, `az keyvault secret set` per (package, connection-manager) with a documented naming convention, re-convert against the *original* encrypted .dtsx with `use_key_vault=true`, edit secret-name placeholders, deploy with `skip_if_exists=true` (H8) so it doesn't stomp on hand-edited factory artifacts, then clean the working folder. Includes a reviewer checklist and cross-references SECURITY.md / B3 / H8.
 
-### M7. Custom-component / 3rd-party substitution registry
-- **Acceptance:** Mechanism to declare "we use Cozyroc/KingswaySoft component X → use ADF activity Y" with a worked example.
+### M7. Custom-component / 3rd-party substitution registry — **DONE**
+- **Resolution:** New [`converters/substitution_registry.py`](ssis_adf_agent/converters/substitution_registry.py) plus a `substitution_registry_path` parameter on `convert_ssis_package`. A small JSON registry maps SSIS Data Flow `component_type` (e.g. `Cozyroc.SSISPlus.SuperLookupTask`) to a specific ADF MDF transformation type with optional `type_properties`. Substitutions short-circuit both the dispatcher *and* the `_unsupported` placeholder, so a customer can stop manually rewriting the same handful of components on every estate refresh. Schema documented in [docs/SUBSTITUTION_REGISTRY.md](docs/SUBSTITUTION_REGISTRY.md). 9 unit tests in [test_substitution_registry.py](tests/test_substitution_registry.py).
 
-### M8. Estate-scale evidence (≥100 packages)
-- **Acceptance:** Captured `bulk_analyze` + `convert_estate` run on a public ≥100-package corpus; runtime, memory, dedup quality reported.
+### M8. Estate-scale evidence (≥100 packages) — **BLOCKED (customer-side)**
+- **Why blocked:** Acceptance requires running `bulk_analyze` + `convert_estate` against a public ≥100-package corpus and reporting runtime/memory/dedup numbers. We don't currently have a public corpus that size that can be redistributed; the LNI 3-package set we ship is the largest sanitized sample in the tree. The tooling needed to produce the evidence (`bulk_analyze`, `convert_estate`, `consolidate_packages`) all ships and is unit-tested. Once a customer or partner can host a sanitized 100+ package corpus we can run the harness and publish numbers.
 
 ---
 

@@ -12,6 +12,11 @@ from typing import Any
 from ...parsers.models import DataFlowComponent
 from ...translators.ssis_expression_translator import translate_expression
 from ...warnings_collector import warn
+from ..substitution_registry import (
+    EMPTY_REGISTRY,
+    DataFlowSubstitution,
+    SubstitutionRegistry,
+)
 from ._naming import safe_node_name
 
 # ---------------------------------------------------------------------------
@@ -29,11 +34,25 @@ _AGG_TYPE_MAP: dict[str, str] = {
 }
 
 
-def convert_transformation(component: DataFlowComponent) -> dict[str, Any] | None:
+def convert_transformation(
+    component: DataFlowComponent,
+    *,
+    registry: SubstitutionRegistry = EMPTY_REGISTRY,
+) -> dict[str, Any] | None:
     """
     Dispatch to the right transformation builder based on component_type.
     Returns None for component types that should be silently skipped.
+
+    M7 — if ``registry`` declares a substitution for this component_type
+    (typically a 3rd-party Cozyroc / KingswaySoft / in-house component), use
+    it instead of falling through to the generic placeholder. The substitution
+    short-circuits everything below — it is the customer's responsibility to
+    ensure the chosen ADF transformation type is valid.
     """
+    sub = registry.lookup_data_flow(component.component_type)
+    if sub is not None:
+        return _from_substitution(component, sub)
+
     dispatch: dict[str, Any] = {
         "DerivedColumn": _derived_column,
         "Lookup": _lookup,
@@ -361,6 +380,30 @@ def _script_component(component: DataFlowComponent) -> dict[str, Any]:
         source="transformation_converter",
         message=f"Script Component '{component.name}' requires manual implementation",
         detail="Mapped to ExternalCall placeholder — implement in Azure Function or Databricks",
+    )
+    return t
+
+
+def _from_substitution(
+    component: DataFlowComponent,
+    sub: DataFlowSubstitution,
+) -> dict[str, Any]:
+    """Build a transformation node from a substitution-registry entry (M7)."""
+    t = _base(component, sub.adf_type)
+    t["description"] = (
+        f"[REGISTRY SUBSTITUTION] {component.component_type} -> {sub.adf_type}"
+        + (f" — {sub.notes}" if sub.notes else "")
+    )
+    if sub.type_properties:
+        t["typeProperties"] = dict(sub.type_properties)
+    warn(
+        phase="convert", severity="info",
+        source="transformation_converter",
+        message=(
+            f"Component '{component.name}' ({component.component_type}) "
+            f"replaced by registry substitution -> {sub.adf_type}"
+        ),
+        detail=sub.notes or "Substitution registry entry applied verbatim.",
     )
     return t
 

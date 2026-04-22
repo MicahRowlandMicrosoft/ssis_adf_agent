@@ -23,6 +23,7 @@ Output structure::
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,68 @@ from .naming import pl_name as _pl_name
 
 # ADF hard limit on activities per pipeline
 _ADF_ACTIVITY_LIMIT = 40
+
+# --- Sensitive value detection ---------------------------------------------
+# A pipeline variable / parameter defaultValue is considered sensitive when its
+# *name* matches a credential-style keyword OR its *value* looks like one of
+# the credential / on-prem-identifier patterns below. Sensitive defaults are
+# stripped from the generated pipeline JSON so credentials and on-prem
+# hostnames don't ship in plain ARM/Git artifacts.
+
+_SENSITIVE_NAME_RE = re.compile(
+    r"(?i)(password|passwd|pwd|secret|token|apikey|api[_-]?key|"
+    r"connectionstring|conn[_-]?str|client[_-]?secret|"
+    r"sas|key$|credential|username|userid|user[_-]?id|"
+    r"login|account)"
+)
+# Domain\user (Windows / AD account)
+_DOMAIN_USER_RE = re.compile(r"^[A-Za-z][\w-]{0,30}\\[A-Za-z][\w.\-$]{0,63}$")
+# Hostname / FQDN with a dot and a non-cloud TLD (e.g. on-prem .lcl, .local,
+# .corp, .lan, .internal, .intra). Plain Azure hosts (*.windows.net etc.) are
+# not flagged because they are not sensitive identifiers.
+_ONPREM_FQDN_RE = re.compile(
+    r"(?i)\.(lcl|local|corp|lan|intra|internal|prv|priv|prod|dev|test|uat)"
+    r"(\\[\w-]+)?(,\d+)?$"
+)
+
+
+def _is_sensitive_name(name: str) -> bool:
+    return bool(_SENSITIVE_NAME_RE.search(name or ""))
+
+
+def _looks_like_credential_value(value: Any) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    if _DOMAIN_USER_RE.match(value):
+        return True
+    if _ONPREM_FQDN_RE.search(value):
+        return True
+    return False
+
+
+def _redact_sensitive_default(name: str, value: Any) -> tuple[Any, str | None]:
+    """Return (safe_default_or_None, description_or_None).
+
+    If the name or value looks sensitive, the default is dropped (returned as
+    ``None``) and a description is returned that the deployer can act on.
+    Otherwise returns ``(value, None)`` unchanged.
+    """
+    name_hit = _is_sensitive_name(name)
+    value_hit = _looks_like_credential_value(value)
+    if not (name_hit or value_hit):
+        return value, None
+    reason_parts = []
+    if name_hit:
+        reason_parts.append("name matches credential pattern")
+    if value_hit:
+        reason_parts.append("value looks like an account name or on-prem FQDN")
+    return None, (
+        "[SENSITIVE] defaultValue stripped at generation time ("
+        + "; ".join(reason_parts)
+        + "). Inject at deploy via Key Vault reference, pipeline parameter, "
+        "or environment-specific override."
+    )
+
 
 _SSIS_TO_ADF_TYPE: dict[str, str] = {
     "String": "String",
@@ -189,10 +252,20 @@ def generate_pipeline(
     # Build parameters from SSIS package parameters
     parameters: dict[str, Any] = {}
     for p in package.parameters:
-        parameters[p.name] = {
-            "type": _map_param_type(p.data_type),
-            **({"defaultValue": p.value} if p.value is not None else {}),
-        }
+        entry: dict[str, Any] = {"type": _map_param_type(p.data_type)}
+        safe_value, redaction_note = _redact_sensitive_default(p.name, p.value)
+        if p.value is not None and safe_value is not None:
+            entry["defaultValue"] = safe_value
+        if redaction_note:
+            entry["description"] = redaction_note
+            _warn(
+                phase="generate",
+                severity="info",
+                source="pipeline_generator",
+                message=f"Stripped sensitive defaultValue from parameter '{p.name}'",
+                detail=redaction_note,
+            )
+        parameters[p.name] = entry
 
     # Project-level parameters (from Project.params) are exposed as pipeline
     # parameters so SSIS expressions like @[$Project::Database] (translated to
@@ -201,9 +274,22 @@ def generate_pipeline(
     for p in package.project_parameters:
         if p.name in parameters:
             continue
-        entry: dict[str, Any] = {"type": _map_param_type(p.data_type)}
-        if p.value is not None and not p.sensitive:
-            entry["defaultValue"] = p.value
+        entry = {"type": _map_param_type(p.data_type)}
+        safe_value, redaction_note = _redact_sensitive_default(p.name, p.value)
+        if p.value is not None and not p.sensitive and safe_value is not None:
+            entry["defaultValue"] = safe_value
+        if p.sensitive or redaction_note:
+            note = redaction_note or (
+                "[SENSITIVE] Project-level sensitive parameter — inject at deploy."
+            )
+            entry["description"] = note
+            _warn(
+                phase="generate",
+                severity="info",
+                source="pipeline_generator",
+                message=f"Stripped sensitive defaultValue from project parameter '{p.name}'",
+                detail=note,
+            )
         parameters[p.name] = entry
 
     # Add implicit parameters for function URLs (referenced by File System / Send Mail converters)
@@ -225,10 +311,20 @@ def generate_pipeline(
     variables: dict[str, Any] = {}
     for v in package.variables:
         if v.namespace.lower() == "user":
-            variables[v.name] = {
-                "type": _map_param_type(v.data_type),
-                **({"defaultValue": v.value} if v.value is not None else {}),
-            }
+            entry = {"type": _map_param_type(v.data_type)}
+            safe_value, redaction_note = _redact_sensitive_default(v.name, v.value)
+            if v.value is not None and safe_value is not None:
+                entry["defaultValue"] = safe_value
+            if redaction_note:
+                entry["description"] = redaction_note
+                _warn(
+                    phase="generate",
+                    severity="info",
+                    source="pipeline_generator",
+                    message=f"Stripped sensitive defaultValue from variable '{v.name}'",
+                    detail=redaction_note,
+                )
+            variables[v.name] = entry
 
     # Annotations
     annotations = _collect_annotations(package)

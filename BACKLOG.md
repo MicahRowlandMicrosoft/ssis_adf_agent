@@ -13,17 +13,17 @@ Priority legend:
 
 ## P0 — Blockers
 
-### B1. Copy Activity emits wrong source/sink types for OLEDB → FlatFile
-- **Evidence:** [adf/ADDS-MIPS-TC/pipeline/PL_ADDS_MIPS_TC.json](../test-lni-packages/adf/ADDS-MIPS-TC/pipeline/PL_ADDS_MIPS_TC.json) emits `AzureSqlSource` + `AzureSqlSink` against `AzureSqlTable` + `DelimitedText` datasets.
-- **Acceptance:** Re-running `convert_ssis_package` on the three LNI packages produces Copy activities where `source.type` / `sink.type` match the wired dataset types and the SSIS source kind. JSON validates and deploys to a real ADF.
+### B1. Copy Activity emits wrong source/sink types for OLEDB → FlatFile — **DONE**
+- **Fix:** `_COPY_SOURCE_BY_COMPONENT` / `_COPY_SINK_BY_COMPONENT` in `data_flow_converter.py`; SQL-only sink properties gated by `_SQL_SINK_TYPES`; `sqlReaderQuery` carried through.
+- **Verified:** Regenerated [PL_ADDS_MIPS_TC.json](../test-lni-packages/adf/ADDS-MIPS-TC/pipeline/PL_ADDS_MIPS_TC.json) now emits `AzureSqlSource` + `DelimitedTextSink` matching the wired datasets.
 
-### B2. End-to-end deploy + smoke-test on the LNI sample
-- **Evidence missing:** No `deploy_to_adf` log; no `smoke_test_pipeline` result.
-- **Acceptance:** Captured logs for all three packages: deploy succeeds, smoke test runs, per-activity status visible.
+### B2. End-to-end deploy + smoke-test on the LNI sample — **CUSTOMER-SIDE PROOF**
+- **Status:** Cannot be executed in this environment (no Azure subscription / factory / SHIR available). Listed as a customer-side acceptance test.
+- **Acceptance unchanged:** captured deploy + smoke-test logs against a real factory for all three LNI packages.
 
-### B3. Credentials / on-prem identifiers in cleartext pipeline variables
-- **Evidence:** `DBUserID = LNI\svcOneWAWIP235`, `DatabaseServer = LNIsqTumSTGEX...` baked into pipeline variables in [PL_ADDS_MIPS_TC.json](../test-lni-packages/adf/ADDS-MIPS-TC/pipeline/PL_ADDS_MIPS_TC.json).
-- **Acceptance:** Sensitive-looking variables (account names, FQDNs, passwords) are routed to Key Vault references or pipeline parameters by default; documented opt-out flag.
+### B3. Credentials / on-prem identifiers in cleartext pipeline variables — **DONE**
+- **Fix:** `_redact_sensitive_default()` in `pipeline_generator.py` strips defaultValues whose name matches a credential keyword OR whose value matches a Windows-domain account / on-prem FQDN regex. Stripped entries get a `description` instructing the deployer to inject via Key Vault reference, pipeline parameter, or env-specific override. Azure cloud hostnames (`*.windows.net` etc.) are intentionally not flagged.
+- **Verified:** [PL_ADDS_MIPS_TC.json](../test-lni-packages/adf/ADDS-MIPS-TC/pipeline/PL_ADDS_MIPS_TC.json) — `DBUserID`, `DatabaseServer`, and the LNI service-account values no longer appear as cleartext defaults; replaced by `[SENSITIVE]` description blocks. Covered by [test_pipeline_sensitive_redaction.py](../tests/test_pipeline_sensitive_redaction.py).
 
 ---
 
@@ -104,9 +104,9 @@ Priority legend:
 
 ## Suggested execution order
 
-1. **B1** (regenerate Copy types correctly on LNI) — without this nothing else matters.
-2. **B3** (credential leakage) — must land alongside B1 because the same regen run will rewrite pipeline JSON.
-3. **B2** (deploy + smoke-test logs) — proves B1/B3 worked.
+1. **B1** ✅ done (regenerated Copy types correctly on LNI).
+2. **B3** ✅ done (sensitive defaults stripped from generated pipelines).
+3. **B2** — customer-side proof; cannot be executed without an Azure factory.
 4. **H3** (LLM translator on LNI dialect) — same sample, same regen pass.
 5. **H4** (parity report) — produce on the deployed pipeline.
 6. **H1**, **H5**, **H2** (doc/repo hygiene) — fast wins, can parallelize.

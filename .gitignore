@@ -11,3 +11,6 @@ infra/
 ssis_adf_agent.code-workspace
 .scratch/
 
+
+# Local-only Copilot prompts
+.github/prompts/

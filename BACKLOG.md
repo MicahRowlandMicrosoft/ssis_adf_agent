@@ -89,14 +89,14 @@ Priority legend:
 
 ## P3 — Polish
 
-### N1. Cross-pipeline regression harness
-- **Acceptance:** Smoke-test multiple pipelines in a wave with a single call; aggregate report.
+### N1. Cross-pipeline regression harness — **DONE**
+- **Resolution:** New `smoke_test_wave` MCP tool (#26) wraps `smoke_test_pipeline` across many pipelines. Accepts either an explicit `pipeline_names` list or auto-discovers from an `artifacts_dir/pipeline/*.json` set. Returns aggregated `summary` (total / succeeded / failed / cancelled / timed_out / errored / skipped) plus full per-pipeline results. `stop_on_failure=true` short-circuits the rest of the wave for sign-off gates. 6 unit tests in [test_smoke_test_wave.py](tests/test_smoke_test_wave.py).
 
-### N2. Rollback story
-- **Acceptance:** Documented rollback flow (delete / soft-revert / branch-restore).
+### N2. Rollback story — **DONE**
+- **Resolution:** [ROLLBACK.md](ROLLBACK.md) ships three named strategies tied to blast radius: per-artifact delete via `lineage.json` (mid-flight failures, leverages M1), soft-revert single pipeline via git history + targeted re-deploy, and full git-worktree restore + force re-deploy for wave-scale rollbacks. Includes pre-flight checklist (deploy tag, dry-run triggers, predeployment report) and a special-case section on triggers (always Stopped on deploy by design — H7).
 
-### N3. Naming-convention configurability
-- **Acceptance:** Customer-tunable prefix/suffix patterns for generated artifacts.
+### N3. Naming-convention configurability — **DONE**
+- **Resolution:** Naming helpers (`ds_name`, `df_name`, `pl_name`, `tr_name`, `ls_name_for_cm`, `build_ls_name_map`) now honor `{LS,DS,DF,PL,TR}_PREFIX` keys in `name_overrides` to swap the default `LS_/DS_/DF_/PL_/TR_` prefixes globally for a conversion. Empty string drops the prefix entirely. Per-artifact overrides still win over prefix overrides. Documented in the module docstring of [generators/naming.py](ssis_adf_agent/generators/naming.py); 8 unit tests in [test_naming_prefix_overrides.py](tests/test_naming_prefix_overrides.py).
 
 ---
 

@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes twenty-five tools to GitHub Copilot (and any MCP-compatible client):
+Exposes twenty-six tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -28,6 +28,7 @@ Exposes twenty-five tools to GitHub Copilot (and any MCP-compatible client):
 23. build_predeployment_report — engineer-facing Markdown report with diagrams + checklists
 24. activate_triggers         — bulk-activate ADF triggers (dry-run by default; H7)
 25. export_arm_template       — bundle ADF artifacts into an ARM template (M2)
+26. smoke_test_wave           — run smoke_test_pipeline against many pipelines, aggregate (N1)
 
 Run as an MCP stdio server::
 
@@ -1071,6 +1072,42 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["artifacts_dir"],
             },
         ),
+        types.Tool(
+            name="smoke_test_wave",
+            description=(
+                "Cross-pipeline regression harness (N1). Runs smoke_test_pipeline "
+                "against every pipeline in `pipeline_names` (or auto-discovered from "
+                "an artifacts_dir) and returns one aggregated report: per-pipeline "
+                "status + a summary section with succeeded / failed / cancelled / "
+                "timed_out counts. Stops early on first failure when stop_on_failure "
+                "is true (useful for wave-by-wave sign-off; default false runs all)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "subscription_id": {"type": "string", "description": "Azure subscription ID (GUID) or display name."},
+                    "resource_group": {"type": "string", "description": "Resource group of the factory."},
+                    "factory_name": {"type": "string", "description": "Data Factory name."},
+                    "pipeline_names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Explicit list of pipeline names to test. Mutually exclusive with artifacts_dir.",
+                    },
+                    "artifacts_dir": {
+                        "type": "string",
+                        "description": "Directory containing generated ADF artifacts; pipelines/*.json filenames become the test set. Used when pipeline_names is omitted.",
+                    },
+                    "parameters": {
+                        "type": "object",
+                        "description": "Optional pipeline parameters applied to every pipeline run.",
+                    },
+                    "timeout_seconds": {"type": "integer", "default": 600},
+                    "poll_interval_seconds": {"type": "integer", "default": 10},
+                    "stop_on_failure": {"type": "boolean", "default": False},
+                },
+                "required": ["subscription_id", "resource_group", "factory_name"],
+            },
+        ),
     ]
 
 
@@ -1138,6 +1175,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _activate_triggers(arguments)
         elif name == "export_arm_template":
             return await _export_arm_template(arguments)
+        elif name == "smoke_test_wave":
+            return await _smoke_test_wave(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -2521,6 +2560,66 @@ async def _export_arm_template(args: dict[str, Any]) -> list[types.TextContent]:
             "--template-file <template> --parameters @<parameters>"
         ),
     }
+    return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
+
+
+async def _smoke_test_wave(args: dict[str, Any]) -> list[types.TextContent]:
+    """Run smoke_test_pipeline against many pipelines and aggregate (N1)."""
+    from .migration_plan import smoke_test_pipeline
+
+    pipeline_names: list[str] = list(args.get("pipeline_names") or [])
+    if not pipeline_names:
+        artifacts_dir = args.get("artifacts_dir")
+        if not artifacts_dir:
+            raise ValueError("Provide either pipeline_names or artifacts_dir.")
+        pipelines_dir = _safe_resolve(artifacts_dir, must_exist=True, label="artifacts_dir") / "pipeline"
+        if not pipelines_dir.is_dir():
+            raise ValueError(f"No pipeline/ subdirectory found under {artifacts_dir}.")
+        pipeline_names = sorted(p.stem for p in pipelines_dir.glob("*.json"))
+        if not pipeline_names:
+            raise ValueError(f"No *.json files found in {pipelines_dir}.")
+
+    stop_on_failure = bool(args.get("stop_on_failure", False))
+    parameters = args.get("parameters")
+    timeout_seconds = int(args.get("timeout_seconds", 600))
+    poll_interval_seconds = int(args.get("poll_interval_seconds", 10))
+
+    results: list[dict[str, Any]] = []
+    summary = {"total": len(pipeline_names), "succeeded": 0, "failed": 0, "cancelled": 0, "timed_out": 0, "errored": 0, "skipped": 0}
+
+    for name in pipeline_names:
+        if stop_on_failure and (summary["failed"] or summary["cancelled"] or summary["timed_out"] or summary["errored"]):
+            results.append({"pipeline_name": name, "status": "skipped", "reason": "stop_on_failure"})
+            summary["skipped"] += 1
+            continue
+        try:
+            r = smoke_test_pipeline(
+                subscription_id=args["subscription_id"],
+                resource_group=args["resource_group"],
+                factory_name=args["factory_name"],
+                pipeline_name=name,
+                parameters=parameters,
+                timeout_seconds=timeout_seconds,
+                poll_interval_seconds=poll_interval_seconds,
+            )
+        except Exception as exc:
+            results.append({"pipeline_name": name, "status": "errored", "error": str(exc)})
+            summary["errored"] += 1
+            continue
+        status = str(r.get("status", "")).lower()
+        if status == "succeeded":
+            summary["succeeded"] += 1
+        elif status == "failed":
+            summary["failed"] += 1
+        elif status == "cancelled":
+            summary["cancelled"] += 1
+        elif status in {"timed_out", "timedout"}:
+            summary["timed_out"] += 1
+        else:
+            summary["errored"] += 1
+        results.append(r)
+
+    payload = {"summary": summary, "results": results}
     return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
 
 

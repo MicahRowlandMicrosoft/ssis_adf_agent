@@ -1,13 +1,31 @@
 """
 Centralized ADF artifact naming conventions.
 
-Naming patterns
----------------
+Default naming patterns
+-----------------------
 - Linked Service : ``LS_{Package}_{TypeShort}_{Server}_{Database}``
 - Dataset        : ``DS_{Package}_{ComponentName}``
 - Data Flow      : ``DF_{Package}_{TaskName}``
 - Pipeline       : ``PL_{Package}``
 - Trigger        : ``TR_{Package}``
+
+Customizing naming (N3)
+-----------------------
+Two layers of customization are supported through the ``name_overrides``
+mapping accepted by every helper in this module:
+
+1. **Per-artifact overrides** — exact-name replacement for one entity.
+   * ``LS:<connection_manager_name>`` -> custom linked-service name
+   * ``DS:<component_name>`` -> custom dataset name
+   * ``DF:<task_name>`` -> custom data-flow name
+   * ``PL`` -> custom pipeline name (one per package conversion)
+   * ``TR`` -> custom trigger name
+
+2. **Prefix overrides** — change the standard ``LS_`` / ``DS_`` / ``DF_`` /
+   ``PL_`` / ``TR_`` prefix for *every* artifact of that kind:
+   * ``LS_PREFIX``, ``DS_PREFIX``, ``DF_PREFIX``, ``PL_PREFIX``, ``TR_PREFIX``
+   Use empty string ("") to drop the prefix entirely. Combine with
+   per-artifact overrides for the rare exception.
 
 When the server or database is a placeholder (TODO / Insert_*), the linked
 service falls back to the SSIS Connection Manager name.
@@ -44,6 +62,32 @@ def sanitize_adf_name(raw: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_]", "_", raw)
     cleaned = re.sub(r"_+", "_", cleaned)
     return cleaned.strip("_")
+
+
+def _resolve_prefix(
+    kind: str,
+    default: str,
+    name_overrides: dict[str, str] | None,
+) -> str:
+    """Return the configured prefix for *kind* (LS/DS/DF/PL/TR), or *default*.
+
+    Looks up ``{kind}_PREFIX`` in *name_overrides* (case-insensitive). An
+    explicit empty string drops the prefix entirely. The returned prefix is
+    sanitized only for ADF-invalid characters; trailing underscores are
+    preserved so callers control separator style.
+    """
+    if not name_overrides:
+        return default
+    target = f"{kind}_PREFIX".upper()
+    for k, v in name_overrides.items():
+        if k.upper() == target:
+            # Allow explicit "" to mean "no prefix".
+            if v == "":
+                return ""
+            # Sanitize but preserve a trailing underscore if the caller wrote one.
+            trailing = "_" if v.endswith("_") else ""
+            return sanitize_adf_name(v) + trailing
+    return default
 
 
 # ---------------------------------------------------------------------------
@@ -88,13 +132,17 @@ def _is_placeholder(value: str | None) -> bool:
 def ls_name_for_cm(
     package_name: str,
     cm: SSISConnectionManager,
+    *,
+    name_overrides: dict[str, str] | None = None,
 ) -> str:
     """Build a human-readable linked-service name for *cm*.
 
-    Pattern: ``LS_{Package}_{TypeShort}_{Server}_{Database}``
+    Pattern: ``{LS_PREFIX}{Package}_{TypeShort}_{Server}_{Database}``
+    (default ``LS_PREFIX`` is ``LS_``).
 
     Falls back to the CM name when server/database are placeholders.
     """
+    prefix = _resolve_prefix("LS", "LS_", name_overrides)
     pkg = sanitize_adf_name(package_name)
     type_short = _CM_TYPE_SHORT.get(cm.type.value, "Unknown")
 
@@ -114,7 +162,7 @@ def ls_name_for_cm(
             parts.append(sanitize_adf_name(database_raw))
         semantic = "_".join(parts) if parts else sanitize_adf_name(cm.name)
 
-    return f"LS_{pkg}_{type_short}_{semantic}"
+    return f"{prefix}{pkg}_{type_short}_{semantic}"
 
 
 def build_ls_name_map(
@@ -148,7 +196,7 @@ def build_ls_name_map(
         if override:
             name_map[cm.id] = override
         else:
-            raw_names.append((cm.id, ls_name_for_cm(package_name, cm)))
+            raw_names.append((cm.id, ls_name_for_cm(package_name, cm, name_overrides=overrides)))
 
     # Detect collisions among non-overridden names
     from collections import Counter
@@ -199,7 +247,8 @@ def ds_name(
         for k, v in name_overrides.items():
             if k.lower() == key:
                 return sanitize_adf_name(v)
-    return f"DS_{sanitize_adf_name(package_name)}_{sanitize_adf_name(component_name)}"
+    prefix = _resolve_prefix("DS", "DS_", name_overrides)
+    return f"{prefix}{sanitize_adf_name(package_name)}_{sanitize_adf_name(component_name)}"
 
 
 def df_name(
@@ -217,7 +266,8 @@ def df_name(
         for k, v in name_overrides.items():
             if k.lower() == key:
                 return sanitize_adf_name(v)
-    return f"DF_{sanitize_adf_name(package_name)}_{sanitize_adf_name(task_name)}"
+    prefix = _resolve_prefix("DF", "DF_", name_overrides)
+    return f"{prefix}{sanitize_adf_name(package_name)}_{sanitize_adf_name(task_name)}"
 
 
 def pl_name(
@@ -234,6 +284,8 @@ def pl_name(
         for k, v in name_overrides.items():
             if k.upper() == "PL":
                 return sanitize_adf_name(v)
+        configured = _resolve_prefix("PL", prefix, name_overrides)
+        return f"{configured}{sanitize_adf_name(package_name)}"
     return f"{prefix}{sanitize_adf_name(package_name)}"
 
 
@@ -250,4 +302,5 @@ def tr_name(
         for k, v in name_overrides.items():
             if k.upper() == "TR":
                 return sanitize_adf_name(v)
-    return f"TR_{sanitize_adf_name(package_name)}"
+    prefix = _resolve_prefix("TR", "TR_", name_overrides)
+    return f"{prefix}{sanitize_adf_name(package_name)}"

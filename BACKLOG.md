@@ -37,9 +37,10 @@ Priority legend:
 - **Evidence:** README clone URL is `github.com/chsimons_microsoft/ssis_adf_agent.git`; no CHANGELOG, no version pin, no security contact.
 - **Acceptance:** Verified repo URL, `CHANGELOG.md`, semver in `pyproject.toml`, SECURITY.md, ownership statement in README.
 
-### H3. LLM Script Task translation silently no-ops on real input
-- **Evidence:** Stubs at [adf/ADDS-MIPS-TC/stubs/Database_Access_Configuration/__init__.py](../test-lni-packages/adf/ADDS-MIPS-TC/stubs/Database_Access_Configuration/__init__.py) carry "no C# source code was extracted from the DTSX (package may use self-closing stub format)" and contain only `NotImplementedError`.
-- **Acceptance:** Either: (a) translator handles the LNI dialect and emits Python with original C# preserved as comments, or (b) docs add a clearly-flagged "known to fail when…" subsection AND the analyzer surfaces the dialect issue *before* convert.
+### H3. LLM Script Task translation silently no-ops on real input — **DONE**
+- **Root cause:** the parser only recognised the SSIS 2008 / classic 2012 wrapper elements (`ScriptTaskProjectConfiguration` / `ScriptTask`) and only the `BinaryData` / `ProjectBytes` source patterns. Modern SSIS 2017+ packages (including the LNI estate) put a bare `<ScriptProject>` directly under `<ObjectData>` and embed the source as `<ProjectItem>` CDATA. Nothing matched, so the parser returned `script_language="CSharp"` (default) and `source_code=None`, and the LLM translator silently no-op'd.
+- **Fix:** `_parse_script_task` in `ssis_parser.py` now recognises a bare `<ScriptProject>` as the config holder, reads its `Language` attribute (CSharp / VisualBasic), and `_extract_source_from_inline_project_items` concatenates `ScriptMain.{vb,cs}` and any other code-shaped `ProjectItem` CDATA. XML / project-metadata items are skipped. The LLM-skip warning in `script_task_converter.py` was rewritten to drop the "self-closing stub format" line and instead list real causes (unsupported VSTA layout, EncryptAllWithPassword, pre-2008 binary stub).
+- **Verified:** [adf/ADDS-MIPS-TC/stubs/Database_Access_Configuration/__init__.py](../test-lni-packages/adf/ADDS-MIPS-TC/stubs/Database_Access_Configuration/__init__.py) regenerated — now reports `Original language: VisualBasic` and embeds the original `ScriptMain.vb` source as line comments. Covered by [test_script_task_inline_project_items.py](../tests/test_script_task_inline_project_items.py) (6 tests, including a smoke test against the real LNI sample).
 
 ### H4. Parity validation — define and demonstrate
 - **Evidence:** `validate_conversion_parity` listed but no sample output.

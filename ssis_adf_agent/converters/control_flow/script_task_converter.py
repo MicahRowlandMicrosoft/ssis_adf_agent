@@ -170,8 +170,12 @@ class ScriptTaskConverter(BaseConverter):
             translated_body, translation_warning = _attempt_llm_translation(task)
         elif self.llm_translate and not task.source_code:
             translation_warning = (
-                f"[LLM translation skipped for '{task.name}': no C# source code was "
-                "extracted from the DTSX (package may use self-closing stub format)]"
+                f"[LLM translation skipped for '{task.name}': no "
+                f"{task.script_language} source code was extracted from the DTSX. "
+                "The Script Task may use an unsupported VSTA project layout, "
+                "may be encrypted with a package password (EncryptAllWithPassword), "
+                "or may be a pre-2008 binary-only stub. Re-export the package with "
+                "DontSaveSensitive or supply the password to recover the source.]"
             )
 
         # Original C# included as line comments whenever source is available

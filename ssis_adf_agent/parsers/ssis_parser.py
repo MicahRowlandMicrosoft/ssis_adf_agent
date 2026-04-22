@@ -601,7 +601,49 @@ def _extract_source_from_script_project(
                 sub_local = etree.QName(sub.tag).localname
                 if sub_local == "BinaryData" and sub.text:
                     return _extract_source_from_blob(sub.text, language)
+            inline = _extract_source_from_inline_project_items(child, language)
+            if inline:
+                return inline
     return None
+
+
+def _extract_source_from_inline_project_items(
+    script_project: etree._Element, language: str
+) -> str | None:
+    """
+    Pattern C (SSIS 2017+ / modern VSTA projects, including the LNI dialect):
+    a ScriptProject element holds the source code inline as one or more
+    ProjectItem children whose text is the file body (often a .vb or .cs file).
+    Concatenate everything that looks like the user-authored entry-point file
+    (ScriptMain.vb / ScriptMain.cs) plus any other code files; skip
+    .xml / .resx / .settings / project-metadata items.
+    """
+    ext = ".vb" if language == "VisualBasic" else ".cs"
+    primary_chunks: list[str] = []
+    other_chunks: list[str] = []
+    for sub in script_project:
+        sub_local = etree.QName(sub.tag).localname
+        if sub_local != "ProjectItem":
+            continue
+        name = (sub.get("Name") or "").strip()
+        text = (sub.text or "").strip()
+        if not text:
+            continue
+        # Skip XML-shaped items (project file, app.config, resx, settings).
+        stripped = text.lstrip()
+        if stripped.startswith("<?xml") or stripped.startswith("<"):
+            continue
+        if name.lower().endswith(ext):
+            if name.lower().startswith("scriptmain"):
+                primary_chunks.append(f"' --- {name} ---\n{text}" if ext == ".vb"
+                                       else f"// --- {name} ---\n{text}")
+            else:
+                other_chunks.append(f"' --- {name} ---\n{text}" if ext == ".vb"
+                                     else f"// --- {name} ---\n{text}")
+    chunks = primary_chunks + other_chunks
+    if not chunks:
+        return None
+    return "\n\n".join(chunks)
 
 
 def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
@@ -1057,28 +1099,53 @@ class SSISParser:
         if object_data is not None:
             for child in object_data:
                 local = etree.QName(child.tag).localname
-                if "ScriptTaskProjectConfiguration" in local or "ScriptTask" in local:
-                    lang = child.get("ScriptLanguage") or child.get(
-                        f"{{{DTS_NS}}}ScriptLanguage"
+                # The script-task config may appear directly as a <ScriptProject>
+                # child of <ObjectData> (SSIS 2017+ / LNI-style packages) OR
+                # wrapped in a <ScriptTaskProjectConfiguration> / <ScriptTask>
+                # element (older / classic packages).
+                if local == "ScriptProject":
+                    config_holder = child  # the project IS the config holder
+                    inline_project = child
+                elif "ScriptTaskProjectConfiguration" in local or "ScriptTask" in local:
+                    config_holder = child
+                    inline_project = None
+                else:
+                    continue
+
+                lang = config_holder.get("ScriptLanguage") or config_holder.get(
+                    f"{{{DTS_NS}}}ScriptLanguage"
+                ) or config_holder.get("Language")
+                if lang:
+                    upper = lang.upper()
+                    language = "VisualBasic" if (
+                        "VB" in upper or "VISUAL" in upper or "BASIC" in upper
+                    ) else "CSharp"
+                ep = config_holder.get("EntryPoint") or config_holder.get(
+                    f"{{{DTS_NS}}}EntryPoint"
+                )
+                if ep:
+                    entry_point = ep
+                ro = config_holder.get("ReadOnlyVariables") or ""
+                rw = config_holder.get("ReadWriteVariables") or ""
+                ro_vars = [v.strip() for v in ro.split(",") if v.strip()]
+                rw_vars = [v.strip() for v in rw.split(",") if v.strip()]
+
+                # Pattern B (SSIS 2008): ProjectBytes attribute on the config element
+                project_bytes = config_holder.get("ProjectBytes")
+                if project_bytes:
+                    source_code = _extract_source_from_blob(project_bytes, language)
+
+                # Pattern A (SSIS 2012+): BinaryData child inside ScriptProject child
+                if source_code is None and inline_project is None:
+                    source_code = _extract_source_from_script_project(
+                        config_holder, language
                     )
-                    if lang:
-                        language = "VisualBasic" if "VB" in lang.upper() else "CSharp"
-                    ep = child.get("EntryPoint") or child.get(f"{{{DTS_NS}}}EntryPoint")
-                    if ep:
-                        entry_point = ep
-                    ro = child.get("ReadOnlyVariables") or ""
-                    rw = child.get("ReadWriteVariables") or ""
-                    ro_vars = [v.strip() for v in ro.split(",") if v.strip()]
-                    rw_vars = [v.strip() for v in rw.split(",") if v.strip()]
 
-                    # Pattern B (SSIS 2008): ProjectBytes attribute on the config element
-                    project_bytes = child.get("ProjectBytes")
-                    if project_bytes:
-                        source_code = _extract_source_from_blob(project_bytes, language)
-
-                    # Pattern A (SSIS 2012+): BinaryData child inside ScriptProject child
-                    if source_code is None:
-                        source_code = _extract_source_from_script_project(child, language)
+                # Pattern C (SSIS 2017+ / LNI): inline ProjectItem CDATA
+                if source_code is None and inline_project is not None:
+                    source_code = _extract_source_from_inline_project_items(
+                        inline_project, language
+                    )
 
         return ScriptTask(
             **base,

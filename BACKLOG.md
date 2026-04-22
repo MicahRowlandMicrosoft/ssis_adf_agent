@@ -48,15 +48,14 @@ Priority legend:
 ### H5. Mark HOWTO transcripts as illustrative, not captured runs — **DONE**
 - **Resolution:** [HOWTO.md](HOWTO.md) now leads with a prominent caveat block stating the dialogues are illustrative — numbers, package names, and paths inside them are constructed for clarity, and a real session will produce different output. The caveat points readers to [PARITY.md](PARITY.md#worked-example--lni-adds-mips-tc) and the captured LNI parity report for an actual recorded run on a production-shape package.
 
-### H6. SSIS supported / partial / unsupported matrix
-- **Acceptance:** New doc section listing each pattern (CDC, MDS, Fuzzy Lookup, Script Component, custom 3rd-party components, OLE DB→Oracle/DB2/SAP, package configurations XML/SQL/env-var, project params, package parts, parent-package variables, `EncryptAllWithPassword`, `.ispac`, Windows/Kerberos/cert auth) with status + sample link.
+### H6. SSIS supported / partial / unsupported matrix — **DONE**
+- **Resolution:** New [COVERAGE.md](COVERAGE.md) ships a complete ✅ supported / 🟡 partial / 🔴 unsupported matrix covering every Control Flow task type, every Data Flow source/transform/destination, every connection-manager kind, and package-level constructs (project params, package configurations, `.ispac`, `EncryptAllWithPassword`, package parts, parent-package variables, Kerberos / cert auth). Each row points at the dispatcher / gap-analyzer entry that is the source of truth so the doc cannot drift from code without a test failing.
 
-### H7. Bulk trigger activation
-- **Acceptance:** New tool / documented script that activates all triggers in a factory or wave. Cited in HOWTO post-deploy section.
+### H7. Bulk trigger activation — **DONE**
+- **Resolution:** New `activate_triggers` MCP tool (#24) in [`mcp_server.py`](ssis_adf_agent/mcp_server.py) + `AdfDeployer.list_triggers()` / `AdfDeployer.activate_triggers()` in [`adf_deployer.py`](ssis_adf_agent/deployer/adf_deployer.py). Defaults to `dry_run=True` so the operator must opt in to actually start triggers; per-trigger results carry status `activated` / `already_started` / `would_activate` / `not_found` / `failed`. 8 unit tests in [test_activate_triggers.py](tests/test_activate_triggers.py) cover dry-run, live activation, name filter, idempotence on already-Started, and per-trigger failure isolation.
 
-### H8. Non-destructive re-deploy mode
-- **Evidence:** README states deploy is `put_or_update` (overwrites manual edits).
-- **Acceptance:** Documented "preserve manual edits" mode (skip-if-exists, or generated-region marker), demonstrated on a hand-edited linked service.
+### H8. Non-destructive re-deploy mode — **DONE**
+- **Resolution:** Added `skip_if_exists` parameter to `AdfDeployer.deploy_all()` (and threaded through `_deploy_file()`) plus a new `_artifact_exists()` probe that calls the per-type `.get()` API and treats only HTTP 404 as "does not exist". `DeployResult` gained a `skipped: bool` field so callers can distinguish a no-op from a real success. The `deploy_to_adf` MCP tool now exposes `skip_if_exists` with documentation explaining the hand-edit-preservation use case. 4 unit tests in [test_skip_if_exists.py](tests/test_skip_if_exists.py) cover: default destructive behavior unchanged, existing pipeline is skipped, 404 falls through to deploy, non-404 probe errors fall through to deploy (so the real error surfaces from create_or_update).
 
 ---
 

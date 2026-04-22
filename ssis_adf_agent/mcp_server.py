@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes twenty-three tools to GitHub Copilot (and any MCP-compatible client):
+Exposes twenty-four tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -26,6 +26,7 @@ Exposes twenty-three tools to GitHub Copilot (and any MCP-compatible client):
 21. estimate_adf_costs        — plan-aware monthly USD cost projection for the estate
 22. build_estate_report       — PDF deliverable from saved plans + waves + costs
 23. build_predeployment_report — engineer-facing Markdown report with diagrams + checklists
+24. activate_triggers         — bulk-activate ADF triggers (dry-run by default; H7)
 
 Run as an MCP stdio server::
 
@@ -273,8 +274,12 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Deploy ADF JSON artifacts from a local directory to an Azure Data Factory instance. "
                 "Deploys in correct dependency order: linked services → datasets → data flows → pipelines → triggers. "
-                "Triggers are deployed in Stopped state and must be activated manually. "
-                "Uses DefaultAzureCredential (az login, managed identity, or service principal env vars)."
+                "Triggers are deployed in Stopped state and must be activated manually (see activate_triggers). "
+                "Uses DefaultAzureCredential (az login, managed identity, or service principal env vars). "
+                "By default the deploy is destructive (put_or_update overwrites in-factory edits). "
+                "Pass skip_if_exists=true (H8) to refuse to overwrite any artifact that already exists "
+                "in the target factory — recommended once a customer has hand-edited a linked service "
+                "or pipeline in ADF Studio."
             ),
             inputSchema={
                 "type": "object",
@@ -307,6 +312,17 @@ async def list_tools() -> list[types.Tool]:
                             "Invalid artifacts are skipped and reported."
                         ),
                         "default": True,
+                    },
+                    "skip_if_exists": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, before each create_or_update call check whether an artifact "
+                            "of the same name already exists in the target factory; if it does, "
+                            "skip it (status='skipped_exists') instead of overwriting. Use this for "
+                            "non-destructive re-deploys against a factory that contains hand-edited "
+                            "artifacts. Default: false (preserves the existing destructive behavior)."
+                        ),
+                        "default": False,
                     },
                 },
                 "required": ["artifacts_dir", "subscription_id", "resource_group", "factory_name"],
@@ -964,6 +980,55 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["entries"],
             },
         ),
+        types.Tool(
+            name="activate_triggers",
+            description=(
+                "Bulk-activate one or many ADF triggers in a target factory. "
+                "Triggers are deployed in Stopped state by deploy_to_adf; this tool is the "
+                "explicit, opt-in counterpart to start them. Defaults to dry_run=true: it lists "
+                "what would be activated without making any state-changing call. Pass "
+                "dry_run=false to actually start triggers. Already-running triggers are reported "
+                "as 'already_started' (no-op). Unknown trigger names are reported as 'not_found' "
+                "(error, not silently ignored). Returns one row per processed trigger with "
+                "before/after runtime state."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "subscription_id": {
+                        "type": "string",
+                        "description": "Subscription ID (GUID) or display name of the Azure subscription owning the factory.",
+                    },
+                    "resource_group": {
+                        "type": "string",
+                        "description": "Resource group name containing the Data Factory.",
+                    },
+                    "factory_name": {
+                        "type": "string",
+                        "description": "Name of the target Data Factory.",
+                    },
+                    "trigger_names": {
+                        "type": "array",
+                        "description": (
+                            "Optional explicit list of trigger names to activate. If omitted, "
+                            "EVERY trigger in the factory is considered (still dry-run by "
+                            "default). Recommended workflow: list_triggers first, then pass the "
+                            "filtered set."
+                        ),
+                        "items": {"type": "string"},
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": (
+                            "If true (default), report what would happen without calling the "
+                            "Azure trigger start API. If false, actually start the triggers."
+                        ),
+                        "default": True,
+                    },
+                },
+                "required": ["subscription_id", "resource_group", "factory_name"],
+            },
+        ),
     ]
 
 
@@ -1027,6 +1092,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _build_estate_pdf(arguments)
         elif name == "build_predeployment_report":
             return await _build_predeployment_report(arguments)
+        elif name == "activate_triggers":
+            return await _activate_triggers(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -1446,6 +1513,7 @@ async def _deploy(args: dict[str, Any]) -> list[types.TextContent]:
             _safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir"),
             dry_run=args.get("dry_run", False),
             validate_first=args.get("validate_first", True),
+            skip_if_exists=args.get("skip_if_exists", False),
         )
 
         summary = {
@@ -2303,6 +2371,51 @@ async def _build_predeployment_report(args: dict[str, Any]) -> list[types.TextCo
         types.TextContent(type="text", text=report),
         types.TextContent(type="text", text=json.dumps(result, indent=2)),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Tool: activate_triggers (H7)
+# ---------------------------------------------------------------------------
+
+async def _activate_triggers(args: dict[str, Any]) -> list[types.TextContent]:
+    """Bulk-activate ADF triggers. Dry-run by default; see AdfDeployer.activate_triggers."""
+    from .deployer.adf_deployer import AdfDeployer
+
+    subscription_id = args["subscription_id"]
+    resource_group = args["resource_group"]
+    factory_name = args["factory_name"]
+    trigger_names = args.get("trigger_names")
+    dry_run = bool(args.get("dry_run", True))
+
+    deployer = AdfDeployer(
+        subscription_id=subscription_id,
+        resource_group=resource_group,
+        factory_name=factory_name,
+    )
+
+    with WarningsCollector() as wc:
+        results = deployer.activate_triggers(names=trigger_names, dry_run=dry_run)
+
+    summary: dict[str, int] = {}
+    for row in results:
+        summary[row["status"]] = summary.get(row["status"], 0) + 1
+
+    payload: dict[str, Any] = {
+        "factory": factory_name,
+        "resource_group": resource_group,
+        "subscription_id": subscription_id,
+        "dry_run": dry_run,
+        "trigger_count": len(results),
+        "summary": summary,
+        "results": results,
+        "warnings": [w.model_dump() for w in wc.warnings],
+    }
+    if dry_run:
+        payload["next_step"] = (
+            "Re-run with dry_run=false to actually start the triggers reported as "
+            "'would_activate'. Triggers reported as 'already_started' will be skipped."
+        )
+    return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
 
 
 if __name__ == "__main__":

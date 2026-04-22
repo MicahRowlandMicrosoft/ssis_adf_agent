@@ -64,6 +64,7 @@ class DeployResult:
     success: bool
     error: str | None = None
     retries: int = 0
+    skipped: bool = False  # H8: True when skip_if_exists prevented an overwrite
 
 
 def _retry_delay(
@@ -140,6 +141,7 @@ class AdfDeployer:
         validate_first: bool = True,
         max_retries: int = _DEFAULT_MAX_RETRIES,
         retry_base_delay: float = _DEFAULT_BASE_DELAY,
+        skip_if_exists: bool = False,
     ) -> list[DeployResult]:
         """
         Discover and deploy all ADF JSON artifacts in *artifacts_dir*.
@@ -157,6 +159,13 @@ class AdfDeployer:
                 (429, 500, 502, 503, 504).  Default: 3.
             retry_base_delay: Base delay in seconds between retries
                 (exponential back-off).  Default: 2.0.
+            skip_if_exists: If True, before each create_or_update call,
+                check whether an artifact of the same name already exists in
+                the target factory; if it does, skip it (status='skipped_exists')
+                instead of overwriting. Use for non-destructive re-deploys
+                against a factory that contains hand-edited artifacts. Default
+                False (preserves the original put_or_update / overwrite
+                behavior). H8.
 
         Returns:
             List of DeployResult per artifact (including validation failures).
@@ -197,6 +206,7 @@ class AdfDeployer:
                     json_file, artifact_type, dry_run,
                     max_retries=max_retries,
                     retry_base_delay=retry_base_delay,
+                    skip_if_exists=skip_if_exists,
                 )
                 results.append(result)
 
@@ -210,6 +220,7 @@ class AdfDeployer:
         *,
         max_retries: int = _DEFAULT_MAX_RETRIES,
         retry_base_delay: float = _DEFAULT_BASE_DELAY,
+        skip_if_exists: bool = False,
     ) -> DeployResult:
         name = json_file.stem
         try:
@@ -233,6 +244,20 @@ class AdfDeployer:
         if fn is None:
             return DeployResult(artifact_type=artifact_type, name=name, success=False,
                                 error=f"Unknown artifact type: {artifact_type}")
+
+        # H8 — non-destructive mode: if the artifact already exists in the
+        # target factory, refuse to overwrite it. Use case: a customer has
+        # hand-edited a linked service in ADF Studio and we are re-deploying
+        # other artifacts that should not stomp on that edit.
+        if skip_if_exists and self._artifact_exists(artifact_type, name):
+            logger.info(
+                "[skip_if_exists] %s '%s' already exists in factory; "
+                "leaving it untouched.", artifact_type, name,
+            )
+            return DeployResult(
+                artifact_type=artifact_type, name=name, success=True,
+                error=None, retries=0, skipped=True,
+            )
 
         last_error: str | None = None
         for attempt in range(max_retries + 1):
@@ -294,6 +319,48 @@ class AdfDeployer:
             self.resource_group, self.factory_name, name, resource
         )
 
+    def _artifact_exists(self, artifact_type: str, name: str) -> bool:
+        """
+        Probe the target factory for an existing artifact of the given type/name.
+
+        Used by the ``skip_if_exists`` non-destructive deploy mode (H8).
+        Returns True iff a ``get`` for that artifact returns successfully.
+        Treats 404 (NotFound) as "does not exist". Any other error is treated
+        as "unknown" and returns False — so the deployer will *attempt* the
+        write, and the underlying create_or_update will surface the real error.
+        """
+        rg = self.resource_group
+        fa = self.factory_name
+        getter_map: dict[str, Any] = {
+            "linkedservice": lambda: self.client.linked_services.get(rg, fa, name),
+            "dataset":       lambda: self.client.datasets.get(rg, fa, name),
+            "dataflow":      lambda: self.client.data_flows.get(rg, fa, name),
+            "pipeline":      lambda: self.client.pipelines.get(rg, fa, name),
+            "trigger":       lambda: self.client.triggers.get(rg, fa, name),
+        }
+        getter = getter_map.get(artifact_type.lower())
+        if getter is None:
+            return False
+        try:
+            getter()
+            return True
+        except HttpResponseError as exc:
+            if getattr(exc, "status_code", None) == 404:
+                return False
+            logger.warning(
+                "skip_if_exists probe for %s '%s' failed (HTTP %s); "
+                "treating as not-existing and proceeding with deploy.",
+                artifact_type, name, getattr(exc, "status_code", "?"),
+            )
+            return False
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "skip_if_exists probe for %s '%s' raised %s; "
+                "treating as not-existing and proceeding with deploy.",
+                artifact_type, name, type(exc).__name__,
+            )
+            return False
+
     def _deploy_dataset(self, name: str, payload: dict) -> None:
         resource = DatasetResource(properties=payload.get("properties", payload))
         self.client.datasets.create_or_update(
@@ -319,6 +386,134 @@ class AdfDeployer:
         )
         # Leave in Stopped state — user must activate manually
         logger.info("Trigger %s deployed in Stopped state. Activate manually in ADF Studio.", name)
+
+    def list_triggers(self) -> list[dict[str, Any]]:
+        """
+        Enumerate every trigger in the target factory with its current
+        runtime state and basic metadata.
+
+        Returns a list of dicts of shape::
+
+            {"name": str, "type": str, "runtime_state": "Started" | "Stopped",
+             "pipeline_count": int}
+
+        Use this before ``activate_triggers`` to confirm what would be
+        flipped on, and to drive any UI-level filtering.
+        """
+        out: list[dict[str, Any]] = []
+        for t in self.client.triggers.list_by_factory(
+            self.resource_group, self.factory_name
+        ):
+            props = t.properties
+            type_name = type(props).__name__
+            runtime_state = getattr(props, "runtime_state", None) or "Unknown"
+            pipeline_count = 0
+            for attr in ("pipelines", "pipeline"):
+                val = getattr(props, attr, None)
+                if val is None:
+                    continue
+                pipeline_count = len(val) if isinstance(val, list) else 1
+                break
+            out.append({
+                "name": t.name,
+                "type": type_name,
+                "runtime_state": str(runtime_state),
+                "pipeline_count": pipeline_count,
+            })
+        return out
+
+    def activate_triggers(
+        self,
+        names: list[str] | None = None,
+        *,
+        dry_run: bool = True,
+    ) -> list[dict[str, Any]]:
+        """
+        Bulk-activate triggers in the target factory.
+
+        ``activate_triggers`` is the explicit, opt-in counterpart to the
+        always-Stopped state in which ``_deploy_trigger`` leaves new triggers.
+        It is intentionally guarded:
+
+        * **Default ``dry_run=True``** — the call lists what *would* be
+          activated and returns without making any state-changing Azure call.
+          You must explicitly pass ``dry_run=False`` to actually start
+          triggers. This matches our "no surprise side-effects" deploy
+          posture.
+        * **Per-trigger result** — each entry in the returned list reports
+          ``before`` and ``after`` runtime state, so a CI pipeline can fail
+          fast if a trigger refused to start.
+        * **Already-running triggers are a no-op** — they are returned with
+          ``status="already_started"`` and not re-poked.
+        * **Unknown names are surfaced as errors** — callers are not silently
+          ignored if they typo a trigger name.
+
+        Args:
+            names: Optional explicit list of trigger names to activate. If
+                ``None`` (the default), every trigger in the factory is
+                considered. Recommended workflow: call ``list_triggers``
+                first, filter, then pass the chosen names.
+            dry_run: If True (default), report what would happen without
+                calling ``triggers.begin_start``.
+
+        Returns:
+            A list of result dicts, one per processed trigger::
+
+                {"name": str, "before": str, "after": str,
+                 "status": "activated" | "already_started"
+                            | "would_activate" | "not_found" | "failed",
+                 "error": str | None, "dry_run": bool}
+        """
+        existing = {t["name"]: t for t in self.list_triggers()}
+        target_names = list(names) if names else list(existing.keys())
+
+        results: list[dict[str, Any]] = []
+        for name in target_names:
+            row: dict[str, Any] = {
+                "name": name,
+                "before": None,
+                "after": None,
+                "status": "failed",
+                "error": None,
+                "dry_run": dry_run,
+            }
+            if name not in existing:
+                row["status"] = "not_found"
+                row["error"] = (
+                    f"Trigger '{name}' does not exist in factory "
+                    f"'{self.factory_name}'."
+                )
+                results.append(row)
+                continue
+
+            current_state = existing[name]["runtime_state"]
+            row["before"] = current_state
+            if current_state == "Started":
+                row["status"] = "already_started"
+                row["after"] = current_state
+                results.append(row)
+                continue
+
+            if dry_run:
+                row["status"] = "would_activate"
+                row["after"] = current_state  # unchanged in dry-run
+                results.append(row)
+                continue
+
+            try:
+                poller = self.client.triggers.begin_start(
+                    self.resource_group, self.factory_name, name
+                )
+                poller.result()
+                row["status"] = "activated"
+                row["after"] = "Started"
+            except HttpResponseError as exc:
+                row["error"] = f"HTTP {getattr(exc, 'status_code', '?')}: {exc}"
+            except Exception as exc:  # noqa: BLE001
+                row["error"] = str(exc)
+            results.append(row)
+
+        return results
 
     def validate_artifacts(self, artifacts_dir: Path) -> list[dict[str, Any]]:
         """

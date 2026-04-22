@@ -93,8 +93,8 @@ If you need to register it in your **user** settings instead (e.g. for use acros
 > - macOS/Linux: `"/path/to/.venv/bin/ssis-adf-agent"`
 
 3. Reload VS Code (`Ctrl+Shift+P` → **Developer: Reload Window**).
-4. Open **Copilot Chat** → switch to **Agent** mode → confirm five tools appear:
-   `scan_ssis_packages`, `analyze_ssis_package`, `convert_ssis_package`, `validate_adf_artifacts`, `deploy_to_adf`
+4. Open **Copilot Chat** → switch to **Agent** mode → confirm the server registered and that the 23 SSIS→ADF tools appear (a partial list of the most commonly used ones):
+   `scan_ssis_packages`, `analyze_ssis_package`, `bulk_analyze`, `propose_adf_design`, `convert_ssis_package`, `convert_estate`, `validate_adf_artifacts`, `validate_conversion_parity`, `smoke_test_pipeline`, `deploy_to_adf`. The complete list is in [README.md](README.md#tools-reference).
 
 ---
 

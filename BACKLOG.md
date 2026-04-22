@@ -29,13 +29,11 @@ Priority legend:
 
 ## P1 — High
 
-### H1. Doc/reality mismatch on tool count
-- **Evidence:** README says **22 tools**; SETUP step 4 says "**five tools**"; copilot-instructions says 5–7.
-- **Acceptance:** Single source of truth across README/SETUP/HOWTO and `.github/copilot-instructions.md`.
+### H1. Doc/reality mismatch on tool count — **DONE**
+- **Resolution:** Authoritative count is **23** (verified by introspecting `mcp_server.py`'s `name=` declarations). README headline now reads "23 tools"; SETUP step 4 lists the 10 most-used tools and points to README for the full set; `.github/copilot-instructions.md` says "23 tools" and clarifies the table is a partial mapping with `mcp_server.py` as the single source of truth.
 
-### H2. Repository ownership + version + changelog
-- **Evidence:** README clone URL is `github.com/chsimons_microsoft/ssis_adf_agent.git`; no CHANGELOG, no version pin, no security contact.
-- **Acceptance:** Verified repo URL, `CHANGELOG.md`, semver in `pyproject.toml`, SECURITY.md, ownership statement in README.
+### H2. Repository ownership + version + changelog — **DONE**
+- **Resolution:** README clone URL replaced with `<org>/<repo>` placeholder (the prior `chsimons_microsoft` slug was a personal alias and broke for any other consumer). LICENSE + README copyright now read `Microsoft and contributors`. Added [CHANGELOG.md](CHANGELOG.md) (Keep-a-Changelog format, semver pre-1.0 caveat documented) and [SECURITY.md](SECURITY.md) (private vulnerability reporting via GH advisories or maintainer email; hardening expectations for shared deployments; explicit out-of-scope list). `pyproject.toml` already pins `version = "0.1.0"` — left as-is, with the 0.x compatibility caveat now spelled out in CHANGELOG.
 
 ### H3. LLM Script Task translation silently no-ops on real input — **DONE**
 - **Root cause:** the parser only recognised the SSIS 2008 / classic 2012 wrapper elements (`ScriptTaskProjectConfiguration` / `ScriptTask`) and only the `BinaryData` / `ProjectBytes` source patterns. Modern SSIS 2017+ packages (including the LNI estate) put a bare `<ScriptProject>` directly under `<ObjectData>` and embed the source as `<ProjectItem>` CDATA. Nothing matched, so the parser returned `script_language="CSharp"` (default) and `source_code=None`, and the LLM translator silently no-op'd.
@@ -47,8 +45,8 @@ Priority legend:
 - **Worked example:** [PARITY_REPORT_ADDS_MIPS_TC.md](../test-lni-packages/PARITY_REPORT_ADDS_MIPS_TC.md) + [PARITY_REPORT_ADDS_MIPS_TC.json](../test-lni-packages/PARITY_REPORT_ADDS_MIPS_TC.json) captured by running `validate_conversion_parity` against the LNI sample. Catches the two linked-service placeholder warnings and the two pending Script Task ports — exactly the kind of issues a buyer asked to see surfaced *before* deploy.
 - **Defect-catching example:** PARITY.md "Catching a known defect" section explains how the SDK dry-run catches B1-class regressions (Copy sink/source type ≠ dataset type) before deploy.
 
-### H5. Mark HOWTO transcripts as illustrative, not captured runs
-- **Acceptance:** Each scripted dialogue in [HOWTO.md](HOWTO.md) prefaced as "*Example dialogue — output is illustrative, not a captured run.*" Real captured transcripts (with timings) added for at least one estate.
+### H5. Mark HOWTO transcripts as illustrative, not captured runs — **DONE**
+- **Resolution:** [HOWTO.md](HOWTO.md) now leads with a prominent caveat block stating the dialogues are illustrative — numbers, package names, and paths inside them are constructed for clarity, and a real session will produce different output. The caveat points readers to [PARITY.md](PARITY.md#worked-example--lni-adds-mips-tc) and the captured LNI parity report for an actual recorded run on a production-shape package.
 
 ### H6. SSIS supported / partial / unsupported matrix
 - **Acceptance:** New doc section listing each pattern (CDC, MDS, Fuzzy Lookup, Script Component, custom 3rd-party components, OLE DB→Oracle/DB2/SAP, package configurations XML/SQL/env-var, project params, package parts, parent-package variables, `EncryptAllWithPassword`, `.ispac`, Windows/Kerberos/cert auth) with status + sample link.

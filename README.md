@@ -5,7 +5,7 @@
 
 An MCP (Model Context Protocol) server that turns SSIS migration into an agent-driven workflow inside **GitHub Copilot**.
 
-The server exposes **22 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, and post-deployment smoke testing.
+The server exposes **23 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, and post-deployment smoke testing.
 
 All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
 
@@ -95,7 +95,9 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 Clone the repository and install in editable mode (recommended for development):
 
 ```bash
-git clone https://github.com/chsimons_microsoft/ssis_adf_agent.git
+# Replace <org>/<repo> with the GitHub coordinates of your fork or the
+# upstream repo you cloned this from.
+git clone https://github.com/<org>/<repo>.git ssis_adf_agent
 cd ssis_adf_agent
 pip install -e .
 ```
@@ -1014,7 +1016,7 @@ This project is licensed under the [MIT License](LICENSE).
 ```
 MIT License
 
-Copyright (c) 2026 chsimons_microsoft
+Copyright (c) 2026 Microsoft and contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -2,6 +2,15 @@
 
 This guide shows how to use the SSIS → ADF Agent through natural-language prompts in **GitHub Copilot Chat**. Each section includes example conversations you can copy and adapt.
 
+> **⚠️ The dialogues below are illustrative, not captured runs.** They show the
+> *shape* of a typical agent interaction — tool selection, prompt phrasing,
+> follow-up questions — and the numbers / package names / file paths inside
+> them are constructed for clarity. Your real Copilot session will produce
+> different wording, different counts, and different artifact paths depending
+> on your packages, your model, and your prompt. For a real captured run on a
+> production-shape package, see [PARITY_REPORT_ADDS_MIPS_TC.md](../test-lni-packages/PARITY_REPORT_ADDS_MIPS_TC.md)
+> in the LNI sample workspace and the [worked example in PARITY.md](PARITY.md#worked-example--lni-adds-mips-tc).
+
 > **Tip:** Switch Copilot Chat to **Agent** mode before sending prompts so it can call the MCP tools automatically.
 >
 > For installation, architecture, and reference details see [README.md](README.md).

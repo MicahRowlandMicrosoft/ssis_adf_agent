@@ -230,9 +230,10 @@ customer pilot, not in this backlog.
 - **Buyer concern:** Workflow assumes Copilot Chat in VS Code Agent mode. Air-gapped / Copilot-blocked / CI-only customers have no first-class entry point. ROADMAP E1.
 - **Acceptance:** `ssis-adf-agent <tool-name> --arg1=value --arg2=value` accepts every MCP tool with the same surface as the MCP server. Help text auto-generated from the same `types.Tool` schemas the MCP server uses, so the two surfaces stay synchronized. Unit-tested per tool.
 
-### P5-18. Cross-link HOWTO.md → WORKFLOW.md "Start here" callout — **LOW**
+### P5-18. Cross-link HOWTO.md → WORKFLOW.md "Start here" callout — **LOW** ✅ DONE
 - **Buyer concern:** Buyers landing on HOWTO from a Google search miss the new minimum-path doc.
 - **Acceptance:** HOWTO.md gains a "Start here" callout at the top pointing at WORKFLOW.md as the recommended first read.
+- **Resolution:** Added a "🚀 Start here" blockquote at the top of [HOWTO.md](HOWTO.md) (above the existing intro paragraph) that names the 6-tool minimum path (`bulk_analyze` → `propose_adf_design` → `convert_estate` → `validate_adf_artifacts` → `deploy_to_adf` → `activate_triggers`) and links to [WORKFLOW.md](WORKFLOW.md) as the recommended first read. The conversation guide remains the second-read for the per-package backbone and wider tool surface.
 
 ### P5-19. Cross-link ENCRYPTED_PACKAGES.md → P4-11 KV-recovery case study — **LOW**
 - **Buyer concern:** The case study links to ENCRYPTED_PACKAGES.md but not the reverse. `upload_encrypted_secrets` users miss the prerequisite reading.

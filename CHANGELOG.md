@@ -10,6 +10,12 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P5-18** — [HOWTO.md](HOWTO.md) gained a "🚀 Start here"
+  callout at the top pointing at [WORKFLOW.md](WORKFLOW.md) as the
+  recommended first read for new users. Names the 6-tool minimum
+  path inline. Closes the gap that buyers landing on HOWTO from a
+  Google search were missing the minimum-path doc.
+
 - **P5-9** — README tool-count + workflow diagram drift fixed.
   Trailing "22 tools" references in `README.md` updated to `29` to
   match the header. Architecture diagram replaced with the

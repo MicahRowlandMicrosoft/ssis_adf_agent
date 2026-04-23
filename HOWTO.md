@@ -1,5 +1,14 @@
 # HOWTO — SSIS → ADF Agent Conversation Guide
 
+> **🚀 Start here:** If you have not yet read [WORKFLOW.md](WORKFLOW.md),
+> read it first. It documents the **6-tool minimum migration path**
+> (`bulk_analyze` → `propose_adf_design` → `convert_estate` →
+> `validate_adf_artifacts` → `deploy_to_adf` → `activate_triggers`)
+> with one Copilot prompt per step and a stop-and-decide gate between
+> steps. The conversation guide below covers the per-package backbone
+> and the wider tool surface; WORKFLOW.md is the recommended first
+> read for new users.
+
 This guide shows how to use the SSIS → ADF Agent through natural-language prompts in **GitHub Copilot Chat**. Each section includes example conversations you can copy and adapt.
 
 > **⚠️ The dialogues below are illustrative, not captured runs.** They show the

@@ -64,6 +64,48 @@ aware:
   environments where the source code may not leave the boundary of the
   Azure OpenAI resource you have provisioned.
 
+### What the LLM translator sends, where, and how to disable (P4-8)
+
+When `convert_ssis_package` is invoked with `llm_translate=true`, the
+following data is sent **once per Script Task** to your configured
+**Azure OpenAI** deployment (`AZURE_OPENAI_ENDPOINT`):
+
+| Field | Value | Notes |
+|---|---|---|
+| System prompt | Static, embedded in the agent. | No customer data. |
+| Task name | The SSIS Script Task `Name` attribute. | |
+| Read-only variables | The SSIS variable identifiers (e.g. `User::CustomerId`). | Names only — never values. |
+| Read-write variables | Same as above. | |
+| `source_code` | The raw C# / VB Script Task body extracted from the .dtsx. | Truncated at 18 000 chars. May include hardcoded literals. |
+| Model | `AZURE_OPENAI_DEPLOYMENT` (default `gpt-4o`). | Caller chooses. |
+
+Nothing else from the package, the connection managers, the agent's
+configuration, or the host environment is transmitted. No telemetry is
+sent to a third party. The Azure OpenAI deployment is **the customer's
+own resource** authenticated through `DefaultAzureCredential` (the
+caller's identity needs *Cognitive Services OpenAI User* on that resource).
+
+**Three mutually-reinforcing kill switches** disable the LLM call:
+
+1. **`llm_translate=false`** (default) — no LLM call is ever attempted.
+2. **`no_llm=true`** parameter on `convert_ssis_package` — overrides the
+   `llm_translate` argument for the duration of one tool call. Use to
+   prove deterministic behaviour from a CI job or a one-off review.
+3. **`SSIS_ADF_NO_LLM=1`** environment variable — process-wide hard
+   switch. When set, the translator's `is_configured()` returns False
+   and `translate()` raises `TranslationError` *before* constructing
+   any client. Set this in regulated tenants, in the agent's container
+   env file, or in the deploying user's shell profile to make it
+   physically impossible for an interactive caller to bypass.
+
+When any of the above disables the LLM, the Script Task converter still
+produces a deterministic Azure Function stub — the only thing degraded
+is the *quality of the generated Python body*: it remains the
+"Re-implement the C# logic here" TODO scaffolding rather than an
+attempted Python port. Every other artifact (pipelines, linked services,
+datasets, data flows, triggers) is bit-for-bit identical with or without
+the LLM.
+
 ## Out of scope
 
 - Running an SSIS package or an ADF pipeline on the caller's behalf to

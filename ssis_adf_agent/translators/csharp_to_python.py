@@ -22,6 +22,15 @@ Other environment variables:
     AZURE_OPENAI_ENDPOINT     — e.g. https://my-resource.openai.azure.com/
     AZURE_OPENAI_DEPLOYMENT   — Model deployment name (default: gpt-4o)
     AZURE_OPENAI_API_VERSION  — API version (default: 2024-10-21)
+
+Policy switch (P4-8):
+    SSIS_ADF_NO_LLM            — when set to "1" / "true" / "yes" / "on"
+        (case-insensitive), all LLM translation is disabled regardless of
+        any per-call argument the caller supplies. ``is_configured`` returns
+        False, ``translate`` raises ``TranslationError``, and the Script
+        Task converter degrades to its deterministic stub output. Set this
+        variable in environments where customer source code may not leave
+        the boundary of the agent host (e.g. regulated tenants).
 """
 from __future__ import annotations
 
@@ -34,6 +43,20 @@ if TYPE_CHECKING:
 
 # Conservative token budget to stay well within model context limits
 _MAX_INPUT_CHARS = 18_000   # ~6 000 tokens at ~3 char/token
+
+# P4-8 — hard kill switch. Set in the runtime environment (container env,
+# CI secret, host env file) to forbid any LLM call regardless of caller args.
+NO_LLM_ENV_VAR = "SSIS_ADF_NO_LLM"
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def no_llm_policy_enabled() -> bool:
+    """Return True when ``SSIS_ADF_NO_LLM`` is set to a truthy value.
+
+    A small public helper so other code paths (Script Task converter,
+    proposer, MCP server) can branch *before* constructing a translator.
+    """
+    return os.environ.get(NO_LLM_ENV_VAR, "").strip().lower() in _TRUTHY
 
 
 class TranslationError(Exception):
@@ -95,7 +118,12 @@ class CSharpToPythonTranslator:
         Requires only ``AZURE_OPENAI_ENDPOINT``. Authentication is then either
         ``AZURE_OPENAI_API_KEY`` (if set) or ``DefaultAzureCredential`` /
         Entra ID (handled lazily inside ``translate``).
+
+        Returns False unconditionally when the ``SSIS_ADF_NO_LLM`` env var is
+        set — the policy switch overrides any endpoint configuration.
         """
+        if no_llm_policy_enabled():
+            return False
         return bool(os.environ.get("AZURE_OPENAI_ENDPOINT"))
 
     def translate(self, source_code: str, task: ScriptTask) -> str:
@@ -104,7 +132,14 @@ class CSharpToPythonTranslator:
 
         Returns the translated Python code string.
         Raises ``TranslationError`` on any failure (auth, rate limit, timeout, etc.).
+        Raises ``TranslationError`` immediately if ``SSIS_ADF_NO_LLM`` is set.
         """
+        if no_llm_policy_enabled():
+            raise TranslationError(
+                f"LLM translation is disabled by policy ({NO_LLM_ENV_VAR}=1). "
+                "Unset the environment variable to allow Azure OpenAI calls, "
+                "or accept the deterministic stub output."
+            )
         try:
             from openai import APIError, AzureOpenAI  # type: ignore[import-untyped]
         except ImportError as exc:

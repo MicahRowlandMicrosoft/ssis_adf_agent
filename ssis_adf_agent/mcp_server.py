@@ -172,7 +172,18 @@ async def list_tools() -> list[types.Tool]:
                             "If true, call Azure OpenAI to translate C# Script Task source code to Python "
                             "in the generated Azure Function stubs. Requires AZURE_OPENAI_ENDPOINT and "
                             "AZURE_OPENAI_API_KEY environment variables. Falls back gracefully if unavailable. "
-                            "Default: false."
+                            "Default: false. Forced to false when SSIS_ADF_NO_LLM env var is set, or when "
+                            "the no_llm parameter is true."
+                        ),
+                        "default": False,
+                    },
+                    "no_llm": {
+                        "type": "boolean",
+                        "description": (
+                            "P4-8 hard switch — when true, forbid any LLM call regardless of "
+                            "llm_translate. Equivalent to setting the SSIS_ADF_NO_LLM env var "
+                            "for the duration of this single tool call. Use in regulated tenants "
+                            "or to verify deterministic behaviour. Default: false."
                         ),
                         "default": False,
                     },
@@ -1479,6 +1490,27 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     output_dir = _safe_resolve(args["output_dir"], label="output_dir")
     gen_trigger = args.get("generate_trigger", True)
     llm_translate = args.get("llm_translate", False)
+
+    # P4-8 — per-call no-LLM switch.  Honour both the per-call arg and the
+    # environment-level policy switch; either one wins.
+    from .translators.csharp_to_python import no_llm_policy_enabled
+    no_llm_arg = bool(args.get("no_llm", False))
+    if no_llm_arg or no_llm_policy_enabled():
+        if llm_translate:
+            # Caller asked for LLM but policy / arg forbids it — surface a
+            # warning so the response makes the degraded behaviour explicit.
+            import warnings as _warnings
+            reason = (
+                "no_llm=true argument" if no_llm_arg
+                else "SSIS_ADF_NO_LLM environment variable"
+            )
+            _warnings.warn(
+                f"[P4-8] llm_translate=true was requested but is overridden "
+                f"by {reason}. Script Task stubs will use deterministic "
+                "TODO scaffolding only.",
+                stacklevel=2,
+            )
+        llm_translate = False
 
     # New parameters
     on_prem_ir_name = args.get("on_prem_ir_name", "SelfHostedIR")

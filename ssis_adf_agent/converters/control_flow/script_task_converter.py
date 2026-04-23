@@ -282,14 +282,25 @@ def _attempt_llm_translation(task: ScriptTask) -> tuple[str | None, str]:
     On success: (code_str, "").
     On failure: (None, warning_message) — caller falls back to TODO stub.
     """
-    from ...translators.csharp_to_python import CSharpToPythonTranslator, TranslationError
+    from ...translators.csharp_to_python import (
+        CSharpToPythonTranslator,
+        TranslationError,
+        no_llm_policy_enabled,
+    )
 
     translator = CSharpToPythonTranslator()
     if not translator.is_configured():
-        msg = (
-            "[LLM translation skipped: AZURE_OPENAI_ENDPOINT and/or AZURE_OPENAI_API_KEY "
-            "are not set. Set these env vars to enable automatic C# → Python translation.]"
-        )
+        if no_llm_policy_enabled():
+            msg = (
+                f"[LLM translation skipped for '{task.name}': disabled by policy "
+                "(SSIS_ADF_NO_LLM env var is set). Falling back to deterministic "
+                "TODO stub. Unset the env var to allow Azure OpenAI calls.]"
+            )
+        else:
+            msg = (
+                "[LLM translation skipped: AZURE_OPENAI_ENDPOINT and/or AZURE_OPENAI_API_KEY "
+                "are not set. Set these env vars to enable automatic C# → Python translation.]"
+            )
         warnings.warn(msg, stacklevel=4)
         return None, msg
 

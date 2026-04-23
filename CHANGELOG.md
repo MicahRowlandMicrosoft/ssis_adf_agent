@@ -10,6 +10,17 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-8** — No-LLM mode hard switch. New `SSIS_ADF_NO_LLM` env var
+  (truthy: `1`/`true`/`yes`/`on`) and new `no_llm=true` per-call
+  argument on `convert_ssis_package` that disable the Azure OpenAI
+  Script Task translator regardless of `llm_translate`. When the LLM
+  is disabled, `convert_ssis_package` emits a UserWarning naming which
+  switch overrode the request; Script Task stubs degrade to
+  deterministic TODO scaffolding. SECURITY.md gained a new "What the
+  LLM translator sends, where, and how to disable" section
+  enumerating the exact fields transmitted, where they go (the
+  customer's own Azure OpenAI deployment), and the three
+  mutually-reinforcing kill switches. 877 tests passing.
 - **P4-7** — Published per-tool RBAC / least-privilege matrix in new
   [`RBAC.md`](RBAC.md). Names the minimum Azure RBAC role(s) and Key
   Vault data-plane permission for each of the 29 MCP tools, the scope

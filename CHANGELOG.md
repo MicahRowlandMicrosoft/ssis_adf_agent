@@ -9,6 +9,16 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 
 ## [Unreleased]
 
+### Changed
+- **P4-12** — [`COVERAGE.md`](COVERAGE.md) gained an **Evidence**
+  column on all five tables (Control Flow tasks, Sources,
+  Transformations, Destinations, Connection managers, Package-level
+  constructs). Each ✅ / 🟡 row links to the unit-test fixture that
+  exercises the conversion (or to the generator/converter source
+  where no per-construct test exists). 🔴 / ⚪ rows carry an em-dash
+  by design (analyzer flags them `manual_required`); a one-line
+  reading guide above the first table explains this.
+
 ### Added
 - **P4-11** — New captured case study at
   [`docs/case-studies/first_deploy_keyvault_recovery/`](docs/case-studies/first_deploy_keyvault_recovery/README.md)

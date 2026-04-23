@@ -179,6 +179,90 @@ named-customer reference) remain on B2 / M4 / M8 and are not duplicated here.
 
 ---
 
+## P5 — Skeptical-buyer-review followups (April 2026)
+
+Sourced from the second-round skeptical-buyer review run after P4 closed.
+Only items the coding agent can ship end-to-end (no real estate, no real
+Azure tenant, no human-in-the-loop port-time capture) are tracked here.
+Evidence-capture items (estate-scale run, additional behavioral-parity
+walkthroughs, additional Script Task ports, real-Azure KV runs, captured
+failure case studies) are tracked separately as part of the engaged-
+customer pilot, not in this backlog.
+
+### P5-6. Schema-version `lineage.json` and `migration_plan.json` — **MEDIUM**
+- **Buyer concern:** Downstream CI parses both files. Without a `schemaVersion`, a minor-version bump silently breaks the customer's pipeline. ROADMAP S3/S4 already commit to this for 1.0.
+- **Acceptance:** Both files carry a top-level `schemaVersion: "1"`; loader rejects unknown major versions with a clear message; loader accepts an unknown *minor* version as forward-compatible (logs a warning); a forward-compat unit test pins the contract.
+
+### P5-7. `provision_adf_environment --with-observability=<workspace-id>` — **MEDIUM**
+- **Buyer concern:** OBSERVABILITY.md (P4-10) is excellent prose but the factory provisioner does not emit the diagnostic-settings target. Day-1 production-readiness still requires a separate Bicep PR. ROADMAP Q4.
+- **Acceptance:** New optional `--with-observability=<workspace-id>` flag on `provision_adf_environment` emits a `Microsoft.Insights/diagnosticSettings` resource targeting the named Log Analytics workspace with the categories named in OBSERVABILITY.md (`PipelineRuns`, `ActivityRuns`, `TriggerRuns`, `PipelineActivityRuns`, `AllMetrics`). Unit-tested against the captured Bicep output.
+
+### P5-8. Confirm + document that `SSIS_ADF_NO_LLM=1` disables every form of network egress — **HIGH**
+- **Buyer concern:** No-LLM mode (P4-8) gates the Script Task LLM translator. The buyer asked whether the same switch also disables every *other* form of egress (telemetry, version-check pings, PyPI lookups, etc.). SECURITY.md does not currently say either way.
+- **Acceptance:** Audit the codebase for any outbound HTTP/HTTPS call site, document each in SECURITY.md under "What the agent talks to and how to disable it", confirm `SSIS_ADF_NO_LLM=1` (or document a separate switch) disables all of them, and add a unit/integration test that asserts no socket / no HTTP client construction occurs under no-LLM mode for the conversion path. **Requires one decision from the maintainer:** confirm there is no telemetry the audit doesn't surface.
+
+### P5-9. README tool-count + diagram inconsistencies — **LOW**
+- **Buyer concern:** README header says "29 tools"; §"All tools are invoked from GitHub Copilot Chat" still says "22 tools". Architecture diagram lists 5 steps (scan → analyze → convert → validate → deploy); WORKFLOW.md correctly says 6 (adds activate-triggers). Procurement reviewers screenshot the inconsistency.
+- **Acceptance:** Trailing tool-count reference updated to match the header; diagram updated to match WORKFLOW.md's 6-step path. Add a unit test that asserts the README tool-count and the actual `len(list_tools())` agree (catches the next bump).
+
+### P5-11. Uniform `--dry-run` across `provision_adf_environment` and `provision_function_app` — **MEDIUM**
+- **Buyer concern:** `deploy_to_adf --pre-flight=true` and `activate_triggers --dry_run=true` exist; the two `provision_*` tools do not. ROADMAP E2. CAB approval often requires a "what would happen" report before any provisioning.
+- **Acceptance:** Both `provision_adf_environment` and `provision_function_app` accept a `dry_run: bool = False` arg that emits the would-be Bicep / would-be `az` calls and the planned RBAC assignments without creating any resource. Tested against captured Bicep.
+
+### P5-12. New MCP tool `validate_deployer_rbac` — **MEDIUM**
+- **Buyer concern:** RBAC.md (P4-7) is excellent prose; verifying compliance is still manual and the captured KV-recovery case study (P4-11) is exactly the failure this would have caught.
+- **Acceptance:** New tool `validate_deployer_rbac` accepts the deploying identity, the planned tools, the target subscription/RG/factory/KV, and reports per-tool which RBAC.md-required roles are present vs. missing, without creating any resource. Mocked-SDK unit tests; real-Azure verification deferred to the engaged-customer pilot.
+
+### P5-14. Per-pipeline cost projection emitted at `convert_estate` time — **LOW**
+- **Buyer concern:** `estimate_adf_costs` and `compare_estimates_to_actuals` exist but require a separate run. Steering-committee deck would be one step shorter if `convert_estate` emitted projection alongside `lineage.json`.
+- **Acceptance:** `convert_estate` accepts an optional `--with-cost-projection=true` flag; when set, writes `cost_projection.json` next to `lineage.json` reusing the `estimate_adf_costs` engine. Unit-tested.
+
+### P5-15. `pipx run ssis-adf-agent` smoke-tested per release — **LOW**
+- **Buyer concern:** ROADMAP E3. Air-gapped customers with one allowed pip install want a single-binary entry point. Today there is no smoke test that `pipx run` works from a clean wheel.
+- **Acceptance:** A CI job runs `pipx run --spec . ssis-adf-agent --help` against the built wheel and asserts non-zero exit on regression. README §Installation gains a `pipx run` one-liner. **Requires one decision from the maintainer:** approve adding the CI job (cost / runner choice).
+
+### P5-16. New tool `diff_estate` — **MEDIUM**
+- **Buyer concern:** Re-running `convert_estate` after an upstream `.dtsx` edit reconverts everything; no signal what *changed*. Small upstream change still triggers full re-validation.
+- **Acceptance:** New tool `diff_estate` compares two `out/` directories (or one `out/` against a saved snapshot) and emits a focused report: per-package classification (byte-identical / changed / added / removed) with the per-artifact diff for changed packages. Unit-tested against synthetic before/after fixtures.
+
+### P5-17. CLI parity for every MCP tool — **HIGH**
+- **Buyer concern:** Workflow assumes Copilot Chat in VS Code Agent mode. Air-gapped / Copilot-blocked / CI-only customers have no first-class entry point. ROADMAP E1.
+- **Acceptance:** `ssis-adf-agent <tool-name> --arg1=value --arg2=value` accepts every MCP tool with the same surface as the MCP server. Help text auto-generated from the same `types.Tool` schemas the MCP server uses, so the two surfaces stay synchronized. Unit-tested per tool.
+
+### P5-18. Cross-link HOWTO.md → WORKFLOW.md "Start here" callout — **LOW**
+- **Buyer concern:** Buyers landing on HOWTO from a Google search miss the new minimum-path doc.
+- **Acceptance:** HOWTO.md gains a "Start here" callout at the top pointing at WORKFLOW.md as the recommended first read.
+
+### P5-19. Cross-link ENCRYPTED_PACKAGES.md → P4-11 KV-recovery case study — **LOW**
+- **Buyer concern:** The case study links to ENCRYPTED_PACKAGES.md but not the reverse. `upload_encrypted_secrets` users miss the prerequisite reading.
+- **Acceptance:** ENCRYPTED_PACKAGES.md gains a "Real failure walkthrough" callout linking to the captured KV case study.
+
+### P5-20. COVERAGE.md "Mapped vs. unmapped SSIS expression functions" — **MEDIUM**
+- **Buyer concern:** COVERAGE.md is silent on the `(DT_STR,2,1252) DATEPART("mm", GETDATE())` family of casts and string functions. Buyers ask for a 5-line table showing what works and what does not.
+- **Acceptance:** New COVERAGE.md section enumerates SSIS expression functions covered by the converter (`DATEPART`, `RIGHT`, `LEFT`, `SUBSTRING`, `(DT_STR,…)` casts, `GETDATE()`, etc.) vs. unmapped, derived from the actual `expression_functions` source so the table cannot drift.
+
+### P5-21. Cross-link `provision_adf_environment` → OBSERVABILITY.md — **LOW**
+- **Buyer concern:** Buyers using the factory provisioner discover OBSERVABILITY.md too late (after the first failed run with no logs).
+- **Acceptance:** `provision_adf_environment` MCP tool description and CLI help text cross-link OBSERVABILITY.md as the recommended Day-2 follow-up.
+
+### P5-23. Document the `EncryptAllWithPassword` failure modes — **LOW**
+- **Buyer concern:** Buyer asked whether wrong-password vs. missing-password vs. key-derivation-failure produce distinct error messages or one generic failure.
+- **Acceptance:** ENCRYPTED_PACKAGES.md gains a "Failure modes and how to read them" subsection enumerating the actual error messages the parser raises for each, derived from the parser source.
+
+### P5-24. Document LLM translator behavior at the 18 000-char truncation bound — **LOW**
+- **Buyer concern:** SECURITY.md notes the translator transmits `source_code` truncated at 18 000 chars. What happens to a Script Task whose source exceeds that bound is not documented.
+- **Acceptance:** SECURITY.md "What the LLM translator sends" section gains a paragraph documenting the truncation behavior (silent truncation? warning? skip?), derived from the translator source, and what the user should expect in the generated stub.
+
+### P5-25. New ROLLBACK.md section: tearing down a provisioned factory — **MEDIUM**
+- **Buyer concern:** ROLLBACK.md covers artifacts; not the factory itself. Customers asked what happens when the *factory* (provisioned by `provision_adf_environment`) needs to be torn down.
+- **Acceptance:** ROLLBACK.md gains a new "Strategy 4 — tearing down a provisioned factory" section covering the `az` recipe, RBAC cleanup, KV access-policy / role removal, and what `lineage.json` looks like for a fully-deprovisioned environment.
+
+### P5-26. Confirm or replace the GitHub URL in SUPPORT.md — **LOW**
+- **Buyer concern:** SUPPORT.md cites `MicahRowlandMicrosoft/ssis_adf_agent`. If this is a personal repo and not the engagement-customer-facing one, the URL misleads. **Requires one decision from the maintainer:** confirm or supply the correct URL.
+- **Acceptance:** SUPPORT.md, README "Need help?" callout, and any other GitHub-issues references all use the confirmed customer-facing URL.
+
+---
+
 ## Suggested execution order
 
 1. **B1** ✅ done (regenerated Copy types correctly on LNI).
@@ -198,3 +282,10 @@ named-customer reference) remain on B2 / M4 / M8 and are not duplicated here.
     5. **P4-9** minimum useful workflow guide + **P4-10** observability story (parallel; onboarding + BAU).
     6. **P4-4** encrypted-package automation, **P4-5** cost-actuals join, **P4-6** deeper deploy dry-run (parallel; quality-of-life).
     7. **P4-11** captured failure-recovery doc, **P4-12** per-row evidence links, **P4-13** roadmap, **P4-14** support channel (low-cost trust polish).
+11. **P5 — second-round buyer review followups**, ordered for ship velocity:
+    1. Same-day doc fixes: **P5-9** (tool-count + diagram), **P5-18** (HOWTO start-here), **P5-19** (KV cross-link), **P5-21** (provisioner → OBSERVABILITY).
+    2. Schema + flag plumbing: **P5-6** (schemaVersion), **P5-7** (`--with-observability`), **P5-11** (uniform `--dry-run`).
+    3. Security audit: **P5-8** (no-LLM egress confirmation; needs maintainer sign-off).
+    4. Net-new tools / surface: **P5-12** (`validate_deployer_rbac`), **P5-16** (`diff_estate`), **P5-17** (CLI parity), **P5-14** (cost projection at convert time).
+    5. Doc derivations from source: **P5-20** (expression functions), **P5-23** (encryption failure modes), **P5-24** (LLM truncation), **P5-25** (factory teardown).
+    6. CI hardening + repo URL: **P5-15** (`pipx run` smoke), **P5-26** (GitHub URL).

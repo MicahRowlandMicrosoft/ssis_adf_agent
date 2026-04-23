@@ -10,6 +10,15 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-6** — Deeper deploy dry-run / pre-flight. New module
+  `ssis_adf_agent/deployer/preflight.py` plus a `pre_flight=true` flag on
+  the `deploy_to_adf` MCP tool that short-circuits the actual deploy and
+  instead probes the external dependencies the linked services declare:
+  Key Vault secret existence + read permission, host DNS resolution, and
+  a managed-identity token-fetch against ARM. Failures carry actionable
+  remediation messages (named role to grant, named tool to run). Every
+  probe boundary is injectable so the test path never touches Azure or
+  DNS. 19 new tests with stub clients.
 - **P4-5** — Cost-actuals join helper. New module
   `ssis_adf_agent/migration_plan/cost_actuals.py` and MCP tool **#29
   `compare_estimates_to_actuals`** join the deployed `lineage.json` (M1) +

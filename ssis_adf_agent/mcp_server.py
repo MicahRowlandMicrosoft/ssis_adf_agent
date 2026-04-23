@@ -341,6 +341,21 @@ async def list_tools() -> list[types.Tool]:
                         ),
                         "default": False,
                     },
+                    "pre_flight": {
+                        "type": "boolean",
+                        "description": (
+                            "P4-6 — if true, skip the actual deploy and instead probe every "
+                            "external dependency the linked services declare: Key Vault secret "
+                            "existence + read permission, host DNS resolution, and a managed-identity "
+                            "token-fetch against ARM. Returns a per-target reachability / "
+                            "permission report. No ADF resources are created. Default: false."
+                        ),
+                        "default": False,
+                    },
+                    "preflight_skip_kv": {"type": "boolean", "default": False, "description": "With pre_flight=true, skip the Key Vault probes (e.g. air-gapped review)."},
+                    "preflight_skip_dns": {"type": "boolean", "default": False, "description": "With pre_flight=true, skip the DNS resolution probes."},
+                    "preflight_skip_mi_token": {"type": "boolean", "default": False, "description": "With pre_flight=true, skip the managed-identity token probe."},
+                    "preflight_report_path": {"type": "string", "description": "With pre_flight=true, optional path to write the JSON pre-flight report."},
                 },
                 "required": ["artifacts_dir", "subscription_id", "resource_group", "factory_name"],
             },
@@ -1733,6 +1748,38 @@ async def _validate(args: dict[str, Any]) -> list[types.TextContent]:
 
 async def _deploy(args: dict[str, Any]) -> list[types.TextContent]:
     from .deployer.adf_deployer import AdfDeployer
+
+    # P4-6 — short-circuit to pre-flight probes when requested. No ADF
+    # resources are created and the deployer is not constructed.
+    if args.get("pre_flight"):
+        from .deployer.preflight import run_preflight
+
+        report = run_preflight(
+            artifacts_dir=_safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir"),
+            subscription_id=args["subscription_id"],
+            resource_group=args["resource_group"],
+            factory_name=args["factory_name"],
+            skip_kv=bool(args.get("preflight_skip_kv", False)),
+            skip_dns=bool(args.get("preflight_skip_dns", False)),
+            skip_mi_token=bool(args.get("preflight_skip_mi_token", False)),
+        )
+        payload = report.to_dict()
+        if args.get("preflight_report_path"):
+            out = _safe_resolve(args["preflight_report_path"], label="preflight_report_path")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+            payload["report_path"] = str(out)
+        summary_lines = [
+            f"deploy_to_adf PRE-FLIGHT — {args['factory_name']}",
+            f"  Counts: {payload['counts'] or {'(none)': 0}}",
+            f"  Has failures: {payload['has_failures']}",
+        ]
+        for c in payload["checks"]:
+            summary_lines.append(f"  [{c['status'].upper():7}] {c['kind']:11} {c['target']}")
+        return [
+            types.TextContent(type="text", text="\n".join(summary_lines)),
+            types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str)),
+        ]
 
     with WarningsCollector() as wc:
         deployer = AdfDeployer(

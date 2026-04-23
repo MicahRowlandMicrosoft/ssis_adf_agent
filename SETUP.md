@@ -124,6 +124,11 @@ Only the endpoint is required — credentials come from `DefaultAzureCredential`
 etc.). Run `az login` for local development. The signed-in identity needs the
 **Cognitive Services OpenAI User** role on the Azure OpenAI resource.
 
+> **Per-tool RBAC minimums for everything else** — `deploy_to_adf`,
+> `provision_adf_environment`, `upload_encrypted_secrets`, etc. — are
+> documented in [RBAC.md](RBAC.md). "Owner on the subscription" is never
+> required.
+
 ```powershell
 # PowerShell
 $env:AZURE_OPENAI_ENDPOINT   = "https://my-resource.openai.azure.com/"

@@ -54,7 +54,8 @@ aware:
 - **`deploy_to_adf` and `provision_adf_environment` use
   `DefaultAzureCredential`.** The caller's identity is what writes to your
   factory / resource group. Scope RBAC accordingly — *Data Factory
-  Contributor* on a dedicated RG, not Owner on a subscription.
+  Contributor* on a dedicated RG, not Owner on a subscription. The full
+  per-tool minimum-permissions matrix lives in [RBAC.md](RBAC.md).
 - **Generated Azure Function stubs contain `# TODO` blocks and the original
   Script Task source as comments.** Review before publishing — the original
   source may itself contain hardcoded secrets.

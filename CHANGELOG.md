@@ -10,6 +10,16 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-7** — Published per-tool RBAC / least-privilege matrix in new
+  [`RBAC.md`](RBAC.md). Names the minimum Azure RBAC role(s) and Key
+  Vault data-plane permission for each of the 29 MCP tools, the scope
+  that role should be granted at, and the rationale for the chosen role
+  family (Data Factory Contributor, Key Vault Secrets Officer / User,
+  Cost Management Reader). Includes an `assign_rbac=false` escape hatch
+  for environments that disallow `User Access Administrator` on the
+  deploying identity, the `az role assignment create` snippets, and an
+  audit checklist the security reviewer can run before approving the
+  change ticket. Cross-linked from SECURITY.md and SETUP.md.
 - **P4-6** — Deeper deploy dry-run / pre-flight. New module
   `ssis_adf_agent/deployer/preflight.py` plus a `pre_flight=true` flag on
   the `deploy_to_adf` MCP tool that short-circuits the actual deploy and

@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes twenty-eight tools to GitHub Copilot (and any MCP-compatible client):
+Exposes twenty-nine tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -31,6 +31,7 @@ Exposes twenty-eight tools to GitHub Copilot (and any MCP-compatible client):
 26. smoke_test_wave           — run smoke_test_pipeline against many pipelines, aggregate (N1)
 27. compare_dataflow_output   — behavioral parity: row+column diff of SSIS DFT vs converted MDF (P4-1)
 28. upload_encrypted_secrets  — push secrets from an unprotected .dtsx to Key Vault + rewrite linked services (P4-4)
+29. compare_estimates_to_actuals — join lineage.json + Cost Management actuals into a per-factory variance report (P4-5)
 
 Run as an MCP stdio server::
 
@@ -1207,6 +1208,30 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["unprotected_dtsx_path", "package_name", "kv_url", "linked_service_dir"],
             },
         ),
+        types.Tool(
+            name="compare_estimates_to_actuals",
+            description=(
+                "Cost-actuals join helper (P4-5). Reads the deployed lineage.json "
+                "manifest plus an Azure Cost Management export (REST response "
+                "JSON or portal CSV) and emits a per-factory variance report. "
+                "Optionally accepts the dict returned by `estimate_adf_costs` to "
+                "compute variance vs. the original prediction. Per-pipeline "
+                "allocation is included as an estimate (Cost Management does not "
+                "invoice ADF spend below factory granularity)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lineage_path": {"type": "string", "description": "Path to the deployed lineage.json (azure_resource_id fields populated by deploy_to_adf)."},
+                    "actuals_path": {"type": "string", "description": "Path to a Cost Management REST response JSON or a portal Cost Analysis CSV export."},
+                    "estimate_path": {"type": "string", "description": "Optional path to a JSON file containing the dict returned by `estimate_adf_costs`. Used as the variance baseline."},
+                    "period_label": {"type": "string", "description": "Caller-supplied label for the cost period (echoed back, not interpreted), e.g. '2026-03'."},
+                    "factory_resource_id": {"type": "string", "description": "Override the factory ARM id; otherwise derived from lineage.json."},
+                    "report_path": {"type": "string", "description": "Optional path to write the JSON variance report."},
+                },
+                "required": ["lineage_path", "actuals_path"],
+            },
+        ),
     ]
 
 
@@ -1280,6 +1305,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _compare_dataflow_output(arguments)
         elif name == "upload_encrypted_secrets":
             return await _upload_encrypted_secrets(arguments)
+        elif name == "compare_estimates_to_actuals":
+            return await _compare_estimates_to_actuals(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -2871,6 +2898,64 @@ async def _upload_encrypted_secrets(args: dict[str, Any]) -> list[types.TextCont
     return [
         types.TextContent(type="text", text="\n".join(summary_lines)),
         types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str)),
+    ]
+
+
+async def _compare_estimates_to_actuals(args: dict[str, Any]) -> list[types.TextContent]:
+    """P4-5 — join lineage.json + Cost Management actuals into a variance report."""
+    from .migration_plan import compare_estimates_to_actuals
+
+    lineage_path = _safe_resolve(args["lineage_path"], label="lineage_path")
+    actuals_path = _safe_resolve(args["actuals_path"], label="actuals_path")
+    if not lineage_path.is_file():
+        return [types.TextContent(type="text", text=f"lineage.json not found: {lineage_path}")]
+    if not actuals_path.is_file():
+        return [types.TextContent(type="text", text=f"actuals file not found: {actuals_path}")]
+
+    estimate: dict[str, Any] | None = None
+    if args.get("estimate_path"):
+        estimate_path = _safe_resolve(args["estimate_path"], label="estimate_path")
+        if estimate_path.is_file():
+            try:
+                estimate = json.loads(estimate_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                return [types.TextContent(
+                    type="text",
+                    text=f"estimate_path is not valid JSON: {exc}",
+                )]
+
+    report = compare_estimates_to_actuals(
+        lineage_path=str(lineage_path),
+        actuals_source=str(actuals_path),
+        estimate=estimate,
+        period_label=args.get("period_label", ""),
+        factory_resource_id=args.get("factory_resource_id"),
+    )
+
+    if args.get("report_path"):
+        out = _safe_resolve(args["report_path"], label="report_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+        report["report_path"] = str(out)
+
+    pct = report.get("variance_pct")
+    pct_str = f"{pct:+.1f}%" if isinstance(pct, (int, float)) else "n/a"
+    summary_lines = [
+        f"compare_estimates_to_actuals — {report.get('period_label') or '(no period)'}",
+        f"  Factory: {report.get('factory_resource_id') or '(unresolved)'}",
+        f"  Actuals total:   ${report['actuals_total_usd']:.2f}",
+        f"  Estimate (mo):   ${report['estimate_monthly_usd']:.2f}",
+        f"  Variance:        ${report['variance_usd']:+.2f} ({pct_str})",
+        f"  Per-pipeline rows: {len(report.get('pipelines') or [])} (estimated allocation)",
+    ]
+    if report.get("notes"):
+        summary_lines.append("Notes:")
+        for n in report["notes"]:
+            summary_lines.append(f"  - {n}")
+
+    return [
+        types.TextContent(type="text", text="\n".join(summary_lines)),
+        types.TextContent(type="text", text=json.dumps(report, indent=2, default=str)),
     ]
 
 

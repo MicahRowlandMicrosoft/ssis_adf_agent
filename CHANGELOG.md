@@ -10,6 +10,17 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-5** — Cost-actuals join helper. New module
+  `ssis_adf_agent/migration_plan/cost_actuals.py` and MCP tool **#29
+  `compare_estimates_to_actuals`** join the deployed `lineage.json` (M1) +
+  the prediction from `estimate_adf_costs` against an Azure Cost
+  Management export (REST response JSON *or* portal CSV). Per-factory
+  variance ($ + %), per-meter breakdown, and an explicitly-flagged
+  *estimated* per-pipeline allocation weighted by activity-count from the
+  manifest. The estimated allocation carries a note clarifying that Cost
+  Management does not invoice ADF spend below factory granularity —
+  customers do not mistake the allocation for billed truth. 29 tests with
+  captured CM REST + CSV fixtures (zero Azure dependency in the test path).
 - **P4-4** — Encrypted-package automation helper. New module
   `ssis_adf_agent/deployer/keyvault_uploader.py` and MCP tool **#28
   `upload_encrypted_secrets`** automate Steps 2 + 4 of the ENCRYPTED_PACKAGES.md

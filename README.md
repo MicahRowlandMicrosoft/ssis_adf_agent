@@ -5,7 +5,7 @@
 
 An MCP (Model Context Protocol) server that turns SSIS migration into an agent-driven workflow inside **GitHub Copilot**.
 
-The server exposes **28 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, post-deployment smoke testing, bulk trigger activation (H7), ARM-template content export (M2), cross-pipeline regression harness (N1), behavioral data-flow parity (P4-1, see [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md)), and encrypted-package secret automation (P4-4, see [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md)).
+The server exposes **29 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, post-deployment smoke testing, bulk trigger activation (H7), ARM-template content export (M2), cross-pipeline regression harness (N1), behavioral data-flow parity (P4-1, see [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md)), encrypted-package secret automation (P4-4, see [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md)), and Cost Management actuals reconciliation (P4-5).
 
 All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
 

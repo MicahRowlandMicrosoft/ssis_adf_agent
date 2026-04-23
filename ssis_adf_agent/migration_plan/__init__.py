@@ -10,6 +10,12 @@ from __future__ import annotations
 
 from .applier import PlanApplication, apply_plan
 from .bicep_generator import generate_bicep
+from .cost_actuals import (
+    ActualRow,
+    VarianceReport,
+    compare_estimates_to_actuals,
+    load_actuals,
+)
 from .estate_tools import (
     PlanEditError,
     edit_migration_plan,
@@ -38,6 +44,7 @@ from .smoke_tester import smoke_test_pipeline
 
 __all__ = [
     "PLAN_SCHEMA_VERSION",
+    "ActualRow",
     "AuthMode",
     "BicepCompilerNotFound",
     "EffortEstimate",
@@ -53,12 +60,15 @@ __all__ = [
     "SimplificationAction",
     "StorageKind",
     "TargetPattern",
+    "VarianceReport",
     "apply_plan",
+    "compare_estimates_to_actuals",
     "deploy_bicep",
     "detect_target_pattern",
     "edit_migration_plan",
     "estimate_adf_costs",
     "generate_bicep",
+    "load_actuals",
     "load_plan",
     "plan_migration_waves",
     "propose_design",

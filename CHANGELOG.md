@@ -10,6 +10,15 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-10** — New top-level [`OBSERVABILITY.md`](OBSERVABILITY.md)
+  documents the post-cut-over BAU monitoring story: Log Analytics as
+  the recommended diagnostic-settings target (with the five log/metric
+  categories to enable and a one-time Bicep snippet), two saved KQL
+  queries for a failures-and-trends workbook, and three alert rules
+  with full KQL, thresholds, evaluation cadence, and severity rationale
+  (any failure, duration regression vs. 14-day p95, trigger silently
+  stopped firing). BEHAVIORAL_PARITY.md "when published" placeholder
+  link replaced with the live cross-reference.
 - **P4-9** — New top-level [`WORKFLOW.md`](WORKFLOW.md) names the
   **6-tool minimum path** through a full migration
   (`bulk_analyze` → `propose_adf_design` → `convert_estate` →

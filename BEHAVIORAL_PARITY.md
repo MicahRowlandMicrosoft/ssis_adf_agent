@@ -161,7 +161,7 @@ engine doesn't care where the rows came from.
 * **Not a guarantee of conversion correctness.**  It tests the inputs you
   supply and nothing else.
 * **Not a performance harness.**  Use ADF Monitoring + Cost Management for
-  that (see [OBSERVABILITY.md](OBSERVABILITY.md) when published).
+  that (see [OBSERVABILITY.md](OBSERVABILITY.md)).
 * **Not a side-effect harness.**  Pre/post `Execute SQL` audit writes, file
   moves, and stored-procedure calls are out of scope here — they belong in
   end-to-end smoke tests via `smoke_test_pipeline` / `smoke_test_wave`.

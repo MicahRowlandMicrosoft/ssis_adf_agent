@@ -27,16 +27,17 @@ explicitly pass one.
 
 ## What it does NOT compare
 
-- **Row-level data parity.** This validator is structural. To verify that a
-  converted pipeline produces the same data as the original SSIS package, run
-  the source SSIS package and the deployed ADF pipeline against the same input
-  on the same day, then compare the two output sets with the customer's own
-  data-quality framework. That is a separate exercise and is outside the scope
-  of this tool.
+- **Row-level data parity.** This validator is structural. To compare the
+  *actual data* produced by an SSIS Data Flow against its converted ADF
+  Mapping Data Flow, see the **behavioral parity harness** (P4-1) documented
+  in [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md). That harness ships a
+  `compare_dataflow_output` MCP tool and a worked example with a seeded
+  regression.
 - **Performance parity.** RU / DIU / SHIR sizing is not estimated.
 - **Per-row transformation correctness.** Mapping data flow transformations
   (e.g. derived column expressions, lookup match rules) are emitted as JSON but
-  the validator does not execute them.
+  the validator does not execute them. Use the behavioral harness above to
+  run them against a controlled input set and diff the output.
 
 ## Output
 

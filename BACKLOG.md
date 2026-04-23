@@ -100,6 +100,72 @@ Priority legend:
 
 ---
 
+## P4 — Skeptical-buyer follow-ups (April 22 2026)
+
+Captured from the buyer-evaluation review against the closed-out P0–P3 backlog.
+Each item is the *vendor-actionable* slice of a buyer concern — customer-side
+proof items (live deploy log, 30-day cost actuals, ≥100-package corpus,
+named-customer reference) remain on B2 / M4 / M8 and are not duplicated here.
+
+### P4-1. Behavioral parity harness — **DONE**
+- **Resolution:** New `compare_dataflow_output` MCP tool (#27) backed by the [`ssis_adf_agent.parity`](ssis_adf_agent/parity/) package: a pure row-and-column [`diff_rows`](ssis_adf_agent/parity/diff.py) engine, pluggable [`SSISDataFlowRunner`](ssis_adf_agent/parity/runners.py) / [`AdfDataFlowRunner`](ssis_adf_agent/parity/runners.py) protocols with three concrete impls (`DtexecRunner`, `AdfDebugRunner`, `CapturedOutputRunner`), an [orchestrator](ssis_adf_agent/parity/orchestrator.py), and a [Markdown report](ssis_adf_agent/parity/report.py). Three modes (`captured` / `live` / `mixed`) so the harness is usable without dtexec or live ADF — captured CSVs make it run in CI in sub-second time.
+- **Worked example:** [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md) + [tests/fixtures/dataflow_parity/](tests/fixtures/dataflow_parity/) — sales DF with 6 rows, three CSVs (input, correct ADF output, regressed ADF output that drops a discount and mis-tiers a row). [test_dataflow_parity_worked_example.py](tests/test_dataflow_parity_worked_example.py) asserts the correct conversion passes and the regressed conversion fails with exactly the expected two value mismatches — proving the harness catches real regressions.
+- **Tests:** 27 new tests across [test_dataflow_parity_diff.py](tests/test_dataflow_parity_diff.py) (16 — pure diff engine), [test_dataflow_parity_orchestrator.py](tests/test_dataflow_parity_orchestrator.py) (9 — runners + orchestrator + MCP handler), [test_dataflow_parity_worked_example.py](tests/test_dataflow_parity_worked_example.py) (2). PARITY.md cross-links to BEHAVIORAL_PARITY.md so the structural-vs-behavioral split is signposted.
+
+### P4-2. Vendor-curated substitution registry entries — **HIGH**
+- **Buyer concern:** M7 ships the *mechanism* but zero curated entries for popular paid components. Customers are expected to author every entry.
+- **Acceptance:** At least three vendor-authored registry files under `registries/` covering Cozyroc Salesforce, KingswaySoft Dynamics CRM, and Pragmatic Works Productivity Pack family. Each accompanied by a unit test demonstrating the substitution against a captured component XML fragment.
+
+### P4-3. Worked Script Task port in the repo — **HIGH**
+- **Buyer concern:** Stub generation (H3) lifts source as comments but the *port* is opaque. EFFORT_METHODOLOGY.md weights Script Tasks but the buckets (trivial / simple / moderate / complex) are unbacked by published examples.
+- **Acceptance:** One of the LNI Script Tasks ported end-to-end (VB → Python Function), check the finished `__init__.py` into the repo, document the hours spent in [EFFORT_METHODOLOGY.md](EFFORT_METHODOLOGY.md), and link from [COVERAGE.md](COVERAGE.md) Script Task rows.
+
+### P4-4. Encrypted-package automation helper — **MEDIUM**
+- **Buyer concern:** ENCRYPTED_PACKAGES.md is a 6-step manual recipe. Doing it for 50 encrypted packages by hand is error-prone and a security review hot spot.
+- **Acceptance:** New helper module (working name `deployer/keyvault_uploader.py`) plus an MCP / CLI entry point that reads a sensitivity map produced by the existing parser, pushes secrets via `azure-keyvault-secrets`, and rewrites the linked-service placeholder secret names in one shot. Unit-tested with mocked `SecretClient`.
+
+### P4-5. Cost-actuals join helper — **MEDIUM**
+- **Buyer concern:** `lineage.json` (M1) anchors every Azure resource ID and `estimate_adf_costs` produces a prediction, but nothing joins them to actuals. M4 is blocked on customer time, but the join helper is not.
+- **Acceptance:** New tool `compare_estimates_to_actuals` reads `lineage.json` + a Cost Management export (CSV or REST) and emits a per-pipeline / per-resource variance report. Unit-tested with a captured Cost Management response fixture.
+
+### P4-6. Deeper deploy dry-run — **MEDIUM**
+- **Buyer concern:** SDK dry-run only validates JSON shape. The failure modes that consume real migration weeks (SHIR connectivity, Key Vault permission gaps, regional quotas, host firewalls) are not caught until the live deploy.
+- **Acceptance:** New tool / flag (`deploy_to_adf --pre-flight`) that resolves Key Vault references, attempts a managed-identity token-fetch against each linked-service host, and reports per-target reachability / permission status without creating ADF resources.
+
+### P4-7. Published RBAC / least-privilege matrix — **MEDIUM**
+- **Buyer concern:** SECURITY.md does not enumerate the precise ARM roles + Key Vault data-plane permissions required by the deploying identity per tool. Security review will reject "Owner on the resource group."
+- **Acceptance:** New `RBAC.md` table mapping each MCP / CLI command (`provision_adf_environment`, `deploy_to_adf`, `activate_triggers`, `provision_function_app`, `export_arm_template`, etc.) to required Azure RBAC roles + KV access policies. Cross-linked from SECURITY.md and SETUP.md.
+
+### P4-8. No-LLM mode statement + switch — **MEDIUM**
+- **Buyer concern:** Regulated customers cannot route .dtsx contents through a public LLM endpoint and need a documented opt-out with explicit feature delta.
+- **Acceptance:** `--no-llm` flag (or env var) on `convert_ssis_package` that forces the Script Task translator to skip the OpenAI call entirely. SECURITY.md gains a "What the LLM translator sends, where, and how to disable" section enumerating exactly what is degraded (Script Task port quality only).
+
+### P4-9. Minimum useful workflow guide — **MEDIUM**
+- **Buyer concern:** 26 MCP tools is a large surface. New engineers explore all of them. Tool overlap (`smoke_test_pipeline` vs `smoke_test_wave`, `convert_ssis_package` vs `convert_estate`, `build_estate_report` vs `build_predeployment_report`) is not signposted.
+- **Acceptance:** New `WORKFLOW.md` (or section of HOWTO.md) naming the 5–6-tool minimum path tied to standard wave milestones (triage → propose → convert → validate → deploy → activate). Clarifies which tools are advanced / optional. Linked from README.
+
+### P4-10. Pipeline-execution observability story — **MEDIUM**
+- **Buyer concern:** Post-migration BAU operations have no documented monitoring story (Log Analytics workbook, standard alerts, run-history retention).
+- **Acceptance:** `OBSERVABILITY.md` documenting the recommended diagnostic-settings target, a sample KQL workbook for pipeline failures + duration trending, and at least three suggested alert rules with thresholds.
+
+### P4-11. Captured "first deploy that failed" recovery doc — **LOW**
+- **Buyer concern:** ROLLBACK.md is theoretical. A captured real failure-and-recovery (sanitized) builds trust no prose can.
+- **Acceptance:** One captured deploy that failed (any failure mode — KV permission, SHIR offline, name collision), the error log, and the steps used to recover, written up under `docs/case-studies/` and linked from ROLLBACK.md.
+
+### P4-12. COVERAGE.md per-row evidence links — **LOW**
+- **Buyer concern:** ✅ rows in COVERAGE.md cite the dispatcher but not a captured artifact. A skeptic asked for cell-level evidence.
+- **Acceptance:** Each ✅ / 🟡 row in COVERAGE.md gains a "Sample" column linking to a captured generated artifact (or a unit-test fixture) demonstrating the conversion.
+
+### P4-13. Public roadmap + 1.0 milestone definition — **LOW**
+- **Buyer concern:** Version is 0.1.0 with a semver pre-1.0 caveat; no signal of when 1.0 lands or what it means.
+- **Acceptance:** New `ROADMAP.md` listing the engineering items required for 1.0, the current quarter's focus, and the breaking-change-deprecation window for pre-1.0 → 1.0 transitions.
+
+### P4-14. Named support channel + response-time commitment — **LOW**
+- **Buyer concern:** "GitHub issues" is not a support channel for a customer mid-migration at 11 p.m.
+- **Acceptance:** SUPPORT.md naming the support channel (alias / Teams channel / on-call rotation) with a stated response-time commitment for the duration of an active engagement. Acknowledges this may differ between OSS users and engaged customers.
+
+---
+
 ## Suggested execution order
 
 1. **B1** ✅ done (regenerated Copy types correctly on LNI).
@@ -110,3 +176,12 @@ Priority legend:
 6. **H1**, **H5**, **H2** (doc/repo hygiene) — fast wins, can parallelize.
 7. **H6, H7, H8** — flesh out the deliverable story.
 8. **P2** items as adoption progresses.
+9. **P3** ✅ done (smoke wave, rollback, naming config).
+10. **P4 — buyer follow-ups**, ordered for maximum trust gain per unit work:
+    1. **P4-1** behavioral parity harness (clears the #2 blocker on the buyer review).
+    2. **P4-3** worked Script Task port (anchors the effort buckets in real numbers).
+    3. **P4-2** vendor-curated registry entries (closes the "bring your own mappings" gap for the most common 3rd-party components).
+    4. **P4-7** RBAC matrix + **P4-8** no-LLM mode (parallel; security-review unblockers).
+    5. **P4-9** minimum useful workflow guide + **P4-10** observability story (parallel; onboarding + BAU).
+    6. **P4-4** encrypted-package automation, **P4-5** cost-actuals join, **P4-6** deeper deploy dry-run (parallel; quality-of-life).
+    7. **P4-11** captured failure-recovery doc, **P4-12** per-row evidence links, **P4-13** roadmap, **P4-14** support channel (low-cost trust polish).

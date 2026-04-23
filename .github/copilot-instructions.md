@@ -6,7 +6,7 @@ applyTo: "**"
 
 ## Project Overview
 This project exposes an MCP server (`ssis-adf-agent`) that reads SSIS packages (.dtsx)
-and converts them to Azure Data Factory (ADF) JSON artifacts.  **26 tools** are
+and converts them to Azure Data Factory (ADF) JSON artifacts.  **27 tools** are
 available via the MCP server; use them in the order that makes sense for the task.
 The table below lists the most commonly used ones — see `mcp_server.py` for the
 full set (it is the single source of truth).

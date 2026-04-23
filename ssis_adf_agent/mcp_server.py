@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes twenty-six tools to GitHub Copilot (and any MCP-compatible client):
+Exposes twenty-seven tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -29,6 +29,7 @@ Exposes twenty-six tools to GitHub Copilot (and any MCP-compatible client):
 24. activate_triggers         — bulk-activate ADF triggers (dry-run by default; H7)
 25. export_arm_template       — bundle ADF artifacts into an ARM template (M2)
 26. smoke_test_wave           — run smoke_test_pipeline against many pipelines, aggregate (N1)
+27. compare_dataflow_output   — behavioral parity: row+column diff of SSIS DFT vs converted MDF (P4-1)
 
 Run as an MCP stdio server::
 
@@ -1108,6 +1109,75 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["subscription_id", "resource_group", "factory_name"],
             },
         ),
+        types.Tool(
+            name="compare_dataflow_output",
+            description=(
+                "Behavioral parity harness (P4-1). Runs the *same* input dataset "
+                "through an SSIS Data Flow Task and through its converted ADF "
+                "Mapping Data Flow, then emits a row-and-column diff report. "
+                "Closes the gap left by validate_conversion_parity (which only "
+                "checks structural parity, not actual data values).\n\n"
+                "Three runner modes via the `mode` field:\n"
+                "  - `captured` (default): replay previously-captured CSV outputs from "
+                "    `ssis_captured_csv` and `adf_captured_csv`. No dtexec or live "
+                "    Azure required. Use this for the worked example, regression "
+                "    tests, and air-gapped reviews.\n"
+                "  - `live`: run dtexec for the SSIS side and an ADF Mapping Data Flow "
+                "    debug session for the ADF side. Requires dtexec on PATH and an "
+                "    Azure subscription with the ADF reachable. Slow and "
+                "    environment-dependent; intended for one-shot evidence captures.\n"
+                "  - `mixed`: any combination of `captured` / `live` per side "
+                "    (e.g. SSIS captured + ADF live for spot checks)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_path": {"type": "string", "description": "Absolute path to the SSIS .dtsx package."},
+                    "dataflow_task_name": {"type": "string", "description": "Name of the Data Flow Task inside the package to compare."},
+                    "adf_dataflow_path": {"type": "string", "description": "Absolute path to the generated ADF Mapping Data Flow JSON."},
+                    "input_dataset_path": {"type": "string", "description": "Absolute path to the controlled input dataset (CSV) fed to both sides."},
+                    "key_columns": {"type": "array", "items": {"type": "string"}, "description": "Columns that uniquely identify each output row."},
+                    "compare_columns": {"type": "array", "items": {"type": "string"}, "description": "Optional subset of columns to compare. If omitted, all common non-key columns are compared."},
+                    "ignore_columns": {"type": "array", "items": {"type": "string"}, "description": "Columns to exclude (e.g. non-deterministic timestamps)."},
+                    "ignore_case": {"type": "boolean", "default": False},
+                    "strip_whitespace": {"type": "boolean", "default": True},
+                    "numeric_tolerance": {"type": "number", "default": 0.0, "description": "Absolute tolerance for numeric comparisons (0 = exact)."},
+                    "mode": {"type": "string", "enum": ["captured", "live", "mixed"], "default": "captured"},
+                    "ssis_mode": {"type": "string", "enum": ["captured", "live"], "description": "Override for SSIS side when mode='mixed'."},
+                    "adf_mode": {"type": "string", "enum": ["captured", "live"], "description": "Override for ADF side when mode='mixed'."},
+                    "ssis_captured_csv": {"type": "string", "description": "Required when SSIS side is captured. CSV of the SSIS Data Flow's destination output."},
+                    "adf_captured_csv": {"type": "string", "description": "Required when ADF side is captured. CSV of the ADF Mapping Data Flow's sink output."},
+                    "dtexec": {
+                        "type": "object",
+                        "description": "Required when SSIS side is live. Settings for the dtexec runner.",
+                        "properties": {
+                            "source_connection_path": {"type": "string", "description": "SSIS /Set property path of the source Connection Manager's ConnectionString."},
+                            "destination_connection_path": {"type": "string", "description": "SSIS /Set property path of the destination Connection Manager's ConnectionString."},
+                            "destination_filename": {"type": "string", "default": "adf_parity_dest.csv"},
+                            "dtexec_path": {"type": "string", "description": "Optional explicit path to dtexec.exe."},
+                            "timeout_seconds": {"type": "integer", "default": 600},
+                        },
+                    },
+                    "adf_debug": {
+                        "type": "object",
+                        "description": "Required when ADF side is live. Settings for the ADF debug runner.",
+                        "properties": {
+                            "subscription_id": {"type": "string", "description": "Azure subscription ID (GUID) or display name."},
+                            "resource_group": {"type": "string"},
+                            "factory_name": {"type": "string"},
+                            "compute_type": {"type": "string", "default": "General"},
+                            "core_count": {"type": "integer", "default": 8},
+                            "time_to_live_minutes": {"type": "integer", "default": 10},
+                            "output_stream_name": {"type": "string"},
+                            "row_limit": {"type": "integer", "default": 1000},
+                        },
+                    },
+                    "report_path": {"type": "string", "description": "Optional Markdown report path."},
+                    "diff_json_path": {"type": "string", "description": "Optional JSON diff path (full machine-readable result)."},
+                },
+                "required": ["package_path", "dataflow_task_name", "adf_dataflow_path", "input_dataset_path", "key_columns"],
+            },
+        ),
     ]
 
 
@@ -1177,6 +1247,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _export_arm_template(arguments)
         elif name == "smoke_test_wave":
             return await _smoke_test_wave(arguments)
+        elif name == "compare_dataflow_output":
+            return await _compare_dataflow_output(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -2621,6 +2693,103 @@ async def _smoke_test_wave(args: dict[str, Any]) -> list[types.TextContent]:
 
     payload = {"summary": summary, "results": results}
     return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
+
+
+async def _compare_dataflow_output(args: dict[str, Any]) -> list[types.TextContent]:
+    """Behavioral parity: row+column diff of SSIS DFT vs converted MDF (P4-1)."""
+    from .parity import (
+        AdfDebugRunner,
+        CapturedOutputRunner,
+        DtexecRunner,
+        compare_dataflow_output,
+        render_diff_markdown,
+    )
+
+    package_path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
+    adf_dataflow_path = _safe_resolve(args["adf_dataflow_path"], must_exist=True, label="adf_dataflow_path")
+    input_dataset_path = _safe_resolve(args["input_dataset_path"], must_exist=True, label="input_dataset_path")
+    key_columns = list(args["key_columns"])
+    if not key_columns:
+        raise ValueError("key_columns must contain at least one column.")
+
+    mode = args.get("mode", "captured")
+    ssis_mode = args.get("ssis_mode") or ("live" if mode == "live" else "captured")
+    adf_mode = args.get("adf_mode") or ("live" if mode == "live" else "captured")
+
+    if ssis_mode == "captured":
+        if not args.get("ssis_captured_csv"):
+            raise ValueError("ssis_captured_csv is required when ssis side is captured.")
+        ssis_csv = _safe_resolve(args["ssis_captured_csv"], must_exist=True, label="ssis_captured_csv")
+        ssis_runner = CapturedOutputRunner(ssis_csv, name="ssis-captured")
+    else:
+        cfg = args.get("dtexec") or {}
+        if not cfg.get("source_connection_path") or not cfg.get("destination_connection_path"):
+            raise ValueError(
+                "dtexec.source_connection_path and dtexec.destination_connection_path are required for live SSIS mode."
+            )
+        ssis_runner = DtexecRunner(
+            source_connection_path=cfg["source_connection_path"],
+            destination_connection_path=cfg["destination_connection_path"],
+            destination_filename=cfg.get("destination_filename", "adf_parity_dest.csv"),
+            dtexec_path=cfg.get("dtexec_path"),
+            timeout_seconds=int(cfg.get("timeout_seconds", 600)),
+        )
+
+    if adf_mode == "captured":
+        if not args.get("adf_captured_csv"):
+            raise ValueError("adf_captured_csv is required when adf side is captured.")
+        adf_csv = _safe_resolve(args["adf_captured_csv"], must_exist=True, label="adf_captured_csv")
+        adf_runner = CapturedOutputRunner(adf_csv, name="adf-captured")
+    else:
+        cfg = args.get("adf_debug") or {}
+        for required in ("subscription_id", "resource_group", "factory_name"):
+            if not cfg.get(required):
+                raise ValueError(f"adf_debug.{required} is required for live ADF mode.")
+        from .credential import resolve_subscription_id
+        adf_runner = AdfDebugRunner(
+            subscription_id=resolve_subscription_id(cfg["subscription_id"]),
+            resource_group=cfg["resource_group"],
+            factory_name=cfg["factory_name"],
+            compute_type=cfg.get("compute_type", "General"),
+            core_count=int(cfg.get("core_count", 8)),
+            time_to_live_minutes=int(cfg.get("time_to_live_minutes", 10)),
+            output_stream_name=cfg.get("output_stream_name"),
+            row_limit=int(cfg.get("row_limit", 1000)),
+        )
+
+    comparison = compare_dataflow_output(
+        ssis_runner=ssis_runner,
+        adf_runner=adf_runner,
+        package_path=package_path,
+        dataflow_task_name=args["dataflow_task_name"],
+        adf_dataflow_path=adf_dataflow_path,
+        input_dataset_path=input_dataset_path,
+        key_columns=key_columns,
+        compare_columns=args.get("compare_columns"),
+        ignore_columns=args.get("ignore_columns") or (),
+        ignore_case=bool(args.get("ignore_case", False)),
+        strip_whitespace=bool(args.get("strip_whitespace", True)),
+        numeric_tolerance=float(args.get("numeric_tolerance", 0.0)),
+    )
+
+    payload = comparison.to_dict()
+    markdown = render_diff_markdown(payload)
+
+    if args.get("report_path"):
+        out = _safe_resolve(args["report_path"], label="report_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(markdown, encoding="utf-8")
+        payload["report_path"] = str(out)
+    if args.get("diff_json_path"):
+        out = _safe_resolve(args["diff_json_path"], label="diff_json_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        payload["diff_json_path"] = str(out)
+
+    return [
+        types.TextContent(type="text", text=markdown),
+        types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str)),
+    ]
 
 
 if __name__ == "__main__":

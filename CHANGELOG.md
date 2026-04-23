@@ -9,6 +9,20 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 
 ## [Unreleased]
 
+### Added
+- **P4-1** — Behavioral data-flow parity harness (`compare_dataflow_output`,
+  MCP tool #27). Runs the same controlled input set through an SSIS Data Flow
+  (via `dtexec.exe`) and through its converted ADF Mapping Data Flow (via an
+  ADF debug session), and emits a row-and-column diff report. Supports three
+  modes: `captured` (replay pre-captured CSVs — recommended for CI),
+  `live` (real dtexec + ADF debug), and `mixed`. Pluggable runner protocols
+  let customers wire their own SSIS environment in. Pure diff engine
+  (`diff_rows`) with row-key matching, schema-drift detection, configurable
+  ignore lists, numeric tolerance, and case/whitespace normalization. Worked
+  example with a *seeded regression* under
+  [tests/fixtures/dataflow_parity/](tests/fixtures/dataflow_parity/) plus
+  documentation in [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md). 27 new tests.
+
 ### Fixed
 - **B1** — `convert_ssis_package` now derives a Copy activity's `source.type`
   and `sink.type` from the actual SSIS component (`OLE DB Source` →

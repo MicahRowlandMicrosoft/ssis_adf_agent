@@ -10,6 +10,24 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-14** — New top-level [`SUPPORT.md`](SUPPORT.md) splits support
+  into two tiers. **Tier 1 (OSS):** GitHub Issues only, best-effort
+  2–5 business-day first response, no SLA, with explicit "do not
+  expect" list (hours-scale response, phone/chat, overnight). **Tier 2
+  (engaged customers):** named-channel response-time commitments by
+  severity — Sev 1 (migration blocked) **2 business hours**, Sev 2
+  (impaired w/ workaround) **1 business day**, Sev 3 (question /
+  minor defect) **3 business days**. Names three supported channel
+  formats (Teams channel preferred, shared email DL ≥ 2 recipients,
+  on-call rotation roster with backup primary) and excludes
+  single-engineer phone numbers as a single-point-of-failure pattern.
+  5-field bug-report template and a non-negotiable sanitization
+  checklist (no connection strings, no customer-identifying KV/sub/RG
+  names, no business-sensitive table/column names, no package
+  passwords). README "Need help?" callout added pointing at
+  SUPPORT.md. **All 14 P4 buyer follow-ups now closed.**
+
+### Added
 - **P4-13** — New top-level [`ROADMAP.md`](ROADMAP.md) defines what
   1.0 means (committed: MCP tool I/O, CLI, on-disk artifact layout +
   `lineage.json`/`migration_plan.json` schemas, public Pydantic IR;

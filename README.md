@@ -78,6 +78,11 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 > to 1.0 and the deprecation-window policy for the `0.9.0 → 1.0.0`
 > transition.
 
+> **Need help?** OSS users: [GitHub Issues](https://github.com/MicahRowlandMicrosoft/ssis_adf_agent/issues)
+> (best-effort). Engaged customers running an active migration:
+> [SUPPORT.md](SUPPORT.md) names the response-time commitments per
+> severity and the supported channel options.
+
 > **New to the agent?** Start with [WORKFLOW.md](WORKFLOW.md) — the
 > 6-tool minimum path through a full migration. Then see [HOWTO.md](HOWTO.md)
 > for end-to-end conversation examples with copy-paste prompts.

@@ -51,6 +51,13 @@ connection-manager **DTS:ObjectName** so you can reference it later.
 
 ## Step 2 — push secrets to Key Vault
 
+> **Automation available (P4-4).** Steps 2 + 4 below can be run as a single
+> command via the [`upload_encrypted_secrets`](#automation-via-mcp) MCP tool
+> (also importable as `ssis_adf_agent.deployer.keyvault_uploader.process_encrypted_package`).
+> The manual instructions below are still the source of truth — the
+> automation does the same thing programmatically with `dry_run=True`
+> support so you can preview before applying.
+
 ```powershell
 # One secret per (package, connection-manager) pair to keep audit clean.
 az keyvault secret set `
@@ -138,3 +145,62 @@ their work:
 * [BACKLOG.md](BACKLOG.md) #B3 — generator-side stripping of credential-shaped
   defaults.
 * [BACKLOG.md](BACKLOG.md) #H8 — non-destructive deploy mode.
+
+---
+
+## Automation via MCP
+
+`upload_encrypted_secrets` (P4-4) automates Steps 2 + 4 of the recipe above.
+Customers still run `dtutil` manually (Step 1) — the act of decrypting their
+package stays auditable on their side. The tool ingests the unprotected
+`.dtsx` they produce.
+
+```jsonc
+// MCP upload_encrypted_secrets args
+{
+  "unprotected_dtsx_path": "work/MyPackage.unprotected.dtsx",
+  "package_name":          "MyPackage",
+  "kv_url":                "https://kv-ssis.vault.azure.net/",
+  "linked_service_dir":    "out/MyPackage/linkedService",
+  "dry_run":               true
+}
+```
+
+What it does in one shot:
+
+1. Walks the unprotected `.dtsx` and pulls every `Password` property,
+   embedded `Password=...` substring, and `Sensitive="1"` package /
+   project parameter (values **never logged**).
+2. Builds `{package}-{cm}-{kind}` style Key Vault secret names (slugified
+   to KV's `[a-zA-Z0-9-]` charset).
+3. Uploads each secret via `azure-keyvault-secrets`'s `SecretClient`,
+   honoring the deploying identity's `DefaultAzureCredential`.
+   - `overwrite=false` (default) skips secrets that already exist.
+   - `dry_run=true` previews without touching Key Vault.
+4. Walks every `*.json` under the linked-service directory and rewrites
+   the placeholder `secretName` fields to point at the real secret names.
+
+Returns an `UploadReport` with the secrets uploaded, secrets skipped (with
+reasons), linked-service files rewritten, and the total `secretName`
+references updated.
+
+The same module is importable directly:
+
+```python
+from ssis_adf_agent.deployer.keyvault_uploader import (
+    process_encrypted_package,
+)
+
+report = process_encrypted_package(
+    unprotected_dtsx_path="work/MyPackage.unprotected.dtsx",
+    package_name="MyPackage",
+    kv_url="https://kv-ssis.vault.azure.net/",
+    linked_service_dir="out/MyPackage/linkedService",
+    dry_run=True,
+)
+print(report.to_dict())
+```
+
+For testing, pass a custom `secret_client` that implements `get_secret` and
+`set_secret` (the module exposes a `SecretClientProtocol` runtime-checkable
+Protocol).

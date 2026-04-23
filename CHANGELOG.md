@@ -10,6 +10,17 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-4** — Encrypted-package automation helper. New module
+  `ssis_adf_agent/deployer/keyvault_uploader.py` and MCP tool **#28
+  `upload_encrypted_secrets`** automate Steps 2 + 4 of the ENCRYPTED_PACKAGES.md
+  recipe in one command: extract secrets from an unprotected `.dtsx` (the
+  customer still runs `dtutil` manually so decrypt remains auditable on
+  their side), upload to Azure Key Vault via `azure-keyvault-secrets`, and
+  rewrite the placeholder `secretName` fields inside generated linked-service
+  JSON to point at the real secret names. `dry_run` and `overwrite`
+  semantics, KV-safe name slugification, recursive JSON rewrite, never-leak
+  `__repr__` on data classes. 26 new tests with a fake `SecretClient` (zero
+  Azure dependency in the test path).
 - **P4-2** — Vendor-curated substitution registries shipped in-repo at
   [`registries/`](registries/README.md): `cozyroc_salesforce.json`,
   `kingswaysoft_dynamics.json`, `pragmatic_works.json`. Together they cover

@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes twenty-seven tools to GitHub Copilot (and any MCP-compatible client):
+Exposes twenty-eight tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -30,6 +30,7 @@ Exposes twenty-seven tools to GitHub Copilot (and any MCP-compatible client):
 25. export_arm_template       — bundle ADF artifacts into an ARM template (M2)
 26. smoke_test_wave           — run smoke_test_pipeline against many pipelines, aggregate (N1)
 27. compare_dataflow_output   — behavioral parity: row+column diff of SSIS DFT vs converted MDF (P4-1)
+28. upload_encrypted_secrets  — push secrets from an unprotected .dtsx to Key Vault + rewrite linked services (P4-4)
 
 Run as an MCP stdio server::
 
@@ -1178,6 +1179,34 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["package_path", "dataflow_task_name", "adf_dataflow_path", "input_dataset_path", "key_columns"],
             },
         ),
+        types.Tool(
+            name="upload_encrypted_secrets",
+            description=(
+                "Encrypted-package automation helper (P4-4). Automates Steps 2 + 4 "
+                "of the ENCRYPTED_PACKAGES.md recipe: extracts secrets from an "
+                "unprotected .dtsx (the customer still runs dtutil manually so "
+                "the decrypt remains auditable on their side), uploads each secret "
+                "to Azure Key Vault, then rewrites the placeholder secretName "
+                "fields inside the generated linked-service JSON to point at the "
+                "real Key Vault secret names. Pass `dry_run=true` to preview "
+                "without touching Key Vault or the linked-service files."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "unprotected_dtsx_path": {"type": "string", "description": "Absolute path to the unprotected .dtsx (output of `dtutil /DECRYPT`)."},
+                    "package_name": {"type": "string", "description": "Logical package name; becomes the `{package}` token in secret names."},
+                    "kv_url": {"type": "string", "description": "Azure Key Vault URL, e.g. https://kv-ssis.vault.azure.net/"},
+                    "linked_service_dir": {"type": "string", "description": "Directory containing the generated linked-service JSON files (typically out/<package>/linkedService)."},
+                    "secret_name_template": {"type": "string", "default": "{package}-{cm}-{kind}", "description": "Template for the Key Vault secret name. Tokens: {package}, {cm}, {kind}."},
+                    "placeholder_template": {"type": "string", "default": "{cm}-password", "description": "Template the linked-service generator used for the placeholder secretName. Must match generator convention."},
+                    "dry_run": {"type": "boolean", "default": False, "description": "Preview without uploading or rewriting."},
+                    "overwrite": {"type": "boolean", "default": False, "description": "When false (default), skip secrets that already exist in the vault."},
+                    "report_path": {"type": "string", "description": "Optional path for a JSON upload report."},
+                },
+                "required": ["unprotected_dtsx_path", "package_name", "kv_url", "linked_service_dir"],
+            },
+        ),
     ]
 
 
@@ -1249,6 +1278,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _smoke_test_wave(arguments)
         elif name == "compare_dataflow_output":
             return await _compare_dataflow_output(arguments)
+        elif name == "upload_encrypted_secrets":
+            return await _upload_encrypted_secrets(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -2788,6 +2819,57 @@ async def _compare_dataflow_output(args: dict[str, Any]) -> list[types.TextConte
 
     return [
         types.TextContent(type="text", text=markdown),
+        types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str)),
+    ]
+
+
+async def _upload_encrypted_secrets(args: dict[str, Any]) -> list[types.TextContent]:
+    """P4-4 — automate Steps 2 + 4 of the encrypted-package recipe."""
+    from .deployer.keyvault_uploader import (
+        DEFAULT_SECRET_NAME_TEMPLATE,
+        process_encrypted_package,
+    )
+
+    unprotected = _safe_resolve(args["unprotected_dtsx_path"], label="unprotected_dtsx_path")
+    ls_dir = _safe_resolve(args["linked_service_dir"], label="linked_service_dir")
+    if not unprotected.is_file():
+        return [types.TextContent(type="text", text=f"Unprotected .dtsx not found: {unprotected}")]
+    if not ls_dir.is_dir():
+        return [types.TextContent(type="text", text=f"Linked-service directory not found: {ls_dir}")]
+
+    report = process_encrypted_package(
+        unprotected_dtsx_path=str(unprotected),
+        package_name=args["package_name"],
+        kv_url=args["kv_url"],
+        linked_service_dir=str(ls_dir),
+        secret_name_template=args.get("secret_name_template", DEFAULT_SECRET_NAME_TEMPLATE),
+        placeholder_template=args.get("placeholder_template", "{cm}-password"),
+        dry_run=bool(args.get("dry_run", False)),
+        overwrite=bool(args.get("overwrite", False)),
+    )
+    payload = report.to_dict()
+
+    if args.get("report_path"):
+        out = _safe_resolve(args["report_path"], label="report_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+        payload["report_path"] = str(out)
+
+    summary_lines = [
+        f"upload_encrypted_secrets — {args['package_name']} ({'DRY RUN' if report.dry_run else 'APPLIED'})",
+        f"  Vault: {report.kv_url}",
+        f"  Secrets uploaded: {len(report.secrets_uploaded)}",
+        f"  Secrets skipped:  {len(report.secrets_skipped)}",
+        f"  Linked-service files rewritten: {len(report.linked_services_rewritten)} "
+        f"({report.rewrite_count} secretName references)",
+    ]
+    if report.skip_reasons:
+        summary_lines.append("Skip reasons:")
+        for name, reason in report.skip_reasons.items():
+            summary_lines.append(f"  - {name}: {reason}")
+
+    return [
+        types.TextContent(type="text", text="\n".join(summary_lines)),
         types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str)),
     ]
 

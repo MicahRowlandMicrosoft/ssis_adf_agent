@@ -9,6 +9,19 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 
 ## [Unreleased]
 
+### Added
+- **P4-13** — New top-level [`ROADMAP.md`](ROADMAP.md) defines what
+  1.0 means (committed: MCP tool I/O, CLI, on-disk artifact layout +
+  `lineage.json`/`migration_plan.json` schemas, public Pydantic IR;
+  not committed: internal implementation, generated stub text,
+  warning wording, the C#→Python translator), lists 14 engineering
+  items required for the bump (grouped Stability / Quality / Surface /
+  Operational, each tagged done / NEW / partial), and pins the
+  pre-1.0 → 1.0 transition policy: a `0.9.0` release ships first with
+  a `removed-in-1.0` deprecation manifest, supported for a minimum
+  30 days before `1.0.0` removes the deprecated surface. README gained
+  a "Pre-1.0 status" callout pointing at ROADMAP.md.
+
 ### Changed
 - **P4-12** — [`COVERAGE.md`](COVERAGE.md) gained an **Evidence**
   column on all five tables (Control Flow tasks, Sources,

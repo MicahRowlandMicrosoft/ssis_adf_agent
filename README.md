@@ -72,6 +72,12 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 - [Development](#development)
 - [License](#license)
 
+> **Pre-1.0 status.** Version `0.1.0` is pre-1.0 and the semver caveat
+> applies — minor bumps may include breaking changes. See
+> [ROADMAP.md](ROADMAP.md) for the engineering items required to flip
+> to 1.0 and the deprecation-window policy for the `0.9.0 → 1.0.0`
+> transition.
+
 > **New to the agent?** Start with [WORKFLOW.md](WORKFLOW.md) — the
 > 6-tool minimum path through a full migration. Then see [HOWTO.md](HOWTO.md)
 > for end-to-end conversation examples with copy-paste prompts.

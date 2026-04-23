@@ -10,6 +10,17 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-2** — Vendor-curated substitution registries shipped in-repo at
+  [`registries/`](registries/README.md): `cozyroc_salesforce.json`,
+  `kingswaysoft_dynamics.json`, `pragmatic_works.json`. Together they cover
+  the COZYROC Salesforce family, KingswaySoft Dynamics 365/CRM components
+  (incl. Premium Derived Column / Premium Lookup), and Pragmatic Works Task
+  Factory (Upsert Destination, Dimension Merge SCD, Advanced E-Mail Task,
+  Secure FTP Task, Compression Task, Terminate Process Task, REST Source
+  Task, plus six MDF transformations) — every non-trivial mapping carries a
+  `_review_required` audit marker that lands in the generated ADF JSON. 15
+  new tests including captured component XML fragment routing for each
+  vendor and a cross-registry key-collision guard.
 - **P4-3** — Worked Script Task port checked into the repo at
   [docs/case-studies/script_task_port_database_access_configuration/](docs/case-studies/script_task_port_database_access_configuration/README.md).
   Anchors the `moderate` bucket in [EFFORT_METHODOLOGY.md](EFFORT_METHODOLOGY.md)

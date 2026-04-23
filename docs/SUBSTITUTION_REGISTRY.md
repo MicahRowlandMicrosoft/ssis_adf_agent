@@ -12,6 +12,12 @@ Either way the customer has to hand-edit ADF before deploying. The
 substitution registry lets them write the mapping down once, in JSON, and
 have every conversion apply it deterministically.
 
+> **Curated registries shipped in-repo.** For the most common third-party
+> SSIS component families (COZYROC Salesforce, KingswaySoft Dynamics CRM,
+> Pragmatic Works Task Factory) the agent ships **vendor-curated mapping
+> files** under [`registries/`](../registries/README.md) — point
+> `substitution_registry_path` at one of them and skip the authoring step.
+
 ---
 
 ## Schema

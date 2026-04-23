@@ -1,0 +1,107 @@
+{
+  "version": "1",
+  "_meta": {
+    "vendor": "Pragmatic Works",
+    "product": "Task Factory / Productivity Pack family",
+    "url": "https://www.pragmaticworks.com/products/task-factory",
+    "description": "Curated substitution mappings for Pragmatic Works Task Factory components — the most widely deployed of which are Advanced E-Mail Task, Secure FTP Task, Terminate Process Task, Compression Task, Upsert Destination, and Slowly Changing Dimension. Maps each to native ADF activities or Mapping Data Flow shapes plus, where unavoidable, an Azure Function fallback.",
+    "verification": "Component / task creation_name strings reflect the public Task Factory catalog as of 2024-10. Task Factory components ship under multiple top-level namespaces depending on edition (Pragmaticworks.TaskFactory, PragmaticWorks.TaskFactory) — both spellings are listed below as separate entries.",
+    "audit_notes": "Task Factory's Slowly Changing Dimension task and Upsert Destination both implement insert+update logic that ADF supports natively via the Sink writeBehavior=upsert with alternateKey, but neither replicates Task Factory's history-tracking (Type 2 SCD) without an explicit pattern (alter row + sink). Flag every Type 2 SCD for manual review."
+  },
+  "data_flow_components": {
+    "Pragmaticworks.TaskFactory.UpsertDestination": {
+      "adf_type": "Sink",
+      "notes": "Upsert Destination -> ADF Sink with writeBehavior=upsert. Alternate-key column(s) from the Task Factory dialog map to the sink's keys[] array. Batch size in Task Factory has no exact equivalent; tune via the sink's writeBatchSize.",
+      "type_properties": {
+        "_review_required": "Set writeBehavior=upsert + keys[]; copy writeBatchSize from the Task Factory BatchSize property."
+      }
+    },
+    "PragmaticWorks.TaskFactory.UpsertDestination": {
+      "adf_type": "Sink",
+      "notes": "Alias for the alternate Pragmatic Works namespace casing; same mapping as Pragmaticworks.TaskFactory.UpsertDestination.",
+      "type_properties": {
+        "_review_required": "Set writeBehavior=upsert + keys[]; copy writeBatchSize from the Task Factory BatchSize property."
+      }
+    },
+    "Pragmaticworks.TaskFactory.DimensionMergeSCD": {
+      "adf_type": "AlterRow",
+      "notes": "Dimension Merge SCD (Task Factory's SCD wizard) -> ADF MDF AlterRow + Sink. Map Type 1 changes to AlterRow.updateIf, Type 2 to AlterRow.insertIf with an additional 'EffectiveTo'/'IsCurrent' Derived Column upstream and a second Sink that updates the previous row's 'EffectiveTo'.",
+      "type_properties": {
+        "_review_required": "Wire AlterRow conditions for Type 1 (update) vs Type 2 (insert + close-out previous row). This is the most error-prone Pragmatic Works mapping — review row-by-row."
+      }
+    },
+    "Pragmaticworks.TaskFactory.RegexReplaceTransform": {
+      "adf_type": "DerivedColumn",
+      "notes": "Regex Replace transform -> Derived Column with the regexReplace() expression. Pragmatic Works supports .NET regex flavor; ADF uses Java regex — patterns with .NET-only syntax (e.g. (?n) named-only mode) need rewriting.",
+      "type_properties": {
+        "_review_required": "Translate each regex from .NET to Java regex flavor; the converter does not do this automatically."
+      }
+    },
+    "Pragmaticworks.TaskFactory.AdvancedDerivedColumn": {
+      "adf_type": "DerivedColumn",
+      "notes": "Advanced Derived Column adds Pragmatic Works expression helpers; ADF MDF Derived Column covers the same surface area but expressions must be re-authored in MDF syntax.",
+      "type_properties": {
+        "_review_required": "Re-author each expression in ADF MDF syntax."
+      }
+    },
+    "Pragmaticworks.TaskFactory.DataValidationTransform": {
+      "adf_type": "AssertExpectations",
+      "notes": "Data Validation transform -> ADF MDF Assert transformation. Each Pragmatic Works rule becomes an assert expression; failed rows can be routed via the Assert's failure output to a quarantine sink.",
+      "type_properties": {
+        "_review_required": "Map each Task Factory rule to an Assert expression; configure failure output to a quarantine sink if the original component branched on validity."
+      }
+    },
+    "Pragmaticworks.TaskFactory.AggregateTransform": {
+      "adf_type": "Aggregate",
+      "notes": "Pragmatic Works Aggregate is functionally a superset of the SSIS-native Aggregate; map to ADF MDF Aggregate. Distinct-count and median operations are supported natively in MDF.",
+      "type_properties": {}
+    }
+  },
+  "control_flow_tasks": {
+    "Pragmaticworks.TaskFactory.AdvancedEMailTask": {
+      "adf_activity_type": "WebActivity",
+      "notes": "Advanced E-Mail Task -> Web Activity calling a Logic App / Power Automate flow that wraps Office 365 Send Email. Direct SMTP from ADF is not supported; the Logic App is the canonical replacement.",
+      "type_properties": {
+        "method": "POST",
+        "_review_required": "Set 'url' to the Logic App HTTP trigger; map subject/body/recipients into the request body."
+      }
+    },
+    "PragmaticWorks.TaskFactory.AdvancedEMailTask": {
+      "adf_activity_type": "WebActivity",
+      "notes": "Alias for the alternate namespace casing; same mapping as Pragmaticworks.TaskFactory.AdvancedEMailTask.",
+      "type_properties": {
+        "method": "POST",
+        "_review_required": "Set 'url' to the Logic App HTTP trigger; map subject/body/recipients into the request body."
+      }
+    },
+    "Pragmaticworks.TaskFactory.SecureFTPTask": {
+      "adf_activity_type": "Copy",
+      "notes": "Secure FTP Task (SFTP get/put) -> ADF Copy Activity using an SFTP linked service. For protocol operations that are not pure copy (rename, delete, list), use a Web Activity to an Azure Function wrapping the paramiko or pysftp library.",
+      "type_properties": {
+        "_review_required": "If operation is Get/Put -> Copy Activity. If operation is Rename/Delete/List -> Azure Function wrapping paramiko."
+      }
+    },
+    "Pragmaticworks.TaskFactory.TerminateProcessTask": {
+      "adf_activity_type": "AzureFunctionActivity",
+      "notes": "Terminate Process Task kills a Windows process by name/PID. There is no ADF equivalent; replace with an Azure Function on a dedicated VM (or hybrid runbook) that runs taskkill / Stop-Process. Strongly recommend revisiting the use-case during migration design.",
+      "type_properties": {
+        "_review_required": "Confirm the use-case is still valid post-migration; many SSIS Terminate Process tasks were defensive cleanup of stuck dtsexec instances and become unnecessary in ADF."
+      }
+    },
+    "Pragmaticworks.TaskFactory.CompressionTask": {
+      "adf_activity_type": "AzureFunctionActivity",
+      "notes": "Compression Task (Zip/Unzip/Gzip) -> Azure Function wrapping zipfile / gzip. ADF Copy Activity can read .zip/.gzip natively for many connectors (binary copy with compressionType), so for simple decompress-during-copy scenarios the activity can be folded into the downstream Copy.",
+      "type_properties": {
+        "_review_required": "If used purely to decompress before a Copy, fold compression into the downstream Copy's compressionType. Otherwise emit Function stub."
+      }
+    },
+    "Pragmaticworks.TaskFactory.RestSourceTask": {
+      "adf_activity_type": "WebActivity",
+      "notes": "REST Source Task -> Web Activity. Pagination rules in Task Factory map to ADF's Copy Activity 'pagination rules' when the result is being staged to a sink; for variable capture use Web Activity + Until loop.",
+      "type_properties": {
+        "method": "GET",
+        "_review_required": "Set url + headers; for paginated APIs prefer Copy Activity REST source over Web Activity."
+      }
+    }
+  }
+}

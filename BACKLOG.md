@@ -265,27 +265,14 @@ customer pilot, not in this backlog.
 
 ## Suggested execution order
 
-1. **B1** ✅ done (regenerated Copy types correctly on LNI).
-2. **B3** ✅ done (sensitive defaults stripped from generated pipelines).
-3. **B2** — customer-side proof; cannot be executed without an Azure factory.
-4. **H3** (LLM translator on LNI dialect) — same sample, same regen pass.
-5. **H4** (parity report) — produce on the deployed pipeline.
-6. **H1**, **H5**, **H2** (doc/repo hygiene) — fast wins, can parallelize.
-7. **H6, H7, H8** — flesh out the deliverable story.
-8. **P2** items as adoption progresses.
-9. **P3** ✅ done (smoke wave, rollback, naming config).
-10. **P4 — buyer follow-ups**, ordered for maximum trust gain per unit work:
-    1. **P4-1** behavioral parity harness (clears the #2 blocker on the buyer review).
-    2. **P4-3** worked Script Task port (anchors the effort buckets in real numbers).
-    3. **P4-2** vendor-curated registry entries (closes the "bring your own mappings" gap for the most common 3rd-party components).
-    4. **P4-7** RBAC matrix + **P4-8** no-LLM mode (parallel; security-review unblockers).
-    5. **P4-9** minimum useful workflow guide + **P4-10** observability story (parallel; onboarding + BAU).
-    6. **P4-4** encrypted-package automation, **P4-5** cost-actuals join, **P4-6** deeper deploy dry-run (parallel; quality-of-life).
-    7. **P4-11** captured failure-recovery doc, **P4-12** per-row evidence links, **P4-13** roadmap, **P4-14** support channel (low-cost trust polish).
-11. **P5 — second-round buyer review followups**, ordered for ship velocity:
-    1. Same-day doc fixes: **P5-9** (tool-count + diagram), **P5-18** (HOWTO start-here), **P5-19** (KV cross-link), **P5-21** (provisioner → OBSERVABILITY).
-    2. Schema + flag plumbing: **P5-6** (schemaVersion), **P5-7** (`--with-observability`), **P5-11** (uniform `--dry-run`).
-    3. Security audit: **P5-8** (no-LLM egress confirmation; needs maintainer sign-off).
-    4. Net-new tools / surface: **P5-12** (`validate_deployer_rbac`), **P5-16** (`diff_estate`), **P5-17** (CLI parity), **P5-14** (cost projection at convert time).
-    5. Doc derivations from source: **P5-20** (expression functions), **P5-23** (encryption failure modes), **P5-24** (LLM truncation), **P5-25** (factory teardown).
-    6. CI hardening + repo URL: **P5-15** (`pipx run` smoke), **P5-26** (GitHub URL).
+All B / H / M / N / P3 / P4 items are ✅ done. Remaining work:
+
+1. **B2** — customer-side proof; cannot be executed without an Azure factory.
+2. **P2** items as adoption progresses.
+3. **P5 — second-round buyer review followups**, ordered for ship velocity:
+   1. Same-day doc fixes: **P5-9** (tool-count + diagram), **P5-18** (HOWTO start-here), **P5-19** (KV cross-link), **P5-21** (provisioner → OBSERVABILITY).
+   2. Schema + flag plumbing: **P5-6** (schemaVersion), **P5-7** (`--with-observability`), **P5-11** (uniform `--dry-run`).
+   3. Security audit: **P5-8** (no-LLM egress confirmation; needs maintainer sign-off).
+   4. Net-new tools / surface: **P5-12** (`validate_deployer_rbac`), **P5-16** (`diff_estate`), **P5-17** (CLI parity), **P5-14** (cost projection at convert time).
+   5. Doc derivations from source: **P5-20** (expression functions), **P5-23** (encryption failure modes), **P5-24** (LLM truncation), **P5-25** (factory teardown).
+   6. CI hardening + repo URL: **P5-15** (`pipx run` smoke), **P5-26** (GitHub URL).

@@ -4,6 +4,13 @@ The agent's deploy path is non-destructive by default and produces enough
 metadata to reverse a deploy at three different scopes. Pick the rollback
 strategy that matches the blast radius of the failure.
 
+> **Captured real failure:** see
+> [docs/case-studies/first_deploy_keyvault_recovery/](docs/case-studies/first_deploy_keyvault_recovery/README.md)
+> for a sanitized walkthrough of one first-deploy that failed (Key Vault
+> RBAC on the factory's managed identity), the wrong hypothesis that ate
+> 22 minutes, and the three commands that recovered it. The rest of this
+> document generalizes from that capture.
+
 ## Decision tree
 
 ```

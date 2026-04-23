@@ -10,6 +10,18 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-11** — New captured case study at
+  [`docs/case-studies/first_deploy_keyvault_recovery/`](docs/case-studies/first_deploy_keyvault_recovery/README.md)
+  documents one sanitized real first-deploy failure: 6 encrypted-
+  package linked services failed with
+  `ManagedServiceIdentityCredentialNotFound` because the factory's
+  system-assigned managed identity — not the deployer SP — lacked
+  *Key Vault Secrets User* on the referenced vault. Captures the
+  verbatim error log, the 22 minutes spent on the wrong hypothesis,
+  the three recovery commands, and four lessons tying back to P4-6
+  pre-flight, P4-7 RBAC matrix, and the WORKFLOW.md "pre-flight first"
+  default. Linked from the top of ROLLBACK.md so the generalized
+  strategies sit on top of one concrete instance.
 - **P4-10** — New top-level [`OBSERVABILITY.md`](OBSERVABILITY.md)
   documents the post-cut-over BAU monitoring story: Log Analytics as
   the recommended diagnostic-settings target (with the five log/metric

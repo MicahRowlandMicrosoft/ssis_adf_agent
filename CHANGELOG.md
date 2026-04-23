@@ -10,6 +10,19 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P5-9** — README tool-count + workflow diagram drift fixed.
+  Trailing "22 tools" references in `README.md` updated to `29` to
+  match the header. Architecture diagram replaced with the
+  6-step `bulk_analyze → propose → convert → validate → deploy →
+  activate` path that [WORKFLOW.md](WORKFLOW.md) prescribes (was the
+  older 5-step `scan → analyze → convert → validate → deploy`).
+  New [`tests/test_readme_consistency.py`](tests/test_readme_consistency.py)
+  asserts (a) all three README tool-count strings equal
+  `len(list_tools())` and (b) the 6-step diagram references both
+  `bulk_analyze` and `activate` and the older 5-step prose is gone,
+  so the next time a tool is added/removed the README must be
+  updated in lockstep or CI fails.
+
 - **P4-14** — New top-level [`SUPPORT.md`](SUPPORT.md) splits support
   into two tiers. **Tier 1 (OSS):** GitHub Issues only, best-effort
   2–5 business-day first response, no SLA, with explicit "do not
@@ -27,7 +40,6 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   passwords). README "Need help?" callout added pointing at
   SUPPORT.md. **All 14 P4 buyer follow-ups now closed.**
 
-### Added
 - **P4-13** — New top-level [`ROADMAP.md`](ROADMAP.md) defines what
   1.0 means (committed: MCP tool I/O, CLI, on-disk artifact layout +
   `lineage.json`/`migration_plan.json` schemas, public Pydantic IR;

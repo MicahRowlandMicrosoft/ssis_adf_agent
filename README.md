@@ -21,8 +21,9 @@ SQL Agent jobs ───┤      │  Optional configs:     │
                     ┌─────────────────────────────┐
                     │      ssis-adf-agent         │  ← MCP stdio server
                     │                             │
-                    │  scan → analyze → convert   │
-                    │      → validate → deploy    │
+                    │  bulk_analyze → propose →   │
+                    │   convert → validate →      │
+                    │   deploy → activate         │
                     │                             │
                     │  Detects:                   │
                     │  • Cross-DB / linked server │
@@ -159,7 +160,7 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
 > If you installed into a virtual environment, replace `"command": "ssis-adf-agent"` with the full path to the script, e.g. `"C:\\path\\to\\.venv\\Scripts\\ssis-adf-agent.exe"` (Windows) or `"/path/to/.venv/bin/ssis-adf-agent"` (macOS/Linux).
 
 3. Restart VS Code (or reload the window: `Ctrl+Shift+P` → **Developer: Reload Window**).
-4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the 22 tools appear. They group into three tiers:
+4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the 29 tools appear. They group into three tiers:
 
    **Per-package backbone** — the deterministic conversion path:
    - `scan_ssis_packages`
@@ -337,7 +338,7 @@ After `deploy_to_adf` succeeds, `smoke_test_pipeline` triggers one pipeline run,
 
 ## Usage — End-to-End Walkthrough
 
-All 22 tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below cover the per-package backbone; see [Migration Copilot Workflow](#migration-copilot-workflow-recommended) above for the estate-scale tools.
+All 29 tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below cover the per-package backbone; see [Migration Copilot Workflow](#migration-copilot-workflow-recommended) above for the estate-scale tools.
 
 ---
 

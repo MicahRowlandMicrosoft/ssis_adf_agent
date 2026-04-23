@@ -116,9 +116,10 @@ named-customer reference) remain on B2 / M4 / M8 and are not duplicated here.
 - **Buyer concern:** M7 ships the *mechanism* but zero curated entries for popular paid components. Customers are expected to author every entry.
 - **Acceptance:** At least three vendor-authored registry files under `registries/` covering Cozyroc Salesforce, KingswaySoft Dynamics CRM, and Pragmatic Works Productivity Pack family. Each accompanied by a unit test demonstrating the substitution against a captured component XML fragment.
 
-### P4-3. Worked Script Task port in the repo — **HIGH**
+### P4-3. Worked Script Task port in the repo — **HIGH** ✅ DONE
 - **Buyer concern:** Stub generation (H3) lifts source as comments but the *port* is opaque. EFFORT_METHODOLOGY.md weights Script Tasks but the buckets (trivial / simple / moderate / complex) are unbacked by published examples.
 - **Acceptance:** One of the LNI Script Tasks ported end-to-end (VB → Python Function), check the finished `__init__.py` into the repo, document the hours spent in [EFFORT_METHODOLOGY.md](EFFORT_METHODOLOGY.md), and link from [COVERAGE.md](COVERAGE.md) Script Task rows.
+- **Resolution:** Ported `Database_Access_Configuration` (LNI ADDS-MIPS-TC) end-to-end at [docs/case-studies/script_task_port_database_access_configuration/](docs/case-studies/script_task_port_database_access_configuration/README.md). Ships `original_script.vb` (verbatim source), production `__init__.py` (Key-Vault-backed, parameterized-LS-friendly), `function.json`, `requirements.txt`, and a 6-section README with the mapping decisions table, hours breakdown (predicted 3.2h vs actual 3.5h), and gotchas for buyers (linked-service mutation, cleartext passwords, `MsgBox` debug shims, `DateTime.Now` timezone). 11 tests in `tests/test_script_task_port_database_access_configuration.py` cover all branches without needing the Functions runtime. EFFORT_METHODOLOGY.md and COVERAGE.md cross-link to the case study.
 
 ### P4-4. Encrypted-package automation helper — **MEDIUM**
 - **Buyer concern:** ENCRYPTED_PACKAGES.md is a 6-step manual recipe. Doing it for 50 encrypted packages by hand is error-prone and a security review hot spot.

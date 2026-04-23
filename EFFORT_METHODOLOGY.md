@@ -60,8 +60,26 @@ high  = total * 1.6   # +60% (asymmetric — see "Why a range?")
 
 Each Script Task contributes hours based on heuristic content classification
 (`_script_porting_hours`). Trivial / simple / moderate / complex stubs each
-add a different amount (the agent inspects the C# body for loops, file I/O,
-COM interop, etc. before classifying).
+add a different amount (the agent inspects the C# / VB body for loops, file
+I/O, COM interop, etc. before classifying).
+
+The exact formula is `max(tier_floor, LOC / tier_divisor)` capped at 40h:
+
+| Tier      | Divisor | Floor | Typical range |
+|-----------|---------|-------|---------------|
+| trivial   | 120     | 0.25h | ≤ 0.5h        |
+| simple    | 40      | 0.5h  | 0.5h – 1.5h   |
+| moderate  | 25      | 2.0h  | 2h – 4h       |
+| complex   | 15      | 6.0h  | 6h – 40h      |
+
+**Worked example (anchors the `moderate` row to a real port):** see
+[docs/case-studies/script_task_port_database_access_configuration/](docs/case-studies/script_task_port_database_access_configuration/README.md).
+That LNI Script Task is 80 LOC (moderate tier) → predicted **3.2h**;
+**actual time captured was 3.5h**, with the breakdown by phase (read,
+design, code, test, wire, review) shown in the case-study README. The
+0.3h overshoot reflects one-time decisions (Key Vault swap-in,
+parameterized linked service) that the heuristic can't see; for the next
+similar Script Task in the same estate the team budgeted **~1.5h**.
 
 ### Data Flow Task hours
 

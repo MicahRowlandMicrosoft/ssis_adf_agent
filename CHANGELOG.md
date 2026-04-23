@@ -10,6 +10,16 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-3** — Worked Script Task port checked into the repo at
+  [docs/case-studies/script_task_port_database_access_configuration/](docs/case-studies/script_task_port_database_access_configuration/README.md).
+  Anchors the `moderate` bucket in [EFFORT_METHODOLOGY.md](EFFORT_METHODOLOGY.md)
+  to a real LNI Script Task (80 LOC VB → production-ready Python Function;
+  predicted 3.2h vs actual 3.5h, with phase-by-phase breakdown). Demonstrates
+  the canonical migration pattern for SSIS Connection-Manager-mutating Script
+  Tasks: Function returns resolved settings, ADF pipeline binds them to a
+  parameterized linked service, password comes from Azure Key Vault via
+  managed identity (replacing the cleartext-pipeline-variable pattern in the
+  original VB). 11 new tests.
 - **P4-1** — Behavioral data-flow parity harness (`compare_dataflow_output`,
   MCP tool #27). Runs the same controlled input set through an SSIS Data Flow
   (via `dtexec.exe`) and through its converted ADF Mapping Data Flow (via an

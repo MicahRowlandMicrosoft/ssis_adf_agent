@@ -32,7 +32,7 @@ wired) and [`analyzers/gap_analyzer.py`](ssis_adf_agent/analyzers/gap_analyzer.p
 | For Loop Container | 🟡 | `SetVariable` (init) + `Until` + `SetVariable` (increment) | The `EvalExpression` is **negated** to match `Until.doWhileCondition` semantics. Always review the converted condition. |
 | Script Task — trivial (variable assignment only) | ✅ | `SetVariable` activity, no Azure Function | Auto-classified by `analyzers/script_classifier.py`. |
 | Script Task — simple (ADF-expressible) | ✅ | `SetVariable` with a converted expression | |
-| Script Task — moderate / complex | 🟡 | `AzureFunctionActivity` + Python stub under `stubs/<FunctionName>/__init__.py` | Original C# / VB embedded as comments (see H3). LLM translator opt-in via `AZURE_OPENAI_ENDPOINT`. |
+| Script Task — moderate / complex | 🟡 | `AzureFunctionActivity` + Python stub under `stubs/<FunctionName>/__init__.py` | Original C# / VB embedded as comments (see H3). LLM translator opt-in via `AZURE_OPENAI_ENDPOINT`. **Worked port:** [Database_Access_Configuration (LNI)](docs/case-studies/script_task_port_database_access_configuration/README.md) — full VB → Python port with hours captured. |
 | Script Task — encrypted (`EncryptAllWithPassword`) | 🔴 | — | Source code unrecoverable without the package password; stub generated with TODO + warning surfaced. |
 | File System Task — Azure-path-rewritable | ✅ | `Copy` activity | When source/destination map to Azure Blob via the supplied path-mapping. |
 | File System Task — local path / OS operation (SetAttributes, Rename) | 🟡 | `WebActivity` → generated Azure Function stub | Stub written to `stubs/`; user implements Az SDK call. |

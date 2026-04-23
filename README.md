@@ -72,7 +72,9 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 - [Development](#development)
 - [License](#license)
 
-> **New to the agent?** See [HOWTO.md](HOWTO.md) for an end-to-end conversation guide with copy-paste example prompts.
+> **New to the agent?** Start with [WORKFLOW.md](WORKFLOW.md) — the
+> 6-tool minimum path through a full migration. Then see [HOWTO.md](HOWTO.md)
+> for end-to-end conversation examples with copy-paste prompts.
 
 ---
 

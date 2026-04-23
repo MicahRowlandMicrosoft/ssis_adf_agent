@@ -10,6 +10,17 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P4-9** — New top-level [`WORKFLOW.md`](WORKFLOW.md) names the
+  **6-tool minimum path** through a full migration
+  (`bulk_analyze` → `propose_adf_design` → `convert_estate` →
+  `validate_adf_artifacts` → `deploy_to_adf` (pre-flight first) →
+  `activate_triggers`) with one Copilot prompt per step and a
+  decision gate per stage. Catalogues the remaining ~23 tools as
+  optional, themed by reason-to-reach-for, with a six-row
+  "Tool overlap, signposted" table that names which pairs are
+  confusable (e.g. `convert_estate` vs `convert_ssis_package` in a
+  loop) and which one to prefer. README "New to the agent?" callout
+  now points at WORKFLOW.md first.
 - **P4-8** — No-LLM mode hard switch. New `SSIS_ADF_NO_LLM` env var
   (truthy: `1`/`true`/`yes`/`on`) and new `no_llm=true` per-call
   argument on `convert_ssis_package` that disable the Azure OpenAI

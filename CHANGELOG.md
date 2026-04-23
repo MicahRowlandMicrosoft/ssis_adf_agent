@@ -10,6 +10,14 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **P5-19** — [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md) gained
+  a "🧯 Real failure walkthrough" callout at the top linking to
+  [docs/case-studies/first_deploy_keyvault_recovery/](docs/case-studies/first_deploy_keyvault_recovery/README.md),
+  the captured P4-11 case study. The cross-link is now
+  bidirectional, so `upload_encrypted_secrets` users discover the
+  pre-flight requirement (factory MI vs. deployer SP) before they
+  hit the same `ManagedServiceIdentityCredentialNotFound` failure.
+
 - **P5-18** — [HOWTO.md](HOWTO.md) gained a "🚀 Start here"
   callout at the top pointing at [WORKFLOW.md](WORKFLOW.md) as the
   recommended first read for new users. Names the 6-tool minimum

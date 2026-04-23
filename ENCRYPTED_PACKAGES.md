@@ -1,5 +1,14 @@
 # EncryptAllWithPassword end-to-end recipe (M6)
 
+> **🧯 Real failure walkthrough:** A captured first-time deploy of 6
+> encrypted packages failed with
+> `ManagedServiceIdentityCredentialNotFound` because the *factory's*
+> system-assigned MI (not the deployer SP) had no role on the vault.
+> See [docs/case-studies/first_deploy_keyvault_recovery/](docs/case-studies/first_deploy_keyvault_recovery/README.md)
+> for the verbatim error, the 22 minutes spent on the wrong hypothesis,
+> and the three commands that recovered. Read it before your first
+> encrypted-package deploy.
+
 ## Why this hurts
 
 When SSIS packages use `ProtectionLevel = EncryptAllWithPassword` (or

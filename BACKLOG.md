@@ -235,9 +235,10 @@ customer pilot, not in this backlog.
 - **Acceptance:** HOWTO.md gains a "Start here" callout at the top pointing at WORKFLOW.md as the recommended first read.
 - **Resolution:** Added a "🚀 Start here" blockquote at the top of [HOWTO.md](HOWTO.md) (above the existing intro paragraph) that names the 6-tool minimum path (`bulk_analyze` → `propose_adf_design` → `convert_estate` → `validate_adf_artifacts` → `deploy_to_adf` → `activate_triggers`) and links to [WORKFLOW.md](WORKFLOW.md) as the recommended first read. The conversation guide remains the second-read for the per-package backbone and wider tool surface.
 
-### P5-19. Cross-link ENCRYPTED_PACKAGES.md → P4-11 KV-recovery case study — **LOW**
+### P5-19. Cross-link ENCRYPTED_PACKAGES.md → P4-11 KV-recovery case study — **LOW** ✅ DONE
 - **Buyer concern:** The case study links to ENCRYPTED_PACKAGES.md but not the reverse. `upload_encrypted_secrets` users miss the prerequisite reading.
 - **Acceptance:** ENCRYPTED_PACKAGES.md gains a "Real failure walkthrough" callout linking to the captured KV case study.
+- **Resolution:** Added a "🧯 Real failure walkthrough" blockquote at the top of [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md) (above "Why this hurts") that names the captured `ManagedServiceIdentityCredentialNotFound` failure mode, the wrong-hypothesis cost (22 minutes granting KV role to the deployer SP instead of to the factory MI), and links to [docs/case-studies/first_deploy_keyvault_recovery/](docs/case-studies/first_deploy_keyvault_recovery/README.md). The cross-link is now bidirectional.
 
 ### P5-20. COVERAGE.md "Mapped vs. unmapped SSIS expression functions" — **MEDIUM**
 - **Buyer concern:** COVERAGE.md is silent on the `(DT_STR,2,1252) DATEPART("mm", GETDATE())` family of casts and string functions. Buyers ask for a 5-line table showing what works and what does not.

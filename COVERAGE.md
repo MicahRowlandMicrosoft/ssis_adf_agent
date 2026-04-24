@@ -140,6 +140,50 @@ wired) and [`analyzers/gap_analyzer.py`](ssis_adf_agent/analyzers/gap_analyzer.p
 | Checkpoints (`CheckpointFileName`, `SaveCheckpoints`) | 🔴 | No ADF equivalent. |
 | Transactions (`TransactionOption=Required`) | 🔴 | ADF activities are atomic per-activity; cross-activity transactions require redesign. |
 
+## SSIS expression functions: mapped vs. unmapped
+
+The control-flow expression translator
+([`translators/control_flow_expression.py`](ssis_adf_agent/translators/control_flow_expression.py)
+`_FUNC_MAP`) is the source of truth — this table is derived from it.
+✅ = direct ADF function. 🟡 = translated but emits a `/* TODO: ... */`
+comment because no exact ADF equivalent exists or a manual review is
+required (e.g. month diff, REVERSE, ISNUMERIC). 🔴 = not in the map;
+the expression is passed through unchanged and will fail at deploy
+time unless hand-edited.
+
+| Category | SSIS function | Status | ADF equivalent / note |
+|---|---|---|---|
+| Date/time | `GETDATE()` / `GETUTCDATE()` | ✅ | `utcNow()` |
+| Date/time | `DATEADD(part, n, dt)` | ✅ | `addDays` / `addMonths` / `addHours` / `addMinutes` / `addSeconds`; **year** uses `addToTime` placeholder. |
+| Date/time | `DATEDIFF(part, a, b)` | 🟡 | `dayOfYear` for day; month / hour / minute / second / year all emit a TODO marker. |
+| Date/time | `DATEPART(part, dt)`, `YEAR()`, `MONTH()`, `DAY()` | 🟡 | `dayOfMonth` / `dayOfWeek` / `dayOfYear` directly; month / year / hour / minute emit a `formatDateTime(...)` TODO. |
+| String | `LEN`, `UPPER`, `LOWER`, `TRIM`, `LTRIM`, `RTRIM`, `REPLACE` | ✅ | `length`, `toUpper`, `toLower`, `trim`, `replace`. |
+| String | `SUBSTRING`, `LEFT`, `RIGHT` | ✅ | Special-cased — 1-based SSIS indices rewritten to 0-based ADF indices. |
+| String | `FINDSTRING`, `CHARINDEX` | ✅ | Special-cased — 1-based result rewritten to 0-based. |
+| String | `PATINDEX` | 🟡 | Special-cased; LIKE-pattern handling is a partial port. |
+| String | `REVERSE` | 🟡 | Emits `/* TODO: REVERSE — no direct ADF equivalent */`. |
+| Null handling | `ISNULL(x)`, `REPLACENULL(x, y)` | ✅ | `empty(x)`, `coalesce(x, y)`. |
+| Type checking | `ISNUMERIC` | 🟡 | Emits `/* TODO: ISNUMERIC — validate manually */`. |
+| Math | `ABS`, `CEILING`, `FLOOR`, `ROUND`, `POWER`, `SQRT`, `SIGN` | ✅ | Direct ADF equivalents. |
+| Type cast | `(DT_STR)`, `(DT_WSTR)`, `(DT_I4)`, `(DT_I8)`, `(DT_BOOL)`, `(DT_DECIMAL)` | ✅ | `string`, `int`, `bool`, `decimal`. |
+| Type cast | `(DT_DBTIMESTAMP)`, `(DT_DATE)`, `(DT_DBDATE)`, other DT_ casts | 🟡 / 🔴 | `(DT_DBTIMESTAMP)` emits a TODO; uncatalogued DT_ casts pass through and fail at deploy. |
+
+Functions **not** in `_FUNC_MAP` — examples include `HEX()`,
+`SQUARE()`, `SLN()`, `TOKEN()`, `TOKENCOUNT()`, MAC-encoding casts,
+and any vendor-specific function — fall through unchanged. They will
+deploy successfully if ADF happens to recognise the name (rare) and
+fail at run time otherwise. **Recommended response:** rewrite the
+expression as an ADF native expression in the converted pipeline, or
+move the logic into a Mapping Data Flow derived column.
+
+The data-flow expression translator
+([`translators/ssis_expression_translator.py`](ssis_adf_agent/translators/ssis_expression_translator.py))
+shares most of the catalogue above with one shape difference: ADF
+Mapping Data Flow uses `currentTimestamp()` rather than `utcNow()`,
+and `DATEPART` is approximated with `dayOfMonth` (no part argument);
+where the part is not "day", the converter will still emit the call
+but the operator should review the output for parity.
+
 ## How to verify status for a given package
 
 1. Run `analyze_ssis_package` (or `bulk_analyze` over a folder). The

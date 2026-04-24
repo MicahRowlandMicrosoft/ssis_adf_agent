@@ -1,17 +1,13 @@
 # Support
 
-> **Active engagements only.** This document distinguishes the OSS
-> support model (best-effort, GitHub-only) from the **engaged-customer**
-> support model (named channel + response-time commitment). Migrations
-> are time-pressured; the engaged-customer model exists because GitHub
-> issues is not a support channel for an estate cut-over at 11 p.m.
+> **Community-supported, best-effort.** This is an open-source project,
+> not an officially supported Microsoft product. There is no SLA, no
+> on-call rotation, and no guaranteed response time. Use the issue
+> tracker for bugs, feature requests, and questions.
 
 ---
 
-## Tier 1 — OSS users
-
-You're using the agent off `pip install` / a `git clone` without an
-engagement contract.
+## How to get help
 
 | What | Where | Response-time |
 |---|---|---|
@@ -33,75 +29,9 @@ What you should **not** expect:
 - Custom feature work scoped to your migration.
 - Anyone on call overnight or on weekends.
 
-If your migration is genuinely time-pressured and you need any of the
-above, you want Tier 2.
-
 ---
 
-## Tier 2 — Engaged customers
-
-You're running an active migration under an engagement (FastTrack,
-Solutions Architect, paid Premier / Unified, or named-Microsoft-team
-support).
-
-The engagement contract names the support channel and the response-time
-commitment for the duration of the migration. The defaults below are
-the ones the maintainers recommend; your engagement may have stricter
-or looser terms.
-
-### Default response-time commitments (engaged)
-
-| Severity | First response | Resolution path |
-|---|---|---|
-| **Sev 1 — Migration blocked.** Production cut-over imminent (≤ 48h) and a single failure is blocking go-live. | **2 business hours** during the engagement support window. | Direct line to the engaged engineer (Teams chat, email, or phone per the engagement). |
-| **Sev 2 — Migration impaired.** A defect is consuming significant engineering time, but a workaround exists. | **1 business day.** | Issue tracked in the engagement-shared GitHub issue queue, labeled `engaged-sev2`. |
-| **Sev 3 — Question / minor defect.** Anything that would otherwise be a Tier 1 issue. | **3 business days.** | Same as Tier 1: GitHub issue. |
-
-"Business hours" defaults to the engaged customer's local business
-hours unless the engagement contract says otherwise.
-
-### Named channel template
-
-For the engagement to provide the response times above, the customer
-and the engaged team should agree on **at least one** of:
-
-- A **shared Microsoft Teams channel** (preferred — async-friendly,
-  full thread history, file sharing).
-- A **shared email distribution list** with at least 2 recipients on
-  the agent side (single-recipient channels do not survive PTO).
-- An **on-call rotation roster** named in the engagement contract,
-  with a backup primary.
-
-Single-engineer phone numbers are explicitly *not* a supported channel
-even at Sev 1 — they create a single point of failure that violates
-the response commitment the moment the engineer is unreachable.
-
-### What's covered (engaged)
-
-- Defects in the agent that block your migration.
-- Help interpreting `bulk_analyze` / `propose_adf_design` /
-  `validate_conversion_parity` output.
-- Help debugging deploy failures (especially the failure modes
-  documented in [docs/case-studies/](docs/case-studies/)).
-- Sanitized walkthroughs of the [WORKFLOW.md](WORKFLOW.md) path
-  against your specific estate.
-
-### What's not covered (engaged or otherwise)
-
-- Custom converter work for your in-house third-party SSIS components.
-  Vendor-curated registries (P4-2) are the supported extension path;
-  contributing your own registry is welcome.
-- Code review or hand-porting of Script Tasks the
-  [LLM translator](SECURITY.md) cannot handle. The
-  [Database_Access_Configuration case study](docs/case-studies/script_task_port_database_access_configuration/README.md)
-  documents the methodology so your team can do these yourselves.
-- Azure RBAC / Key Vault / SHIR setup on your tenant. The
-  [RBAC matrix](RBAC.md) documents what's required; provisioning is
-  your team's responsibility.
-
----
-
-## Reporting a bug (either tier)
+## Reporting a bug
 
 Good bug reports get fixed faster. The structure that works:
 
@@ -124,7 +54,7 @@ A template is auto-populated when you click *New Issue* in GitHub.
 
 ### Sanitization checklist (before filing)
 
-This is non-negotiable for both tiers:
+This is non-negotiable:
 
 - [ ] No connection strings.
 - [ ] No Key Vault names that identify the customer.
@@ -148,7 +78,6 @@ the maintainers' inconvenience.
   this document; do **not** file vulnerabilities as bugs).
 - [WORKFLOW.md](WORKFLOW.md) — the 6-tool minimum migration path; if
   you are deviating from it, that's often the source of the issue.
-- [ROLLBACK.md](ROLLBACK.md) — what to do *while* waiting for support
-  on a sev 1.
+- [ROLLBACK.md](ROLLBACK.md) — what to do when a deploy goes wrong.
 - [docs/case-studies/](docs/case-studies/) — captured real failures
   and their resolutions; check here before filing.

@@ -130,7 +130,56 @@ attempted Python port. Every other artifact (pipelines, linked services,
 datasets, data flows, triggers) is bit-for-bit identical with or without
 the LLM.
 
-## Out of scope
+### What the agent talks to and how to disable it (P5-8)
+
+This is the complete catalogue of *every* outbound network call the agent
+itself can make. There are exactly **three** distinct egress destinations,
+all gated by an explicit caller action — no telemetry, no auto-update, no
+phone-home. The audit was performed against the source tree at the commit
+that introduced this section by grep-walking for `requests`, `httpx`,
+`urllib`, `aiohttp`, `http.client`, `azure.mgmt.*`, `azure.identity`,
+`azure.keyvault`, `AzureOpenAI`, and direct `subprocess` invocations of
+`az` / `curl` / `wget`.
+
+| Destination | Triggered by | Library | How to disable |
+|---|---|---|---|
+| **Azure OpenAI** (your tenant) | `convert_ssis_package(llm_translate=true)` *and* `AZURE_OPENAI_ENDPOINT` set *and* `SSIS_ADF_NO_LLM` unset. | `openai.AzureOpenAI` from [`translators/csharp_to_python.py`](ssis_adf_agent/translators/csharp_to_python.py). | Default. Or set `SSIS_ADF_NO_LLM=1`, or pass `no_llm=true`, or leave `llm_translate` unset (defaults to false). |
+| **Azure Resource Manager** (control plane) | The deployment / provisioning tools: `deploy_to_adf`, `provision_adf_environment`, `provision_function_app`, `validate_adf_artifacts` (when sub/RG supplied), `activate_triggers`, `deploy_function_stubs`, the `keyvault_uploader`, the `preflight` / RBAC checks. | `azure.identity.DefaultAzureCredential` + the `azure.mgmt.*` SDKs. Plus `httpx` for Function App zip-deploy in [`deployer/func_deployer.py`](ssis_adf_agent/deployer/func_deployer.py). | Don't invoke those tools. The conversion path (`scan_ssis_packages`, `analyze_ssis_package`, `convert_ssis_package`, `convert_estate`, `validate_adf_artifacts` *without* sub/RG, `bulk_analyze`, `propose_adf_design`, `consolidate_packages`, `explain_ssis_package`, `build_estate_report`, `build_predeployment_report`, every `*_plan.json` / cost / wave tool) is fully offline. |
+| **A SQL Server instance** | `scan_ssis_packages` with the SQL reader path (reads `.dtsx` rows from SSISDB or a `[ssis].[packages]` table). | `pyodbc` from [`parsers/readers/sql_reader.py`](ssis_adf_agent/parsers/readers/sql_reader.py). | Use the local-disk or Git reader instead — they are the default for `scan_ssis_packages`. |
+
+**Calls explicitly NOT made by the agent**, verified by grep:
+
+- No `import requests`, no `import urllib.request`, no `import aiohttp`,
+  no `import http.client` anywhere under `ssis_adf_agent/`. The only
+  HTTP client present is `httpx`, scoped to the Function App zip-deploy
+  path.
+- No telemetry, analytics, crash-reporting, or update-check code path.
+  No `pip install` or `az login` is invoked from inside any tool.
+- No call to `pypi.org`, `github.com`, Microsoft Learn, or any public
+  internet endpoint other than (optionally) the customer's own Azure
+  OpenAI deployment.
+- Generated artifacts (Bicep, Function stubs, lineage JSON, cost
+  estimates, PDF reports) are all written to local disk only — they are
+  never POSTed anywhere.
+
+**Air-gapped / no-egress operating mode.** The conversion path
+(`scan_ssis_packages` + `analyze_ssis_package` + `propose_adf_design` +
+`convert_ssis_package` / `convert_estate` + `validate_adf_artifacts`
+without sub/RG) makes **zero** outbound network calls when:
+
+- `SSIS_ADF_NO_LLM=1` is exported in the host environment, **and**
+- The local-disk or Git readers are used (the default).
+
+This is enforced by a regression test:
+[`tests/test_no_egress_conversion_path.py`](tests/test_no_egress_conversion_path.py).
+The test runs the full `convert_estate` path through a pytest fixture
+that monkey-patches `socket.socket`, `socket.create_connection`, and
+`httpx.HTTPTransport.handle_request` to raise on any attempt to open a
+network connection, and asserts the path completes successfully.
+Adding any new outbound HTTP call to the conversion path will fail this
+test and force an explicit code-review decision.
+
+
 
 - Running an SSIS package or an ADF pipeline on the caller's behalf to
   validate behavior — the tool is offline / structural.

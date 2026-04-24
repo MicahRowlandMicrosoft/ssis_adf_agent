@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes thirty tools to GitHub Copilot (and any MCP-compatible client):
+Exposes thirty-one tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -33,6 +33,7 @@ Exposes thirty tools to GitHub Copilot (and any MCP-compatible client):
 28. upload_encrypted_secrets  — push secrets from an unprotected .dtsx to Key Vault + rewrite linked services (P4-4)
 29. compare_estimates_to_actuals — join lineage.json + Cost Management actuals into a per-factory variance report (P4-5)
 30. validate_deployer_rbac    — read-only RBAC compliance check against RBAC.md per-tool minimums (P5-12)
+31. diff_estate               — compare two converted estate output directories and surface what changed (P5-16)
 
 Run as an MCP stdio server::
 
@@ -1328,6 +1329,35 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["planned_tools"],
             },
         ),
+        types.Tool(
+            name="diff_estate",
+            description=(
+                "Compare two converted estate output directories and surface what changed (P5-16). "
+                "For each package: byte-identical / changed / added / removed; for changed "
+                "packages, the per-artifact unified diff. Use after re-running convert_estate "
+                "on an upstream .dtsx edit so reviewers can focus validation and smoke tests "
+                "on the changed subset rather than re-validating the whole estate. Pure local "
+                "comparison — no Azure calls, no LLM."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "before_dir": {
+                        "type": "string",
+                        "description": "Root directory of the earlier convert_estate output.",
+                    },
+                    "after_dir": {
+                        "type": "string",
+                        "description": "Root directory of the later convert_estate output.",
+                    },
+                    "report_path": {
+                        "type": "string",
+                        "description": "Optional. Write the JSON diff report to this path.",
+                    },
+                },
+                "required": ["before_dir", "after_dir"],
+            },
+        ),
     ]
 
 
@@ -1410,6 +1440,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _compare_estimates_to_actuals(arguments)
         elif name == "validate_deployer_rbac":
             return await _validate_deployer_rbac(arguments)
+        elif name == "diff_estate":
+            return await _diff_estate(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -2789,6 +2821,24 @@ async def _validate_deployer_rbac(args: dict[str, Any]) -> list[types.TextConten
         planned_tools=planned_tools,
     )
     report["mode"] = mode
+    return [types.TextContent(type="text", text=json.dumps(report, indent=2, default=str))]
+
+
+async def _diff_estate(args: dict[str, Any]) -> list[types.TextContent]:
+    """Compare two converted estate output directories (P5-16)."""
+    from .analyzers.estate_diff import diff_estates
+
+    before = _safe_resolve(args["before_dir"], must_exist=True, label="before_dir")
+    after = _safe_resolve(args["after_dir"], must_exist=True, label="after_dir")
+    report = diff_estates(before, after)
+
+    report_path = args.get("report_path")
+    if report_path:
+        out = _safe_resolve(report_path, label="report_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+        report["report_path"] = str(out)
+
     return [types.TextContent(type="text", text=json.dumps(report, indent=2, default=str))]
 
 

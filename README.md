@@ -5,7 +5,7 @@
 
 An MCP (Model Context Protocol) server that turns SSIS migration into an agent-driven workflow inside **GitHub Copilot**.
 
-The server exposes **30 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, post-deployment smoke testing, bulk trigger activation (H7), ARM-template content export (M2), cross-pipeline regression harness (N1), behavioral data-flow parity (P4-1, see [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md)), encrypted-package secret automation (P4-4, see [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md)), and Cost Management actuals reconciliation (P4-5).
+The server exposes **31 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, post-deployment smoke testing, bulk trigger activation (H7), ARM-template content export (M2), cross-pipeline regression harness (N1), behavioral data-flow parity (P4-1, see [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md)), encrypted-package secret automation (P4-4, see [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md)), and Cost Management actuals reconciliation (P4-5).
 
 All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
 
@@ -161,7 +161,7 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
 > If you installed into a virtual environment, replace `"command": "ssis-adf-agent"` with the full path to the script, e.g. `"C:\\path\\to\\.venv\\Scripts\\ssis-adf-agent.exe"` (Windows) or `"/path/to/.venv/bin/ssis-adf-agent"` (macOS/Linux).
 
 3. Restart VS Code (or reload the window: `Ctrl+Shift+P` → **Developer: Reload Window**).
-4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the 30 tools appear. They group into three tiers:
+4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the 31 tools appear. They group into three tiers:
 
    **Per-package backbone** — the deterministic conversion path:
    - `scan_ssis_packages`
@@ -339,7 +339,7 @@ After `deploy_to_adf` succeeds, `smoke_test_pipeline` triggers one pipeline run,
 
 ## Usage — End-to-End Walkthrough
 
-All 30 tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below cover the per-package backbone; see [Migration Copilot Workflow](#migration-copilot-workflow-recommended) above for the estate-scale tools.
+All 31 tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below cover the per-package backbone; see [Migration Copilot Workflow](#migration-copilot-workflow-recommended) above for the estate-scale tools.
 
 ---
 

@@ -217,9 +217,10 @@ customer pilot, not in this backlog.
 - **Buyer concern:** RBAC.md (P4-7) is excellent prose; verifying compliance is still manual and the captured KV-recovery case study (P4-11) is exactly the failure this would have caught.
 - **Acceptance:** New tool `validate_deployer_rbac` accepts the deploying identity, the planned tools, the target subscription/RG/factory/KV, and reports per-tool which RBAC.md-required roles are present vs. missing, without creating any resource. Mocked-SDK unit tests; real-Azure verification deferred to the engaged-customer pilot.
 
-### P5-14. Per-pipeline cost projection emitted at `convert_estate` time — **LOW**
+### P5-14. Per-pipeline cost projection emitted at `convert_estate` time — **LOW** ✅ DONE
 - **Buyer concern:** `estimate_adf_costs` and `compare_estimates_to_actuals` exist but require a separate run. Steering-committee deck would be one step shorter if `convert_estate` emitted projection alongside `lineage.json`.
 - **Acceptance:** `convert_estate` accepts an optional `--with-cost-projection=true` flag; when set, writes `cost_projection.json` next to `lineage.json` reusing the `estimate_adf_costs` engine. Unit-tested.
+- **Resolution:** [`convert_estate`](ssis_adf_agent/mcp_server.py) gained a `with_cost_projection: bool = False` arg. When true, after every package is converted the saved plans are loaded back and fed through [`estimate_adf_costs()`](ssis_adf_agent/migration_plan/estate_tools.py); the resulting estimate is written to `<output_dir>/cost_projection.json` and the bottom-line numbers (monthly_total_usd, annual_total_usd, package_count) are echoed in the tool's JSON response under `cost_projection`. If `save_plans=false` the request is honored as `cost_projection.status="skipped"` rather than silently dropped. Three tests in [tests/test_convert_estate_cost_projection.py](tests/test_convert_estate_cost_projection.py) cover the happy path, the default-off case, and the save_plans=false skip path.
 
 ### P5-15. `pipx run ssis-adf-agent` smoke-tested per release — **LOW**
 - **Buyer concern:** ROADMAP E3. Air-gapped customers with one allowed pip install want a single-binary entry point. Today there is no smoke test that `pipx run` works from a clean wheel.

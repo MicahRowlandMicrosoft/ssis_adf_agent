@@ -840,6 +840,16 @@ async def list_tools() -> list[types.Tool]:
                         "default": True,
                     },
                     "generate_trigger": {"type": "boolean", "default": True},
+                    "with_cost_projection": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, after converting all packages also write "
+                            "<output_dir>/cost_projection.json by feeding the saved plans "
+                            "through estimate_adf_costs(). Requires save_plans=true (the "
+                            "default). Default: false. (P5-14)"
+                        ),
+                        "default": False,
+                    },
                 },
                 "required": ["source_path", "output_dir"],
             },
@@ -2465,6 +2475,33 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
         "failed_count": len(results) - succeeded,
         "packages": results,
     }
+
+    # P5-14: optional per-estate cost projection emitted alongside lineage.
+    if args.get("with_cost_projection"):
+        from .migration_plan import estimate_adf_costs, load_plan
+        cost_path = output_dir / "cost_projection.json"
+        plan_paths = [r["plan_path"] for r in results if r.get("plan_path")]
+        if not plan_paths:
+            summary["cost_projection"] = {
+                "status": "skipped",
+                "reason": "with_cost_projection=true requires save_plans=true (no plans on disk).",
+            }
+        else:
+            try:
+                loaded_plans = [load_plan(Path(p)) for p in plan_paths]
+                estimate = estimate_adf_costs(plans=loaded_plans)
+                cost_path.write_text(json.dumps(estimate, indent=2, default=str))
+                summary["cost_projection"] = {
+                    "status": "written",
+                    "path": str(cost_path),
+                    "monthly_total_usd": estimate.get("monthly_total_usd"),
+                    "annual_total_usd": estimate.get("annual_total_usd"),
+                    "package_count": estimate.get("package_count"),
+                }
+            except Exception as exc:
+                logger.exception("convert_estate cost projection failed")
+                summary["cost_projection"] = {"status": "failed", "error": str(exc)}
+
     return [types.TextContent(type="text", text=json.dumps(summary, indent=2, default=str))]
 
 

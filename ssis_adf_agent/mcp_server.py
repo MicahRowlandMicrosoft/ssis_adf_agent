@@ -1,7 +1,7 @@
 """
 SSIS → ADF MCP Server.
 
-Exposes twenty-nine tools to GitHub Copilot (and any MCP-compatible client):
+Exposes thirty tools to GitHub Copilot (and any MCP-compatible client):
 
 1. scan_ssis_packages         — discover .dtsx files (local / git / sql server)
 2. analyze_ssis_package       — complexity + gap analysis of a single package
@@ -32,6 +32,7 @@ Exposes twenty-nine tools to GitHub Copilot (and any MCP-compatible client):
 27. compare_dataflow_output   — behavioral parity: row+column diff of SSIS DFT vs converted MDF (P4-1)
 28. upload_encrypted_secrets  — push secrets from an unprotected .dtsx to Key Vault + rewrite linked services (P4-4)
 29. compare_estimates_to_actuals — join lineage.json + Cost Management actuals into a per-factory variance report (P4-5)
+30. validate_deployer_rbac    — read-only RBAC compliance check against RBAC.md per-tool minimums (P5-12)
 
 Run as an MCP stdio server::
 
@@ -1278,7 +1279,61 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["lineage_path", "actuals_path"],
             },
         ),
+        types.Tool(
+            name="validate_deployer_rbac",
+            description=(
+                "Read-only RBAC compliance check (P5-12). Compares the role assignments held by "
+                "a deploying identity against the per-tool minimum roles documented in RBAC.md "
+                "and reports which planned tools the identity can run today and which it cannot. "
+                "Creates nothing, deploys nothing — every Azure SDK call is a list/get. Useful "
+                "as a pre-flight gate before deploy_to_adf / provision_adf_environment / "
+                "activate_triggers in CAB-controlled environments. Pass either "
+                "principal_object_id (which triggers a live read against Azure RBAC) or the "
+                "explicit held_arm_roles + held_kv_roles lists for fully offline / air-gapped use."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "planned_tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Subset of the deployment tools the caller plans to run. "
+                            "Recognized names: " + ", ".join(_known_rbac_tools()) + "."
+                        ),
+                    },
+                    "principal_object_id": {
+                        "type": "string",
+                        "description": (
+                            "Azure AD object id of the deploying identity. When supplied along "
+                            "with subscription_id, the tool reads the live role assignments "
+                            "from Azure (read-only). Omit to use held_arm_roles + held_kv_roles."
+                        ),
+                    },
+                    "subscription_id": {"type": "string", "description": "Azure subscription id (required when principal_object_id is set)."},
+                    "resource_group": {"type": "string", "description": "Optional. Narrows the role-assignment scope check to this RG."},
+                    "factory_name": {"type": "string", "description": "Optional. Target ADF name (scopes RBAC check to this factory)."},
+                    "key_vault_name": {"type": "string", "description": "Optional. Target Key Vault name (scopes KV-RBAC check)."},
+                    "held_arm_roles": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Offline mode: list of ARM role display names already assigned to the identity (e.g. 'Data Factory Contributor').",
+                    },
+                    "held_kv_roles": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Offline mode: list of Key Vault data-plane RBAC role display names (e.g. 'Key Vault Secrets User').",
+                    },
+                },
+                "required": ["planned_tools"],
+            },
+        ),
     ]
+
+
+def _known_rbac_tools() -> list[str]:
+    from .deployer.rbac_validator import list_known_tools
+    return list_known_tools()
 
 
 # ---------------------------------------------------------------------------
@@ -1353,6 +1408,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _upload_encrypted_secrets(arguments)
         elif name == "compare_estimates_to_actuals":
             return await _compare_estimates_to_actuals(arguments)
+        elif name == "validate_deployer_rbac":
+            return await _validate_deployer_rbac(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -2694,6 +2751,45 @@ async def _build_estate_pdf(args: dict[str, Any]) -> list[types.TextContent]:
         "wave_count": (waves or {}).get("wave_count"),
         "monthly_total_usd": (cost_estimate or {}).get("monthly_total_usd"),
     }, indent=2, default=str))]
+
+
+async def _validate_deployer_rbac(args: dict[str, Any]) -> list[types.TextContent]:
+    """Read-only RBAC compliance check (P5-12)."""
+    from .deployer.rbac_validator import evaluate_rbac, fetch_held_roles
+
+    planned_tools = list(args.get("planned_tools") or [])
+    if not planned_tools:
+        raise ValueError("planned_tools must be a non-empty list.")
+
+    principal_object_id = args.get("principal_object_id")
+    if principal_object_id:
+        subscription_id = args.get("subscription_id")
+        if not subscription_id:
+            raise ValueError(
+                "subscription_id is required when principal_object_id is supplied."
+            )
+        held = fetch_held_roles(
+            subscription_id=subscription_id,
+            resource_group=args.get("resource_group"),
+            factory_name=args.get("factory_name"),
+            key_vault_name=args.get("key_vault_name"),
+            principal_object_id=principal_object_id,
+        )
+        held_arm = held["arm"]
+        held_kv = held["kv"]
+        mode = "live"
+    else:
+        held_arm = list(args.get("held_arm_roles") or [])
+        held_kv = list(args.get("held_kv_roles") or [])
+        mode = "offline"
+
+    report = evaluate_rbac(
+        held_arm_roles=held_arm,
+        held_kv_roles=held_kv,
+        planned_tools=planned_tools,
+    )
+    report["mode"] = mode
+    return [types.TextContent(type="text", text=json.dumps(report, indent=2, default=str))]
 
 
 # ---------------------------------------------------------------------------

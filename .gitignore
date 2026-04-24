@@ -14,3 +14,6 @@ ssis_adf_agent.code-workspace
 
 # Local-only Copilot prompts
 .github/prompts/
+
+# Deferred-backlog scratchpad (maintainer-private)
+MAYBE.md

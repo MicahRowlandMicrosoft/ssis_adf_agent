@@ -224,10 +224,6 @@ customer pilot, not in this backlog.
 - **Acceptance:** `convert_estate` accepts an optional `--with-cost-projection=true` flag; when set, writes `cost_projection.json` next to `lineage.json` reusing the `estimate_adf_costs` engine. Unit-tested.
 - **Resolution:** [`convert_estate`](ssis_adf_agent/mcp_server.py) gained a `with_cost_projection: bool = False` arg. When true, after every package is converted the saved plans are loaded back and fed through [`estimate_adf_costs()`](ssis_adf_agent/migration_plan/estate_tools.py); the resulting estimate is written to `<output_dir>/cost_projection.json` and the bottom-line numbers (monthly_total_usd, annual_total_usd, package_count) are echoed in the tool's JSON response under `cost_projection`. If `save_plans=false` the request is honored as `cost_projection.status="skipped"` rather than silently dropped. Three tests in [tests/test_convert_estate_cost_projection.py](tests/test_convert_estate_cost_projection.py) cover the happy path, the default-off case, and the save_plans=false skip path.
 
-### P5-15. `pipx run ssis-adf-agent` smoke-tested per release — **LOW**
-- **Buyer concern:** ROADMAP E3. Air-gapped customers with one allowed pip install want a single-binary entry point. Today there is no smoke test that `pipx run` works from a clean wheel.
-- **Acceptance:** A CI job runs `pipx run --spec . ssis-adf-agent --help` against the built wheel and asserts non-zero exit on regression. README §Installation gains a `pipx run` one-liner. **Requires one decision from the maintainer:** approve adding the CI job (cost / runner choice).
-
 ### P5-16. New tool `diff_estate` — **MEDIUM** ✅ DONE
 - **Buyer concern:** Re-running `convert_estate` after an upstream `.dtsx` edit reconverts everything; no signal what *changed*. Small upstream change still triggers full re-validation.
 - **Acceptance:** New tool `diff_estate` compares two `out/` directories (or one `out/` against a saved snapshot) and emits a focused report: per-package classification (byte-identical / changed / added / removed) with the per-artifact diff for changed packages. Unit-tested against synthetic before/after fixtures.
@@ -292,4 +288,4 @@ All B / H / M / N / P3 / P4 items are ✅ done. Remaining work:
    3. Security audit: **P5-8** (no-LLM egress confirmation; needs maintainer sign-off).
    4. Net-new tools / surface: **P5-12** (`validate_deployer_rbac`), **P5-16** (`diff_estate`), **P5-17** (CLI parity), **P5-14** (cost projection at convert time).
    5. Doc derivations from source: **P5-20** (expression functions), **P5-23** (encryption failure modes), **P5-24** (LLM truncation), **P5-25** (factory teardown).
-   6. CI hardening + repo URL: **P5-15** (`pipx run` smoke), **P5-26** (GitHub URL).
+   6. CI hardening + repo URL: **P5-26** (GitHub URL). **P5-15** (`pipx run` smoke) parked in [MAYBE.md](MAYBE.md) pending release-engineering decision.

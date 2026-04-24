@@ -85,6 +85,30 @@ sent to a third party. The Azure OpenAI deployment is **the customer's
 own resource** authenticated through `DefaultAzureCredential` (the
 caller's identity needs *Cognitive Services OpenAI User* on that resource).
 
+**Behavior at the 18 000-char truncation bound (P5-24).** The 18 000-char
+cap on `source_code` is enforced silently in
+[`translators/csharp_to_python.py`](ssis_adf_agent/translators/csharp_to_python.py)
+(`_MAX_INPUT_CHARS`, ~6 000 tokens at ~3 chars/token). When the source
+exceeds that bound:
+
+- The first 18 000 characters are kept verbatim.
+- A literal `// ... [TRUNCATED: source exceeded 18000 chars] ...` marker is
+  appended to the slice before it is sent to Azure OpenAI. The model
+  sees the marker and is expected to generate an explicit "remainder
+  not translated — port manually" comment in the output.
+- **No exception is raised. No warning is logged. No tool-level signal
+  is emitted.** The translation succeeds; only the *prompt input* is
+  truncated.
+- The generated stub will reflect only the first 18 000 chars of logic.
+  The original full source is still embedded as comments in the stub
+  (preserved by the Script Task converter's source-as-comments
+  behavior — see H3); the operator can scroll the comment block to
+  port the truncated tail by hand.
+- For a Script Task whose source genuinely exceeds the bound, the
+  recommended pattern is the same as a port the LLM cannot translate
+  at all: follow the [Database_Access_Configuration case study](docs/case-studies/script_task_port_database_access_configuration/README.md)
+  methodology and treat the LLM stub as a starting point only.
+
 **Three mutually-reinforcing kill switches** disable the LLM call:
 
 1. **`llm_translate=false`** (default) — no LLM call is ever attempted.

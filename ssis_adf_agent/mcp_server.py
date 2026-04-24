@@ -704,8 +704,10 @@ async def list_tools() -> list[types.Tool]:
                 "on PATH (for 'az bicep build') and authentication via DefaultAzureCredential. "
                 "Day-2 follow-up: see OBSERVABILITY.md for the recommended Log Analytics "
                 "diagnostic-settings target (PipelineRuns, ActivityRuns, TriggerRuns, "
-                "PipelineActivityRuns, AllMetrics) plus the three baseline alert rules; this "
-                "tool does not yet emit the diagnostic-settings resource (tracked as P5-7)."
+                "PipelineActivityRuns, AllMetrics) plus the three baseline alert rules. Pass "
+                "with_observability=<workspace-resource-id> to emit the diagnosticSettings "
+                "resource into the same template so the factory streams logs to your Log "
+                "Analytics workspace from Day-1 (P5-7)."
             ),
             inputSchema={
                 "type": "object",
@@ -740,6 +742,10 @@ async def list_tools() -> list[types.Tool]:
                         "type": "boolean",
                         "description": "If true, do not actually apply the deployment. If subscription_id and resource_group are supplied, the template is validated against Azure. If they are omitted, the Bicep is only compiled locally (requires Azure CLI on PATH) so you can preview it without any Azure access. Default: false.",
                         "default": False,
+                    },
+                    "with_observability": {
+                        "type": "string",
+                        "description": "Optional. Full ARM resource id of a Log Analytics workspace (e.g. /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<name>). When set, the generated Bicep includes a Microsoft.Insights/diagnosticSettings child resource on the factory wired to this workspace with the five log/metric categories named in OBSERVABILITY.md (P5-7).",
                     },
                 },
                 "required": ["plan_path"],
@@ -2141,7 +2147,11 @@ async def _provision_adf_env(args: dict[str, Any]) -> list[types.TextContent]:
     plan_path = _safe_resolve(args["plan_path"], must_exist=True, label="plan_path")
     plan = load_plan(plan_path)
     name_prefix = args.get("name_prefix", "ssismig")
-    bicep = generate_bicep(plan, name_prefix=name_prefix)
+    bicep = generate_bicep(
+        plan,
+        name_prefix=name_prefix,
+        observability_workspace_id=args.get("with_observability"),
+    )
     dry_run = bool(args.get("dry_run", False))
     subscription_id = args.get("subscription_id")
     resource_group = args.get("resource_group")

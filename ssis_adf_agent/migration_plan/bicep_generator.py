@@ -161,7 +161,12 @@ def _rbac_resource(rbac: RbacAssignment, idx: int, factory_sym: str | None,
         """).strip()
 
 
-def generate_bicep(plan: MigrationPlan, *, name_prefix: str = "ssismig") -> str:
+def generate_bicep(
+    plan: MigrationPlan,
+    *,
+    name_prefix: str = "ssismig",
+    observability_workspace_id: str | None = None,
+) -> str:
     """Render a Bicep template from the plan's infrastructure + RBAC sections.
 
     The result is a single-file template you can deploy with::
@@ -171,6 +176,11 @@ def generate_bicep(plan: MigrationPlan, *, name_prefix: str = "ssismig") -> str:
 
     ``principalIdParam`` is required only if the plan references a principal
     other than the factory's own managed identity (e.g. an external SP).
+
+    When ``observability_workspace_id`` is set (full ARM id of a Log Analytics
+    workspace), a ``Microsoft.Insights/diagnosticSettings`` child resource is
+    emitted on the generated factory enabling the five log/metric categories
+    documented in OBSERVABILITY.md (P5-7).
     """
     header = dedent(f"""
         // Auto-generated from MigrationPlan for {plan.package_name}
@@ -236,9 +246,46 @@ def generate_bicep(plan: MigrationPlan, *, name_prefix: str = "ssismig") -> str:
     parts = [header, "", "// ---- Resources ----", *resources]
     if rbac_blocks or skipped_rbac:
         parts += ["", "// ---- RBAC ----", *rbac_blocks, *skipped_rbac]
+    if observability_workspace_id and factory_sym:
+        parts += ["", "// ---- Observability ----",
+                  _diag_settings_resource(factory_sym, observability_workspace_id)]
+    elif observability_workspace_id and not factory_sym:
+        parts += ["", "// ---- Observability ----",
+                  "// Skipped diagnosticSettings: plan does not provision a "
+                  "Microsoft.DataFactory/factories resource."]
     if outputs:
         parts += ["", "// ---- Outputs ----", *outputs]
     return "\n\n".join(parts).rstrip() + "\n"
+
+
+def _diag_settings_resource(factory_sym: str, workspace_id: str) -> str:
+    """Emit a Microsoft.Insights/diagnosticSettings child resource on the
+    factory wired to a Log Analytics workspace (P5-7).
+
+    Categories match OBSERVABILITY.md: PipelineRuns, ActivityRuns,
+    TriggerRuns, PipelineActivityRuns, AllMetrics. The category list is
+    intentionally not parameterized — drift between the doc and the
+    generator is a defect, not a feature toggle.
+    """
+    safe_workspace = workspace_id.replace("'", "")
+    return dedent(f"""
+        resource {factory_sym}_diag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {{
+          name: 'send-to-law'
+          scope: {factory_sym}
+          properties: {{
+            workspaceId: '{safe_workspace}'
+            logs: [
+              {{ category: 'PipelineRuns',         enabled: true }}
+              {{ category: 'ActivityRuns',         enabled: true }}
+              {{ category: 'TriggerRuns',          enabled: true }}
+              {{ category: 'PipelineActivityRuns', enabled: true }}
+            ]
+            metrics: [
+              {{ category: 'AllMetrics', enabled: true }}
+            ]
+          }}
+        }}
+        """).strip()
 
 
 __all__ = ["generate_bicep"]

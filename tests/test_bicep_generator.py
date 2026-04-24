@@ -77,3 +77,49 @@ def test_empty_plan_emits_minimal_template() -> None:
     # No resources defined
     assert "Microsoft.DataFactory" not in bicep
     assert "Microsoft.Storage" not in bicep
+
+
+def test_with_observability_emits_diagnostic_settings() -> None:
+    """P5-7: when with_observability is set, emit diagnosticSettings child."""
+    workspace_id = (
+        "/subscriptions/s/resourceGroups/rg/providers/"
+        "Microsoft.OperationalInsights/workspaces/law-prod"
+    )
+    bicep = generate_bicep(
+        _full_plan(),
+        name_prefix="acme",
+        observability_workspace_id=workspace_id,
+    )
+    assert "Microsoft.Insights/diagnosticSettings" in bicep
+    assert workspace_id in bicep
+    # All five OBSERVABILITY.md categories present
+    for cat in (
+        "PipelineRuns",
+        "ActivityRuns",
+        "TriggerRuns",
+        "PipelineActivityRuns",
+        "AllMetrics",
+    ):
+        assert cat in bicep
+    # Section header is consistent
+    assert "// ---- Observability ----" in bicep
+
+
+def test_observability_without_factory_emits_skip_comment() -> None:
+    """If the plan provisions no factory, do not silently drop the request."""
+    plan = MigrationPlan(package_name="empty", package_path="x.dtsx")
+    bicep = generate_bicep(
+        plan,
+        observability_workspace_id="/subscriptions/s/resourceGroups/rg/providers/"
+        "Microsoft.OperationalInsights/workspaces/law-prod",
+    )
+    # No actual resource block, but the skip comment names the dropped feature
+    assert "Microsoft.Insights/diagnosticSettings" not in bicep
+    assert "Skipped diagnosticSettings" in bicep
+
+
+def test_default_no_observability() -> None:
+    """No observability flag -> no diagnosticSettings resource emitted."""
+    bicep = generate_bicep(_full_plan())
+    assert "diagnosticSettings" not in bicep
+    assert "Observability" not in bicep

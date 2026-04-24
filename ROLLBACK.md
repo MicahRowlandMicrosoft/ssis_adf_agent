@@ -14,12 +14,16 @@ strategy that matches the blast radius of the failure.
 ## Decision tree
 
 ```
-Is the deploy partial / mid-flight?
-  yes -> Strategy 1 (per-artifact delete via lineage.json)
+Is the entire factory being decommissioned (pilot over,
+provisioned in wrong sub/region, security re-provision)?
+  yes -> Strategy 4 (tear down the factory)
   no
-    Is only one pipeline broken?
-      yes -> Strategy 2 (soft-revert single pipeline)
-      no  -> Strategy 3 (branch / git restore + redeploy)
+    Is the deploy partial / mid-flight?
+      yes -> Strategy 1 (per-artifact delete via lineage.json)
+      no
+        Is only one pipeline broken?
+          yes -> Strategy 2 (soft-revert single pipeline)
+          no  -> Strategy 3 (branch / git restore + redeploy)
 ```
 
 ---
@@ -94,6 +98,126 @@ implicated.
 5. Run `smoke_test_wave` against the full pipeline list to confirm the
    wave is healthy again.
 6. Remove the worktree: `git worktree remove ../revert`.
+
+---
+
+## Strategy 4 — tearing down a provisioned factory
+
+Use this when the factory itself was provisioned by
+`provision_adf_environment` for a pilot / POC and the entire
+environment needs to go away — not just the artifacts inside it.
+This is rarely the right answer mid-migration; it is the right answer
+when the pilot ends, when an environment was created in the wrong
+subscription / region, or when a security review demands a clean
+re-provision.
+
+> **Warning.** This deletes the factory **and everything in it** —
+> pipelines, datasets, linked services, triggers, run history, and
+> any hand-edits applied since the last deploy. Strategies 1–3 should
+> be exhausted first. There is no undo.
+
+### Order of operations
+
+1. **Stop all triggers first** so no run starts mid-teardown:
+   ```powershell
+   az datafactory trigger list `
+     --resource-group <rg> --factory-name <adf> `
+     --query "[?properties.runtimeState=='Started'].name" -o tsv |
+     ForEach-Object {
+       az datafactory trigger stop `
+         --resource-group <rg> --factory-name <adf> --name $_
+     }
+   ```
+2. **Snapshot the lineage** so you keep a record of what *was* there:
+   ```powershell
+   Copy-Item out/lineage.json out/lineage.pre-teardown.json
+   ```
+3. **Delete the factory:**
+   ```powershell
+   az datafactory delete `
+     --resource-group <rg> --factory-name <adf> --yes
+   ```
+   Cascades through every child resource (pipelines, datasets, linked
+   services, triggers, integration runtimes hosted in the factory).
+   Self-Hosted Integration Runtimes that were registered to the
+   factory are de-registered server-side; the SHIR Windows service on
+   your on-prem host stays installed and must be uninstalled
+   separately.
+
+### RBAC cleanup
+
+`provision_adf_environment` (with `assign_rbac=true`) granted at
+least one role assignment to the factory's system-assigned managed
+identity. After deletion the MI is gone but the role assignments are
+**not** automatically removed — they become orphaned principal IDs in
+the role-assignments listing. Clean them up:
+
+```powershell
+# Find orphaned assignments (those whose principalName is empty / "Unknown")
+az role assignment list --all `
+  --query "[?principalName==''||principalName=='Unknown']" -o table
+
+# Delete by id
+az role assignment delete --ids <assignment-id>
+```
+
+Run the same query at subscription scope, resource-group scope, and
+on every Key Vault / storage account / SQL server that the deleted
+factory MI had been granted access to (RBAC.md row for
+`provision_adf_environment` lists the typical targets). Leftover
+orphaned assignments are not a security risk by themselves but they
+clutter audit reports and confuse the next provisioning run.
+
+### Key Vault cleanup
+
+If the factory MI had been granted Key Vault data-plane access:
+
+- **RBAC mode (`enableRbacAuthorization=true`):** the role assignment
+  on the vault is one of the orphaned entries cleaned up above. No
+  separate vault-level action is required.
+- **Access-policy mode:** access policies are stored on the vault
+  resource itself, keyed by the deleted MI's principal id. Remove
+  them with:
+  ```powershell
+  az keyvault delete-policy `
+    --name <kv> --object-id <former-factory-principal-id>
+  ```
+  The principal id is whatever `az datafactory show --query
+  identity.principalId` returned *before* the factory was deleted —
+  if you snapshotted the lineage in step 2, it is recoverable from the
+  factory ARM id; if not, the access policy entry will display as
+  `Unknown` in the portal and can be safely removed by id.
+
+### What `lineage.json` looks like for a fully-deprovisioned environment
+
+After deletion every `azure_resource_id` in the manifest still points
+at a now-non-existent ARM resource. The agent does **not** rewrite
+the manifest on teardown (there is no inverse of
+`update_lineage_with_deployment`). Two options:
+
+- **Preserve the manifest as-is** for the audit trail (recommended) —
+  rename it to `lineage.pre-teardown.json` (step 2 above) so a future
+  reader is not misled into thinking the IDs are still resolvable.
+- **Regenerate** by running `convert_ssis_package` against the same
+  `.dtsx` set without `update_lineage_with_deployment` — this yields
+  a manifest with empty `azure_resource_id` placeholders, equivalent
+  to a fresh pre-deploy state.
+
+Re-provisioning into the same resource group with the same factory
+name reuses the *name* but creates a fresh MI principal id — every
+RBAC assignment must be re-granted (P5-12 `validate_deployer_rbac`
+will catch any that were missed).
+
+### When to use Strategy 4 vs. the others
+
+| Situation | Strategy |
+|---|---|
+| One artifact is broken in a deploy | 1 (per-artifact delete) |
+| One pipeline regressed; rest of factory is healthy | 2 (soft-revert) |
+| Multiple pipelines regressed in a wave | 3 (git restore + full redeploy) |
+| Pilot is over, factory is being decommissioned | **4 (this strategy)** |
+| Factory was provisioned in the wrong sub / region | **4 (this strategy)**, then re-provision |
+| Security review requires a clean re-provision of the MI | **4 (this strategy)** |
 
 ---
 

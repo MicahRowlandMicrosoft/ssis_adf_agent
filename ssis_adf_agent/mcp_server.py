@@ -701,7 +701,11 @@ async def list_tools() -> list[types.Tool]:
                 "non-MI auth is required. Built-in Azure RBAC role assignments are emitted "
                 "into the same template; SQL-server-side roles like db_datareader are skipped "
                 "with a note (must be granted via T-SQL post-deploy). Requires the Azure CLI "
-                "on PATH (for 'az bicep build') and authentication via DefaultAzureCredential."
+                "on PATH (for 'az bicep build') and authentication via DefaultAzureCredential. "
+                "Day-2 follow-up: see OBSERVABILITY.md for the recommended Log Analytics "
+                "diagnostic-settings target (PipelineRuns, ActivityRuns, TriggerRuns, "
+                "PipelineActivityRuns, AllMetrics) plus the three baseline alert rules; this "
+                "tool does not yet emit the diagnostic-settings resource (tracked as P5-7)."
             ),
             inputSchema={
                 "type": "object",

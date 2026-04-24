@@ -244,9 +244,10 @@ customer pilot, not in this backlog.
 - **Buyer concern:** COVERAGE.md is silent on the `(DT_STR,2,1252) DATEPART("mm", GETDATE())` family of casts and string functions. Buyers ask for a 5-line table showing what works and what does not.
 - **Acceptance:** New COVERAGE.md section enumerates SSIS expression functions covered by the converter (`DATEPART`, `RIGHT`, `LEFT`, `SUBSTRING`, `(DT_STR,…)` casts, `GETDATE()`, etc.) vs. unmapped, derived from the actual `expression_functions` source so the table cannot drift.
 
-### P5-21. Cross-link `provision_adf_environment` → OBSERVABILITY.md — **LOW**
+### P5-21. Cross-link `provision_adf_environment` → OBSERVABILITY.md — **LOW** ✅ DONE
 - **Buyer concern:** Buyers using the factory provisioner discover OBSERVABILITY.md too late (after the first failed run with no logs).
 - **Acceptance:** `provision_adf_environment` MCP tool description and CLI help text cross-link OBSERVABILITY.md as the recommended Day-2 follow-up.
+- **Resolution:** `provision_adf_environment`'s description in [ssis_adf_agent/mcp_server.py](ssis_adf_agent/mcp_server.py) now closes with a "Day-2 follow-up" pointer at OBSERVABILITY.md naming the five log/metric categories and the three baseline alert rules, and explicitly notes the diagnostic-settings resource is not yet emitted (tracked as P5-7). The CLI does not currently expose a `provision` subcommand; CLI-side cross-link will land with [P5-17](#p5-17-cli-parity-for-every-mcp-tool--high) (CLI parity).
 
 ### P5-23. Document the `EncryptAllWithPassword` failure modes — **LOW**
 - **Buyer concern:** Buyer asked whether wrong-password vs. missing-password vs. key-derivation-failure produce distinct error messages or one generic failure.

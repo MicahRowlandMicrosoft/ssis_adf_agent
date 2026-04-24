@@ -21,11 +21,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from ..parsers.models import SSISPackage
+
+logger = logging.getLogger(__name__)
+
+#: Current ``lineage.json`` schema version. Same forward-compat policy as
+#: ``MigrationPlan`` (see ``migration_plan.persistence.load_plan``):
+#: incompatible *major* version is rejected, unknown *minor* version is
+#: accepted with a warning.
+LINEAGE_SCHEMA_VERSION = "1.0"
 
 try:
     from .. import __version__ as _agent_version  # type: ignore[attr-defined]
@@ -129,7 +138,7 @@ def generate_lineage_manifest(
     ssis_task_count = len(package.tasks)
 
     manifest: dict[str, Any] = {
-        "schema_version": "1.0",
+        "schema_version": LINEAGE_SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "agent_version": _agent_version,
         "source": {
@@ -238,3 +247,29 @@ def update_lineage_with_deployment(
         encoding="utf-8",
     )
     return manifest_path
+
+
+def load_lineage(path: str | Path) -> dict[str, Any]:
+    """Load a lineage manifest with forward-compatibility checks.
+
+    Mirrors the policy of ``migration_plan.persistence.load_plan``:
+    an incompatible *major* schema version is rejected with a clear
+    message; an unknown *minor* version is accepted and a warning is
+    logged so downstream tooling keeps working across point bumps.
+    """
+    p = Path(path).expanduser().resolve()
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    found = str(raw.get("schema_version", "0.0"))
+    expected = LINEAGE_SCHEMA_VERSION
+    if found.split(".")[0] != expected.split(".")[0]:
+        raise ValueError(
+            f"Lineage manifest at {p} has incompatible schema_version={found} "
+            f"(expected {expected}). Migration required."
+        )
+    if found != expected:
+        logger.warning(
+            "Lineage manifest schema_version=%s differs from current %s; "
+            "loading anyway (forward-compat).",
+            found, expected,
+        )
+    return raw

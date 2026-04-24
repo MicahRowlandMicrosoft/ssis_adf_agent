@@ -189,9 +189,10 @@ walkthroughs, additional Script Task ports, real-Azure KV runs, captured
 failure case studies) are tracked separately as part of the engaged-
 customer pilot, not in this backlog.
 
-### P5-6. Schema-version `lineage.json` and `migration_plan.json` — **MEDIUM**
+### P5-6. Schema-version `lineage.json` and `migration_plan.json` — **MEDIUM** ✅ DONE
 - **Buyer concern:** Downstream CI parses both files. Without a `schemaVersion`, a minor-version bump silently breaks the customer's pipeline. ROADMAP S3/S4 already commit to this for 1.0.
 - **Acceptance:** Both files carry a top-level `schemaVersion: "1"`; loader rejects unknown major versions with a clear message; loader accepts an unknown *minor* version as forward-compatible (logs a warning); a forward-compat unit test pins the contract.
+- **Resolution:** `migration_plan.json` already shipped a `schema_version` field with major-rejection / minor-warning loader semantics in `migration_plan/persistence.load_plan` (constant `PLAN_SCHEMA_VERSION = "1.0"`). `lineage.json` already wrote `schema_version: "1.0"` but had no loader; added [`load_lineage()`](ssis_adf_agent/generators/lineage_generator.py) plus a `LINEAGE_SCHEMA_VERSION` module constant that mirrors the migration-plan policy. Forward-compat contract is now pinned by 6 tests in [test_schema_version_contract.py](tests/test_schema_version_contract.py): both files load at the current version, both warn on an unknown minor, both raise `ValueError` with "incompatible schema_version" on an unknown major.
 
 ### P5-7. `provision_adf_environment --with-observability=<workspace-id>` — **MEDIUM**
 - **Buyer concern:** OBSERVABILITY.md (P4-10) is excellent prose but the factory provisioner does not emit the diagnostic-settings target. Day-1 production-readiness still requires a separate Bicep PR. ROADMAP Q4.

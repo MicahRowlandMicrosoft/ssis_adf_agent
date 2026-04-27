@@ -16,6 +16,7 @@ from __future__ import annotations
 from ..parsers.models import (
     DataFlowTask,
     GapItem,
+    Severity,
     SSISPackage,
     TaskType,
 )
@@ -54,7 +55,7 @@ def detect_cdm_patterns(package: SSISPackage) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type="CDM_PATTERN/MultiSourceJoin",
-                severity="info",
+                severity=Severity.INFO,
                 message=(
                     f"Data flow combines {len(sources)} sources via join(s): {join_names}. "
                     "This pattern typically indicates CDM-layer logic."
@@ -72,7 +73,7 @@ def detect_cdm_patterns(package: SSISPackage) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type="CDM_PATTERN/Aggregation",
-                severity="info",
+                severity=Severity.INFO,
                 message=(
                     f"Data flow contains aggregation transform(s): {agg_names}. "
                     "GROUP BY / SUM / COUNT patterns often belong in the CDM layer."
@@ -90,7 +91,7 @@ def detect_cdm_patterns(package: SSISPackage) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type="CDM_PATTERN/CrossSystemEnrichment",
-                severity="info",
+                severity=Severity.INFO,
                 message=(
                     f"Data flow reads from {len(source_connections)} different connection managers. "
                     "Cross-system data combination is typically CDM-layer logic."
@@ -108,7 +109,7 @@ def detect_cdm_patterns(package: SSISPackage) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type="CDM_PATTERN/Denormalization",
-                severity="info",
+                severity=Severity.INFO,
                 message=(
                     f"Data flow has {len(lookups)} lookup transform(s): {lookup_names}. "
                     "Heavy lookup usage often indicates dimension denormalization."

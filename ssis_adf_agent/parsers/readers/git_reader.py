@@ -8,12 +8,12 @@ Supports:
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
-from ..ssis_parser import SSISParser
-from ..models import SSISPackage
 from ...warnings_collector import warn
+from ..models import SSISPackage
+from ..ssis_parser import SSISParser
 
 try:
     import git  # gitpython

@@ -22,7 +22,7 @@ from typing import Any
 
 from ..parsers.models import ConnectionManagerType, SSISConnectionManager, SSISPackage
 from ..warnings_collector import warn
-
+from .naming import build_ls_name_map, sanitize_adf_name
 
 _DEFAULT_IR = "AutoResolveIntegrationRuntime"
 
@@ -188,12 +188,46 @@ def _is_on_prem(cm: SSISConnectionManager) -> bool:
     return True
 
 
+def sanitize_adf_name(raw: str) -> str:
+    """Sanitize *raw* into a valid ADF artifact name.
+
+    ADF names must contain only letters, digits, and underscores.
+    Hyphens and other invalid characters are replaced with underscores,
+    and consecutive underscores are collapsed.
+    """
+    cleaned = re.sub(r"[^A-Za-z0-9_]", "_", raw)
+    cleaned = re.sub(r"_+", "_", cleaned)
+    return cleaned.strip("_")
+
+
+# Azure-native linked service types that should use the cloud IR,
+# even when the original SSIS connection was classified as on-prem.
+_AZURE_NATIVE_LS_TYPES = frozenset({
+    "AzureSqlDatabase",
+    "AzureSqlDW",
+    "AzureSqlMI",
+    "AzureBlobStorage",
+    "AzureBlobFS",
+    "AzureDataLakeStore",
+    "AzureDataLakeStoreGen2",
+    "AzureKeyVault",
+    "AzureTableStorage",
+    "AzureSearch",
+    "CosmosDb",
+    "AzureDatabricks",
+    "AzureFunction",
+})
+
+
 def _base_ls(
     cm: SSISConnectionManager,
     ir_name: str = _DEFAULT_IR,
+    *,
+    ls_name: str | None = None,
 ) -> dict[str, Any]:
+    name = ls_name or f"LS_{sanitize_adf_name(cm.id)}"
     return {
-        "name": f"LS_{cm.id}",
+        "name": name,
         "properties": {
             "description": f"Auto-generated from SSIS Connection Manager: {cm.name}",
             "annotations": ["ssis-adf-agent"],
@@ -234,10 +268,13 @@ def _oledb_ls(
 
     # Extract components from connection string when model fields are empty
     cs_parts = parse_connection_string(cm.connection_string)
-    server = cm.server or _extract_server(cs_parts) or ("TODO_SERVER" if on_prem else "TODO_SERVER.database.windows.net")
+    server = (
+        cm.server
+        or _extract_server(cs_parts)
+        or ("TODO_SERVER" if on_prem else "TODO_SERVER.database.windows.net")
+    )
     database = cm.database or _extract_database(cs_parts) or "TODO_DATABASE"
     cs_user = _extract_user(cs_parts)
-    cs_password = _extract_password(cs_parts)
 
     # Detect auth hints from the connection string
     cs_auth = cs_parts.get("authentication", "").lower()
@@ -387,7 +424,10 @@ def _flat_file_ls(
             }
         else:
             ls["properties"]["typeProperties"] = {
-                "connectionString": f"DefaultEndpointsProtocol=https;AccountName={account_name};AccountKey={account_key}",
+                "connectionString": (
+                    f"DefaultEndpointsProtocol=https;AccountName={account_name};"
+                    f"AccountKey={account_key}"
+                ),
                 "note": note,
             }
     elif account_name:
@@ -586,7 +626,8 @@ def generate_linked_services(
     kv_url: str = "https://TODO.vault.azure.net/",
     shared_artifacts_dir: Path | None = None,
     ir_mapping: dict[str, str] | None = None,
-) -> list[dict[str, Any]]:
+    name_overrides: dict[str, str] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """
     Generate one ADF linked service JSON per unique Connection Manager in *package*.
 
@@ -602,10 +643,17 @@ def generate_linked_services(
     of the default ``on_prem_ir_name`` / ``cloud_ir_name`` heuristic.
 
     Files are written to *output_dir*/linkedService/.
-    Returns the list of linked service dicts.
+    Returns a tuple of (linked_service_list, ls_name_map) where ls_name_map
+    maps CM IDs to the canonical linked-service names.
     """
     ls_dir = output_dir / "linkedService"
     ls_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build the canonical name map for all CMs in this package
+    ls_name_map = build_ls_name_map(
+        package.name, package.connection_managers,
+        name_overrides=name_overrides,
+    )
 
     # Build index of existing shared linked services for dedup
     existing_ls: dict[str, str] = {}  # (server|database) → ls_name
@@ -649,6 +697,26 @@ def generate_linked_services(
         builder = _BUILDERS.get(cm.type, _generic_ls)
         ls = builder(cm, ir_name, auth_type, use_key_vault, kv_ls_name)
 
+        # Override the name with the canonical mapped name
+        canonical_name = ls_name_map.get(cm.id)
+        if canonical_name:
+            ls["name"] = canonical_name
+
+        # Post-builder IR correction: if the builder produced an Azure-native
+        # type, ensure we use the cloud IR instead of the on-prem IR.
+        ls_type = ls.get("properties", {}).get("type", "")
+        if ls_type in _AZURE_NATIVE_LS_TYPES:
+            ls["properties"]["connectVia"]["referenceName"] = cloud_ir_name
+
+        # Strip connectVia when it points at the implicit default IR
+        # (AutoResolveIntegrationRuntime). ADF treats absence of connectVia as
+        # the default; explicitly referencing it can fail with
+        # "Could not get integration runtime details" on factories where the
+        # default IR has not been materialized yet.
+        cv = ls.get("properties", {}).get("connectVia") or {}
+        if cv.get("referenceName") == _DEFAULT_IR:
+            del ls["properties"]["connectVia"]
+
         # Generate Key Vault linked service once if needed
         if use_key_vault and not generated_kv:
             kv_ls = _generate_kv_linked_service(kv_ls_name, kv_url, output_dir)
@@ -667,7 +735,7 @@ def generate_linked_services(
         if dedup_key != "|":
             existing_ls[dedup_key] = ls_name
 
-    return results
+    return results, ls_name_map
 
 
 def _generic_ls(

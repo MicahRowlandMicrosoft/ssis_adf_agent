@@ -7,3 +7,13 @@ build/
 .env
 .venv/
 *.egg
+infra/
+ssis_adf_agent.code-workspace
+.scratch/
+.github/agents/
+
+# Local-only Copilot prompts
+.github/prompts/
+
+# Deferred-backlog scratchpad (maintainer-private)
+MAYBE.md

@@ -7,9 +7,9 @@ analyzers, and converters. All converters consume these models rather than raw X
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal
-from pydantic import BaseModel, Field
+from typing import Any
 
+from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
 # Enums

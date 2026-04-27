@@ -10,7 +10,8 @@ import re
 import uuid
 from pathlib import Path
 from typing import Any
-from lxml import etree
+
+from lxml import etree  # type: ignore[attr-defined]
 
 from ..warnings_collector import warn
 from .models import (
@@ -27,11 +28,10 @@ from .models import (
     ExecuteProcessTask,
     ExecuteSQLTask,
     FileSystemTask,
-    ForEachLoopContainer,
     ForEachEnumeratorType,
+    ForEachLoopContainer,
     ForLoopContainer,
     FTPTask,
-    GapItem,
     IngestionPattern,
     PrecedenceConstraint,
     PrecedenceEvalOp,
@@ -210,6 +210,71 @@ def _resolve_component_connection_refs(tasks, connection_managers) -> None:
                 _walk(sub)
 
     _walk(tasks)
+
+
+def _resolve_constraint_refs(tasks, constraints, event_handlers=None) -> None:
+    """Resolve PrecedenceConstraint endpoints from RefId paths to task DTSID GUIDs.
+
+    SSIS XML stores constraint From/To as RefId paths (e.g. ``Package\\Copy Template``)
+    while task ``.id`` holds the DTSID GUID. ``_clean_id`` uppercases these refs to
+    something like ``PACKAGE\\COPY TEMPLATE``. Without resolution, every downstream
+    consumer (topological_sort, ADF dependsOn generation, parity checker, explainer
+    diagrams) silently treats all constraints as unmatched, producing pipelines with
+    no execution ordering.
+
+    This walks all tasks (including nested containers and event handlers), builds an
+    UPPERCASE name→GUID lookup, then rewrites each constraint's from/to to the
+    matching GUID. Modifies constraints in place.
+    """
+    name_to_id: dict[str, str] = {}
+
+    def _index(items):
+        for t in items:
+            if t.name:
+                name_to_id[t.name.upper()] = t.id
+            sub = getattr(t, "tasks", None)
+            if sub:
+                _index(sub)
+
+    _index(tasks)
+    if event_handlers:
+        for eh in event_handlers:
+            sub = getattr(eh, "tasks", None)
+            if sub:
+                _index(sub)
+
+    valid_ids = set(name_to_id.values())
+
+    def _resolve(constraint_list):
+        for c in constraint_list:
+            for attr in ("from_task_id", "to_task_id"):
+                raw = getattr(c, attr, None)
+                if not raw or raw in valid_ids:
+                    continue
+                last = raw.rsplit("\\", 1)[-1]
+                resolved = name_to_id.get(last)
+                if resolved:
+                    setattr(c, attr, resolved)
+
+    def _walk_constraints(items):
+        for t in items:
+            sub_constraints = getattr(t, "constraints", None)
+            if sub_constraints:
+                _resolve(sub_constraints)
+            sub_tasks = getattr(t, "tasks", None)
+            if sub_tasks:
+                _walk_constraints(sub_tasks)
+
+    _resolve(constraints)
+    _walk_constraints(tasks)
+    if event_handlers:
+        for eh in event_handlers:
+            sub_constraints = getattr(eh, "constraints", None)
+            if sub_constraints:
+                _resolve(sub_constraints)
+            sub_tasks = getattr(eh, "tasks", None)
+            if sub_tasks:
+                _walk_constraints(sub_tasks)
 
 
 # ---------------------------------------------------------------------------
@@ -489,8 +554,8 @@ def _extract_source_from_blob(b64_text: str, language: str) -> str | None:
     """
     import base64
     import io
-    import zipfile
     import logging
+    import zipfile
 
     ext = ".vb" if language == "VisualBasic" else ".cs"
     _EXCLUDE = {"assemblyinfo", ".designer.", "assemblyattributes"}
@@ -523,7 +588,7 @@ def _extract_source_from_blob(b64_text: str, language: str) -> str | None:
 
 
 def _extract_source_from_script_project(
-    config_elem: "etree._Element", language: str
+    config_elem: etree._Element, language: str
 ) -> str | None:
     """
     Pattern A (SSIS 2012+): look for a ScriptProject child inside the config element,
@@ -536,7 +601,49 @@ def _extract_source_from_script_project(
                 sub_local = etree.QName(sub.tag).localname
                 if sub_local == "BinaryData" and sub.text:
                     return _extract_source_from_blob(sub.text, language)
+            inline = _extract_source_from_inline_project_items(child, language)
+            if inline:
+                return inline
     return None
+
+
+def _extract_source_from_inline_project_items(
+    script_project: etree._Element, language: str
+) -> str | None:
+    """
+    Pattern C (SSIS 2017+ / modern VSTA projects, including the LNI dialect):
+    a ScriptProject element holds the source code inline as one or more
+    ProjectItem children whose text is the file body (often a .vb or .cs file).
+    Concatenate everything that looks like the user-authored entry-point file
+    (ScriptMain.vb / ScriptMain.cs) plus any other code files; skip
+    .xml / .resx / .settings / project-metadata items.
+    """
+    ext = ".vb" if language == "VisualBasic" else ".cs"
+    primary_chunks: list[str] = []
+    other_chunks: list[str] = []
+    for sub in script_project:
+        sub_local = etree.QName(sub.tag).localname
+        if sub_local != "ProjectItem":
+            continue
+        name = (sub.get("Name") or "").strip()
+        text = (sub.text or "").strip()
+        if not text:
+            continue
+        # Skip XML-shaped items (project file, app.config, resx, settings).
+        stripped = text.lstrip()
+        if stripped.startswith("<?xml") or stripped.startswith("<"):
+            continue
+        if name.lower().endswith(ext):
+            if name.lower().startswith("scriptmain"):
+                primary_chunks.append(f"' --- {name} ---\n{text}" if ext == ".vb"
+                                       else f"// --- {name} ---\n{text}")
+            else:
+                other_chunks.append(f"' --- {name} ---\n{text}" if ext == ".vb"
+                                     else f"// --- {name} ---\n{text}")
+    chunks = primary_chunks + other_chunks
+    if not chunks:
+        return None
+    return "\n\n".join(chunks)
 
 
 def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
@@ -553,7 +660,10 @@ def _resolve_task_type(class_id: str | None, dts_type: str | None) -> TaskType:
         "Microsoft.SqlServer.Dts.Tasks.BulkInsertTask.BulkInsertTask": TaskType.BULK_INSERT,
         "Microsoft.SqlServer.Dts.Tasks.WebServiceTask.WebServiceTask": TaskType.WEB_SERVICE,
         "Microsoft.SqlServer.Dts.Tasks.XMLTask.XMLTask": TaskType.XML,
-        "Microsoft.SqlServer.Dts.Tasks.TransferSqlServerObjectsTask.TransferSqlServerObjectsTask": TaskType.TRANSFER_SQL,
+        (
+            "Microsoft.SqlServer.Dts.Tasks.TransferSqlServerObjectsTask."
+            "TransferSqlServerObjectsTask"
+        ): TaskType.TRANSFER_SQL,
         "Sequence": TaskType.SEQUENCE,
         "ForEachLoop": TaskType.FOREACH_LOOP,
         "ForLoop": TaskType.FOR_LOOP,
@@ -608,6 +718,14 @@ class SSISParser:
     def _parse_package(self, root: etree._Element, source: str, raw_xml: str) -> SSISPackage:
         pkg_id = _clean_id(_attr(root, "DTSID"))
         pkg_name = _attr(root, "ObjectName") or Path(source).stem
+        # SSIS designer default is "Package" or "Package1"; if developers never
+        # renamed it we get useless duplicates across an estate. Fall back to
+        # the filename stem in that case so estate-scale tooling can tell
+        # packages apart.
+        if pkg_name in {"Package", "Package1"}:
+            stem = Path(source).stem
+            if stem and stem != pkg_name:
+                pkg_name = stem
 
         protection_str = _attr(root, "ProtectionLevel") or "0"
         protection_map = {
@@ -628,6 +746,8 @@ class SSISParser:
 
         # Post-process: resolve component connection refs (bracket-names) to CM DTSIDs
         _resolve_component_connection_refs(tasks, connection_managers)
+        # Post-process: resolve PrecedenceConstraint endpoints from RefId paths to task GUIDs
+        _resolve_constraint_refs(tasks, constraints, event_handlers)
 
         return SSISPackage(
             id=pkg_id,
@@ -692,7 +812,6 @@ class SSISParser:
             object_data = cm_elem.find(_dts("ObjectData"))
             if object_data is not None:
                 for child in object_data:
-                    local = etree.QName(child.tag).localname
                     # OLE DB / ADO.NET: ConnectionString attribute
                     cs = child.get("ConnectionString") or child.get(f"{{{DTS_NS}}}ConnectionString")
                     if cs:
@@ -825,7 +944,7 @@ class SSISParser:
         description = _attr(elem, "Description") or ""
         disabled = (_attr(elem, "Disabled") or "0") not in ("0", "")
 
-        base_kwargs = dict(
+        base_kwargs: dict[str, Any] = dict(
             id=task_id, name=task_name, description=description,
             task_type=task_type, disabled=disabled,
         )
@@ -929,10 +1048,26 @@ class SSISParser:
                               + list(child.findall(f"{{{NAMESPACES['ExecuteSQLTask']}}}ParameterBinding")):
                         pb_ns = etree.QName(pb.tag).namespace or ""
                         param_bindings.append({
-                            "variable": pb.get(f"{{{pb_ns}}}DtsVariableName") or pb.get("DtsVariableName") or "",
-                            "direction": pb.get(f"{{{pb_ns}}}ParameterDirection") or pb.get("ParameterDirection") or "Input",
-                            "data_type": pb.get(f"{{{pb_ns}}}DataType") or pb.get("DataType") or "0",
-                            "parameter_name": pb.get(f"{{{pb_ns}}}ParameterName") or pb.get("ParameterName") or "",
+                            "variable": (
+                                pb.get(f"{{{pb_ns}}}DtsVariableName")
+                                or pb.get("DtsVariableName")
+                                or ""
+                            ),
+                            "direction": (
+                                pb.get(f"{{{pb_ns}}}ParameterDirection")
+                                or pb.get("ParameterDirection")
+                                or "Input"
+                            ),
+                            "data_type": (
+                                pb.get(f"{{{pb_ns}}}DataType")
+                                or pb.get("DataType")
+                                or "0"
+                            ),
+                            "parameter_name": (
+                                pb.get(f"{{{pb_ns}}}ParameterName")
+                                or pb.get("ParameterName")
+                                or ""
+                            ),
                         })
 
         # Detect cross-DB references and ingestion pattern
@@ -964,28 +1099,53 @@ class SSISParser:
         if object_data is not None:
             for child in object_data:
                 local = etree.QName(child.tag).localname
-                if "ScriptTaskProjectConfiguration" in local or "ScriptTask" in local:
-                    lang = child.get("ScriptLanguage") or child.get(
-                        f"{{{DTS_NS}}}ScriptLanguage"
+                # The script-task config may appear directly as a <ScriptProject>
+                # child of <ObjectData> (SSIS 2017+ / LNI-style packages) OR
+                # wrapped in a <ScriptTaskProjectConfiguration> / <ScriptTask>
+                # element (older / classic packages).
+                if local == "ScriptProject":
+                    config_holder = child  # the project IS the config holder
+                    inline_project = child
+                elif "ScriptTaskProjectConfiguration" in local or "ScriptTask" in local:
+                    config_holder = child
+                    inline_project = None
+                else:
+                    continue
+
+                lang = config_holder.get("ScriptLanguage") or config_holder.get(
+                    f"{{{DTS_NS}}}ScriptLanguage"
+                ) or config_holder.get("Language")
+                if lang:
+                    upper = lang.upper()
+                    language = "VisualBasic" if (
+                        "VB" in upper or "VISUAL" in upper or "BASIC" in upper
+                    ) else "CSharp"
+                ep = config_holder.get("EntryPoint") or config_holder.get(
+                    f"{{{DTS_NS}}}EntryPoint"
+                )
+                if ep:
+                    entry_point = ep
+                ro = config_holder.get("ReadOnlyVariables") or ""
+                rw = config_holder.get("ReadWriteVariables") or ""
+                ro_vars = [v.strip() for v in ro.split(",") if v.strip()]
+                rw_vars = [v.strip() for v in rw.split(",") if v.strip()]
+
+                # Pattern B (SSIS 2008): ProjectBytes attribute on the config element
+                project_bytes = config_holder.get("ProjectBytes")
+                if project_bytes:
+                    source_code = _extract_source_from_blob(project_bytes, language)
+
+                # Pattern A (SSIS 2012+): BinaryData child inside ScriptProject child
+                if source_code is None and inline_project is None:
+                    source_code = _extract_source_from_script_project(
+                        config_holder, language
                     )
-                    if lang:
-                        language = "VisualBasic" if "VB" in lang.upper() else "CSharp"
-                    ep = child.get("EntryPoint") or child.get(f"{{{DTS_NS}}}EntryPoint")
-                    if ep:
-                        entry_point = ep
-                    ro = child.get("ReadOnlyVariables") or ""
-                    rw = child.get("ReadWriteVariables") or ""
-                    ro_vars = [v.strip() for v in ro.split(",") if v.strip()]
-                    rw_vars = [v.strip() for v in rw.split(",") if v.strip()]
 
-                    # Pattern B (SSIS 2008): ProjectBytes attribute on the config element
-                    project_bytes = child.get("ProjectBytes")
-                    if project_bytes:
-                        source_code = _extract_source_from_blob(project_bytes, language)
-
-                    # Pattern A (SSIS 2012+): BinaryData child inside ScriptProject child
-                    if source_code is None:
-                        source_code = _extract_source_from_script_project(child, language)
+                # Pattern C (SSIS 2017+ / LNI): inline ProjectItem CDATA
+                if source_code is None and inline_project is not None:
+                    source_code = _extract_source_from_inline_project_items(
+                        inline_project, language
+                    )
 
         return ScriptTask(
             **base,

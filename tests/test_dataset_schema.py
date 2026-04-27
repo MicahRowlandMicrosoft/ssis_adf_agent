@@ -285,11 +285,11 @@ class TestLookupDatasetGeneration:
         datasets = generate_datasets(pkg, tmp_path)
 
         names = [ds["name"] for ds in datasets]
-        assert "DS_OLE_SRC" in names
-        assert "DS_Lookup_Customer_lookup" in names
+        assert "DS_TestPkg_OLE_SRC" in names
+        assert "DS_TestPkg_Lookup_Customer_lookup" in names
 
         # Verify the lookup dataset has the right table
-        lkp_ds = next(d for d in datasets if d["name"] == "DS_Lookup_Customer_lookup")
+        lkp_ds = next(d for d in datasets if d["name"] == "DS_TestPkg_Lookup_Customer_lookup")
         assert lkp_ds["properties"]["typeProperties"]["table"] == "Customer"
 
     def test_schema_written_to_json_file(self, tmp_path):
@@ -304,7 +304,7 @@ class TestLookupDatasetGeneration:
         pkg = self._make_package([comp])
         generate_datasets(pkg, tmp_path)
 
-        ds_file = tmp_path / "dataset" / "DS_TestSrc.json"
+        ds_file = tmp_path / "dataset" / "DS_TestPkg_TestSrc.json"
         assert ds_file.exists()
         payload = json.loads(ds_file.read_text(encoding="utf-8"))
         assert len(payload["properties"]["schema"]) == 1

@@ -1,6 +1,24 @@
 # HOWTO — SSIS → ADF Agent Conversation Guide
 
+> **🚀 Start here:** If you have not yet read [WORKFLOW.md](WORKFLOW.md),
+> read it first. It documents the **6-tool minimum migration path**
+> (`bulk_analyze` → `propose_adf_design` → `convert_estate` →
+> `validate_adf_artifacts` → `deploy_to_adf` → `activate_triggers`)
+> with one Copilot prompt per step and a stop-and-decide gate between
+> steps. The conversation guide below covers the per-package backbone
+> and the wider tool surface; WORKFLOW.md is the recommended first
+> read for new users.
+
 This guide shows how to use the SSIS → ADF Agent through natural-language prompts in **GitHub Copilot Chat**. Each section includes example conversations you can copy and adapt.
+
+> **⚠️ The dialogues below are illustrative, not captured runs.** They show the
+> *shape* of a typical agent interaction — tool selection, prompt phrasing,
+> follow-up questions — and the numbers / package names / file paths inside
+> them are constructed for clarity. Your real Copilot session will produce
+> different wording, different counts, and different artifact paths depending
+> on your packages, your model, and your prompt. For a real captured run on a
+> production-shape package, see [PARITY_REPORT_ADDS_MIPS_TC.md](../test-lni-packages/PARITY_REPORT_ADDS_MIPS_TC.md)
+> in the LNI sample workspace and the [worked example in PARITY.md](PARITY.md#worked-example--lni-adds-mips-tc).
 
 > **Tip:** Switch Copilot Chat to **Agent** mode before sending prompts so it can call the MCP tools automatically.
 >
@@ -10,26 +28,96 @@ This guide shows how to use the SSIS → ADF Agent through natural-language prom
 
 ## Table of Contents
 
-- [End-to-End Migration](#end-to-end-migration)
-  - [Quick Start: One Package](#quick-start-one-package)
-  - [Full Migration: Multiple Packages](#full-migration-multiple-packages)
-- [Per-Feature Guides](#per-feature-guides)
-  - [Scan for Packages](#scan-for-packages)
-  - [Analyze a Package](#analyze-a-package)
-  - [Convert a Package](#convert-a-package)
-  - [Validate Artifacts](#validate-artifacts)
-  - [Deploy to ADF](#deploy-to-adf)
-  - [Consolidate Similar Packages](#consolidate-similar-packages)
-  - [Provision a Function App](#provision-a-function-app)
-  - [Deploy Function Stubs](#deploy-function-stubs)
-- [Enterprise Scenarios](#enterprise-scenarios)
-  - [Key Vault Secrets](#key-vault-secrets)
-  - [Schema Remapping (Database Consolidation)](#schema-remapping-database-consolidation)
-  - [File Path Mapping](#file-path-mapping)
-  - [Self-Hosted Integration Runtime](#self-hosted-integration-runtime)
-  - [ESI Reuse Detection](#esi-reuse-detection)
-  - [LLM Script Task Translation](#llm-script-task-translation)
-  - [Cross-Package Deduplication](#cross-package-deduplication)
+- [HOWTO — SSIS → ADF Agent Conversation Guide](#howto--ssis--adf-agent-conversation-guide)
+  - [Table of Contents](#table-of-contents)
+  - [Migration Copilot — Estate Workflow (recommended)](#migration-copilot--estate-workflow-recommended)
+  - [End-to-End Migration](#end-to-end-migration)
+    - [Quick Start: One Package](#quick-start-one-package)
+    - [Full Migration: Multiple Packages](#full-migration-multiple-packages)
+  - [Per-Feature Guides](#per-feature-guides)
+    - [Triage an Estate](#triage-an-estate)
+    - [Propose a Migration Plan](#propose-a-migration-plan)
+    - [Edit a Plan](#edit-a-plan)
+    - [Plan Migration Waves](#plan-migration-waves)
+    - [Estimate ADF Costs](#estimate-adf-costs)
+    - [Build the Estate Report PDF](#build-the-estate-report-pdf)
+    - [Convert an Estate](#convert-an-estate)
+    - [Provision ADF Infrastructure](#provision-adf-infrastructure)
+    - [Smoke-Test a Pipeline](#smoke-test-a-pipeline)
+    - [Scan for Packages](#scan-for-packages)
+    - [Analyze a Package](#analyze-a-package)
+    - [Convert a Package](#convert-a-package)
+    - [Validate Artifacts](#validate-artifacts)
+    - [Deploy to ADF](#deploy-to-adf)
+    - [Consolidate Similar Packages](#consolidate-similar-packages)
+    - [Provision a Function App](#provision-a-function-app)
+    - [Deploy Function Stubs](#deploy-function-stubs)
+  - [Enterprise Scenarios](#enterprise-scenarios)
+    - [Key Vault Secrets](#key-vault-secrets)
+    - [Schema Remapping (Database Consolidation)](#schema-remapping-database-consolidation)
+    - [File Path Mapping](#file-path-mapping)
+    - [Self-Hosted Integration Runtime](#self-hosted-integration-runtime)
+    - [ESI Reuse Detection](#esi-reuse-detection)
+    - [LLM Script Task Translation](#llm-script-task-translation)
+    - [Cross-Package Deduplication](#cross-package-deduplication)
+  - [Tips and Tricks](#tips-and-tricks)
+
+---
+
+## Migration Copilot — Estate Workflow (recommended)
+
+This is the conversation pattern when you have a folder of SSIS packages and want a credible, sequenced plan before touching Azure. **Design first — estimate second.**
+
+> **You:** I have an SSIS project at `C:\Projects\MyEstate`. Triage the whole estate so we know what we're dealing with.
+
+> **Copilot:** *(calls `bulk_analyze`)* Found **18 packages**, no parse failures.
+>
+> | Bucket | Count |
+> |---|---|
+> | Low | 7 |
+> | Medium | 6 |
+> | High | 4 |
+> | Very High | 1 |
+>
+> **By target pattern:** 11 `scheduled_file_drop`, 4 `ingest_file_to_sql`, 2 `sql_to_sql_copy`, 1 `script_heavy`. Total estate effort: **312 hours**, 6 manual-required items. 13 are bulk-convertible; 5 need design review.
+
+> **You:** Propose ADF designs for every package and save the plans under `C:\Projects\MyEstate\plans\`.
+
+> **Copilot:** *(calls `propose_adf_design` then `save_migration_plan` for each)* 18 plans saved. Common recommendations: drop SMB atomic-write file system tasks, fold trivial Data Flows into Copy Activities, use Managed Identity for all SQL connections, target eastus2 ADLS Gen2 storage. One package flagged a Send Mail task for replacement with a Logic App.
+
+> **You:** Set the auth mode to ManagedIdentity across all plans and set the region to eastus2.
+
+> **Copilot:** *(calls `edit_migration_plan` for each)* Done. All 18 plans updated.
+
+> **You:** Now plan the migration waves and project monthly cost using the saved plans.
+
+> **Copilot:** *(calls `plan_migration_waves` and `estimate_adf_costs` with `plans_dir=C:\Projects\MyEstate\plans`)* 4 waves planned:
+> - **Wave 1** — Bulk convert (scheduled_file_drop), 8 packages, 64h
+> - **Wave 2** — Bulk convert (ingest_file_to_sql), 4 packages, 32h
+> - **Wave 3** — Design review (script_heavy), 1 package, 60h
+> - **Wave 4** — Design review (scheduled_file_drop), 5 packages, 156h
+>
+> Projected cost: **\$248/month** (\$2,976/year). Activity mix derived from plans: 14 Copy Activities, 3 Data Flows, 22 orchestration activities. Major lines: orchestration \$162, Copy DIU \$60, ADLS storage \$18, Key Vault ops \$2, Mapping Data Flow \$6.
+
+> **You:** Build the estate PDF for stakeholders.
+
+> **Copilot:** *(calls `build_estate_report` with `plans_dir=C:\Projects\MyEstate\plans`)* PDF written to `C:\Projects\MyEstate\reports\estate-report.pdf` — executive summary, complexity & pattern composition, 4-wave plan, cost breakdown, and per-package detail.
+
+> **You:** Provision the shared infrastructure using one of the plans as the spec — call it `adf-myestate-prod` in `rg-myestate-data`, location eastus2, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`. Dry run first.
+
+> **Copilot:** *(calls `provision_adf_environment` with `dry_run=true`)* Bicep validated. Would create: Data Factory `adf-myestate-prod` (system MI), Storage Account `stmyestateprod{hash}` (ADLS Gen2), Key Vault `kv-myestate-prod`, plus 3 RBAC assignments granting the factory's MI: Storage Blob Data Contributor on the storage account, Key Vault Secrets User on the vault.
+
+> **You:** Looks right. Provision for real.
+
+> **Copilot:** *(re-runs without dry_run)* Provisioned in 73 seconds. Outputs returned.
+
+> **You:** Now convert the entire Wave 1 estate using the saved plans. Output to `C:\Projects\MyEstate\adf\`.
+
+> **Copilot:** *(calls `convert_estate` with the plans path)* Converted 8 packages, 8 succeeded / 0 failed. Each lives in its own subdirectory with pipeline + linked services + datasets + (where applicable) data flow + trigger + stubs.
+
+> **You:** Deploy `LoadFactSales` and run a smoke test.
+
+> **Copilot:** *(calls `deploy_to_adf` then `smoke_test_pipeline`)* Deployed 7 artifacts. Pipeline run `run-9b3f` completed in **42s**, status **Succeeded**. Per-activity: `Lookup_Cfg` 2s, `Copy_Sales` 28s, `SetVar_RowCount` 1s — all green.
 
 ---
 
@@ -37,78 +125,249 @@ This guide shows how to use the SSIS → ADF Agent through natural-language prom
 
 ### Quick Start: One Package
 
-This conversation takes a single SSIS package from analysis through deployment.
+This conversation takes a single SSIS package from analysis through a smoke-tested deployment using the Migration Copilot flow (analyze → propose → edit → save → provision → convert → deploy → smoke-test).
 
-> **You:** I have an SSIS package at `C:\Projects\LegacyETL\LoadFactSales.dtsx`. Can you analyze it and tell me how complex it is?
+> **You:** I have an SSIS package at `C:\Projects\LegacyETL\LoadFactSales.dtsx`. Analyze it and tell me how complex it is.
 
-> **Copilot:** *(calls `analyze_ssis_package`)* The package scores **47 / Medium** with an estimated effort of 1–3 days. It contains 3 Execute SQL tasks, 1 Data Flow with 5 components, and 1 ForEach Loop. There are 2 gap items: a Script Task classified as "moderate" (needs Azure Function stub) and a cross-database reference to `StagingDB.dbo.DimCustomer`.
+> **Copilot:** *(calls `analyze_ssis_package`)* The package scores **47 / Medium**, ~1–3 days. It contains 3 Execute SQL tasks, 1 Data Flow with 5 components, 1 ForEach Loop. Two gap items: a Script Task classified as "moderate" (needs Azure Function stub) and a cross-database reference to `StagingDB.dbo.DimCustomer`.
 
-> **You:** Go ahead and convert it. Write the output to `C:\adf_output\LoadFactSales`.
+> **You:** Propose an ADF design and save the plan to `C:\Projects\LegacyETL\plans\LoadFactSales.plan.json`.
 
-> **Copilot:** *(calls `convert_ssis_package`, then auto-validates)* Conversion complete. Generated:
+> **Copilot:** *(calls `propose_adf_design` then `save_migration_plan`)* Plan saved. Highlights:
+> - **Target pattern:** `sql_to_sql_copy`
+> - **Simplifications:** drop SMB atomic-write FileSystemTask wrapper; fold a trivial DerivedColumn-only Data Flow into a Copy Activity; replace one `INSERT INTO etl_log` ExecuteSQL with a `drop`.
+> - **Linked services:** 3 (Managed Identity for Azure SQL; SHIR for the on-prem staging server).
+> - **Infrastructure to provision:** Data Factory, Storage Account (ADLS Gen2), Key Vault.
+> - **RBAC:** Storage Blob Data Contributor + Key Vault Secrets User for the ADF MI.
+> - **Risks:** 1 medium (Script Task needs manual port).
+> - **Effort:** 14h (Medium).
+
+> **You:** Set the region to `eastus2`, confirm Managed Identity auth, and drop the audit-log simplification — we still need that log.
+
+> **Copilot:** *(calls `edit_migration_plan` with `set_region`, `set_auth_mode`, `drop_simplification`)* Done. The `drop` action against `INSERT INTO etl_log` was removed; the rest of the plan is unchanged.
+
+> **You:** Dry-run provision the infrastructure into `rg-data-prod`, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`. Save the Bicep to `C:\Projects\LegacyETL\bicep\main.bicep`.
+
+> **Copilot:** *(calls `provision_adf_environment` with `dry_run=true`)* Bicep validated. Would create: Data Factory `adf-legacyetl-prod` (system MI), Storage Account `stlegacyetlprod{hash}` (HNS-enabled ADLS Gen2), Key Vault `kv-legacyetl-prod`, plus 2 RBAC assignments. No issues.
+
+> **You:** Provision for real.
+
+> **Copilot:** *(re-runs without `dry_run`)* Provisioned in 68s. Outputs: factory `adf-legacyetl-prod`, storage `stlegacyetlprod7k`, vault `kv-legacyetl-prod`.
+
+> **You:** Convert the package using the saved plan. Output to `C:\adf_output\LoadFactSales`.
+
+> **Copilot:** *(calls `convert_ssis_package` with `design_path` set to the plan)* Conversion complete. Generated:
 > - 1 pipeline: `PL_LoadFactSales.json`
-> - 3 linked services
+> - 3 linked services (1 Azure SQL MI, 1 SHIR-routed Azure SQL, 1 ADLS Gen2 MI)
 > - 2 datasets
-> - 1 trigger (daily at midnight — placeholder)
+> - 1 trigger (Stopped state)
 > - 1 Azure Function stub for `SCR_ProcessRecords`
 >
 > Auto-validation passed with 0 errors. The function stub at `stubs/SCR_ProcessRecords/__init__.py` has TODO blocks that need to be implemented.
 
-> **You:** Deploy this to our ADF instance. Subscription: `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`, resource group: `rg-data-prod`, factory: `adf-prod-etl`. Do a dry run first.
+> **You:** Deploy to `adf-legacyetl-prod` in `rg-data-prod`.
 
-> **Copilot:** *(calls `deploy_to_adf` with `dry_run=true`)* Dry run complete. Would deploy:
-> - 3 linked services
-> - 2 datasets
-> - 1 pipeline
-> - 1 trigger (Stopped state)
->
-> No validation issues found. Ready to deploy for real when you are.
+> **Copilot:** *(calls `deploy_to_adf`)* Deployed 7 artifacts. Trigger `TR_LoadFactSales` is in **Stopped** state — activate it manually after smoke testing.
 
-> **You:** Looks good. Deploy for real.
+> **You:** Smoke-test it.
 
-> **Copilot:** *(calls `deploy_to_adf`)* Deployment complete. All 7 artifacts deployed successfully. The trigger `TR_LoadFactSales` is in Stopped state — activate it manually in the ADF portal when you're ready.
+> **Copilot:** *(calls `smoke_test_pipeline`)* Pipeline run `run-9b3f` completed in **42s**, status **Succeeded**. Per-activity: `Lookup_Cfg` 2s, `Copy_Sales` 28s, `SetVar_RowCount` 1s, `SP_LogRun` 11s — all green.
 
 ---
 
 ### Full Migration: Multiple Packages
 
-> **You:** I have a folder of SSIS packages at `C:\Projects\LegacyETL\`. Scan it and tell me what's there.
+This conversation takes a whole SSIS project from triage through deployment using the estate-scale tools (`bulk_analyze` → `plan_migration_waves` → `convert_estate` → deploy by wave).
 
-> **Copilot:** *(calls `scan_ssis_packages`)* Found 12 `.dtsx` packages:
-> 1. LoadFactSales.dtsx
-> 2. LoadFactOrders.dtsx
-> 3. LoadDimCustomer.dtsx
-> *(… 9 more …)*
+> **You:** I have a folder of SSIS packages at `C:\Projects\LegacyETL\` (with a sibling `Project.params`). Triage the whole estate and write the report to `C:\Projects\LegacyETL\reports\triage.json`.
 
-> **You:** Analyze all of them and give me a prioritized report — which ones are easy wins and which will take the most work?
-
-> **Copilot:** *(calls `analyze_ssis_package` for each)* Here's the migration assessment:
+> **Copilot:** *(calls `bulk_analyze`)* Found **12 packages** under one project (1 `Project.params`), no parse failures.
 >
-> | Package | Score | Effort | Key Risk |
-> |---|---|---|---|
-> | LoadDimDate | 8 | Low | None |
-> | LoadDimRegion | 15 | Low | None |
-> | LoadFactSales | 47 | Medium | 1 Script Task, 1 cross-DB ref |
-> | LoadFactOrders | 52 | Medium | 2 event handlers |
-> | MasterETL | 78 | High | 4 Script Tasks (2 complex) |
-> | *(… more …)* | | | |
+> | Bucket | Count |
+> |---|---|
+> | Low | 5 |
+> | Medium | 4 |
+> | High | 2 |
+> | Very High | 1 |
 >
-> **Recommended order:** Start with the 5 Low packages (< 1 day each), then tackle the Medium ones. Save MasterETL for last.
+> **By target pattern:** 6 `dimensional_load`, 3 `sql_to_sql_copy`, 2 `ingest_file_to_sql`, 1 `script_heavy`. Total estate effort: **186h**, 4 manual-required items. 9 are bulk-convertible; 3 need design review.
+>
+> **Shared-infra recommendations** (all 12 packages share `Project.params`):
+> - 1 Key Vault for the project (3 sensitive credential params: `DbPassword`, `ApiToken`, `SmtpSecret`).
+> - 1 Self-Hosted Integration Runtime — 8 packages connect to on-prem `prod-sql-01`.
 
-> **You:** Are any of those packages similar enough to consolidate?
+> **You:** Plan the waves (max 6 per wave) and project monthly cost. Save both reports under `C:\Projects\LegacyETL\reports\`.
 
-> **Copilot:** *(calls `consolidate_packages`)* Yes! `LoadDimCustomer`, `LoadDimProduct`, and `LoadDimRegion` have identical structure — they each run one SQL query and load into a table. I can consolidate them into one parameterized pipeline with a ForEach that iterates over a config array.
+> **Copilot:** *(calls `plan_migration_waves` and `estimate_adf_costs`)* 3 waves planned:
+> - **Wave 1** — Bulk convert (`dimensional_load`), 6 packages, 32h
+> - **Wave 2** — Bulk convert (`sql_to_sql_copy` + `ingest_file_to_sql`), 3 packages, 28h
+> - **Wave 3** — Design review (`script_heavy`, very_high), 3 packages, 126h
+>
+> Projected cost: **\$184/month** (\$2,208/year). Major lines: orchestration \$118, Copy DIU \$42, ADLS storage \$18, Key Vault ops \$2, Mapping Data Flow \$4.
 
-> **You:** Do it. Output to `C:\adf_output\consolidated`.
+> **You:** Build the stakeholder PDF.
 
-> **Copilot:** *(calls `consolidate_packages` with output_dir)* Generated:
-> - `PL_LoadDim_Child.json` — parameterized child pipeline
-> - `PL_LoadDim_Parent.json` — parent with ForEach over 3 config entries
-> - 1 shared linked service
+> **Copilot:** *(calls `build_estate_report`)* PDF written to `C:\Projects\LegacyETL\reports\estate-report.pdf` — executive summary, complexity & pattern composition, the 3-wave plan, cost breakdown, per-project shared-infra rollup, per-package detail.
+
+> **You:** For Wave 1, propose designs for all 6 packages and save the plans under `C:\Projects\LegacyETL\plans\`.
+
+> **Copilot:** *(calls `propose_adf_design` + `save_migration_plan` for each)* 6 plans saved. Common recommendations: Managed Identity for all SQL connections, fold trivial Data Flows into Copy Activities, share one Key Vault and one SHIR across the project (matches the `bulk_analyze` shared-infra rec). Each sensitive credential param produced an `LS_KV_*` linked service of type `AzureKeyVaultSecret`.
+
+> **You:** Set the region to `eastus2` across all 6 plans.
+
+> **Copilot:** *(calls `edit_migration_plan` for each)* Done.
+
+> **You:** Provision the shared infrastructure once using one of the plans as the spec — call the factory `adf-legacyetl-prod`, RG `rg-data-prod`, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`. Dry run first.
+
+> **Copilot:** *(calls `provision_adf_environment` with `dry_run=true`)* Bicep validated. Would create: Data Factory (system MI), one Storage Account (ADLS Gen2), one Key Vault, RBAC. Same Bicep template will be reused by every package in the project.
+
+> **You:** Provision for real, then convert the entire Wave 1 estate. Output to `C:\Projects\LegacyETL\adf\`.
+
+> **Copilot:** *(calls `provision_adf_environment`, then `convert_estate` with the plans path)* Provisioned in 71s. Converted 6 packages: 6 succeeded / 0 failed. Each lives in its own subdirectory with pipeline + linked services + datasets + (where applicable) data flow + trigger + stubs. Linked services + datasets that repeat across packages are written once to the shared output folder.
+
+> **You:** Look for any consolidation opportunities across the converted packages.
+
+> **Copilot:** *(calls `consolidate_packages`)* `LoadDimCustomer`, `LoadDimProduct`, and `LoadDimRegion` are structurally identical — each runs one SQL query and loads into a table. I can collapse them into one parameterized child pipeline with a parent `ForEach` over a 3-entry config array.
+
+> **You:** Do it. Output to `C:\Projects\LegacyETL\adf\consolidated`.
+
+> **Copilot:** *(calls `consolidate_packages` with `output_dir`)* Generated `PL_LoadDim_Child.json`, `PL_LoadDim_Parent.json`, and 1 shared linked service.
+
+> **You:** Deploy `LoadFactSales` and smoke-test it.
+
+> **Copilot:** *(calls `deploy_to_adf` then `smoke_test_pipeline`)* Deployed 7 artifacts. Pipeline run `run-2c8d` finished in **38s**, status **Succeeded** — all 5 activities green.
+
+> **You:** Deploy the rest of Wave 1.
+
+> **Copilot:** *(calls `deploy_to_adf` for each package's output dir)* All 5 remaining packages deployed. Triggers all in Stopped state pending activation.
 
 ---
 
 ## Per-Feature Guides
+
+### Triage an Estate
+
+Walk a directory of `.dtsx` files and produce an estate-level summary.
+
+> Triage every SSIS package under `C:\Projects\MyEstate` and write the report to `C:\Projects\MyEstate\reports\triage.json`.
+
+The report includes per-package complexity score, target pattern, recommended simplifications, manual-required count, and a roll-up by complexity bucket and target pattern (with total estimated hours).
+
+If your project layout uses `Project.params` files, the report also surfaces per-project rollups in the top-level `projects` array (package count, shared sensitive params, shared on-prem SQL servers) and shared-infrastructure recommendations in `estate_summary.shared_infra_recommendations` (e.g. "use one Key Vault across these 4 packages" or "use one SHIR across these 6 packages on `prod-sql-01`").
+
+---
+
+### Propose a Migration Plan
+
+Generate a recommended `MigrationPlan` for one package.
+
+> Propose an ADF design for `C:\Projects\MyEstate\LoadFactSales.dtsx` and save the plan to `C:\Projects\MyEstate\plans\LoadFactSales.plan.json`.
+
+The plan covers: target pattern, simplifications (with confidence scores), recommended linked services (Managed Identity by default), Azure infrastructure to provision, RBAC assignments, risks, and effort estimate.
+
+If a sibling `Project.params` file exists, sensitive parameters whose names look like credentials (`password`, `secret`, `token`, `apikey`, `connectionstring`, `clientsecret`, etc.) automatically generate `AzureKeyVaultSecret` linked services (e.g. `LS_KV_DbPassword`), force a Key Vault into `infrastructure_needed`, and add a `Key Vault Secrets User` RBAC for the ADF managed identity. No flag required.
+
+---
+
+### Edit a Plan
+
+Apply structured mutations rather than hand-editing the JSON.
+
+**Switch all linked services to Managed Identity:**
+> Edit the plan at `C:\plans\LoadFactSales.plan.json` and set the auth mode to ManagedIdentity.
+
+**Change the target region:**
+> Edit `C:\plans\LoadFactSales.plan.json` and set the region to eastus2.
+
+**Drop a recommended simplification you disagree with:**
+> Edit `C:\plans\LoadFactSales.plan.json` and drop the fold_to_stored_proc simplification.
+
+**Record an approval decision:**
+> Edit `C:\plans\LoadFactSales.plan.json` and add a customer_decision noting that approver is jane@contoso.com.
+
+Unknown edit keys are rejected so typos surface immediately.
+
+---
+
+### Plan Migration Waves
+
+Group saved plans into ordered delivery waves. **Requires saved MigrationPlans** — call `propose_adf_design` and `save_migration_plan` first.
+
+> Plan migration waves from the plans in `C:\Projects\MyEstate\plans\`, max 8 packages per wave, and write the wave plan to `C:\Projects\MyEstate\reports\waves.json`.
+
+Bulk-convertible packages (low/medium complexity) come first, grouped by target pattern so reviewers share context. Design-review packages (high/very_high) follow, hardest-first within each pattern.
+
+---
+
+### Estimate ADF Costs
+
+Project monthly Azure spend by introspecting saved plans. **Requires saved MigrationPlans.**
+
+The tool derives Copy, Data Flow, and orchestration activity counts from each plan's `task_counts` and `simplifications` — no flat assumptions needed.
+
+**Default assumptions (1 run/day, 10 min avg data flow, 4 DIU, 5 min copy, 100 GB):**
+> Estimate ADF costs from the plans in `C:\Projects\MyEstate\plans\`.
+
+**Override the runtime profile:**
+> Estimate ADF costs from the plans in `C:\Projects\MyEstate\plans\` with 4 runs per day, 8 copy DIU, 10 minutes per copy, and 500 GB of storage.
+
+The output breaks costs out by orchestration / Copy DIU / Mapping Data Flow / storage / Key Vault, with monthly and annual totals plus the activity mix derived from plans.
+
+---
+
+### Build the Estate Report PDF
+
+Combine saved plans + waves + costs into one stakeholder PDF. **Requires saved MigrationPlans.**
+
+> Build the estate report PDF from the plans in `C:\Projects\MyEstate\plans\`. Output to `C:\Projects\MyEstate\reports\estate-report.pdf`.
+
+If you've already computed waves and costs separately, you can supply them:
+
+> Build the estate report PDF from the plans in `C:\Projects\MyEstate\plans\`, waves at `C:\Projects\MyEstate\reports\waves.json`, costs at `C:\Projects\MyEstate\reports\costs.json`. Output to `C:\Projects\MyEstate\reports\estate-report.pdf`.
+
+If no pre-computed waves or costs JSON is supplied, both are derived automatically from the plans.
+
+The PDF includes an executive summary, complexity & pattern composition, the wave plan, projected monthly cost, and per-package detail.
+
+---
+
+### Convert an Estate
+
+Run propose + convert across an entire directory in one shot.
+
+> Convert every SSIS package under `C:\Projects\MyEstate` to `C:\Projects\MyEstate\adf\`. Save the migration plans alongside.
+
+Each package gets its own subdirectory containing the saved `migration_plan.json`, the generated ADF artifacts, and Function stubs (if applicable). The summary reports per-package status so failures can be triaged immediately.
+
+---
+
+### Provision ADF Infrastructure
+
+Generate Bicep from a plan and deploy ADF + Storage + Key Vault + RBAC.
+
+**Dry run first (validates the deployment without applying):**
+> Do a dry run provision of the ADF environment from plan `C:\plans\LoadFactSales.plan.json` into resource group `rg-myestate-data`, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`. Save the Bicep template to `C:\Projects\MyEstate\bicep\main.bicep`.
+
+**Live provisioning:**
+> Provision the ADF environment from plan `C:\plans\LoadFactSales.plan.json` into resource group `rg-myestate-data`, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`.
+
+The Data Factory is created with a system-assigned managed identity. Storage Accounts default to ADLS Gen2 (HNS enabled). Key Vault is created with RBAC authorisation. RBAC assignments declared in the plan (e.g. Storage Blob Data Contributor for the factory MI) are applied automatically.
+
+---
+
+### Smoke-Test a Pipeline
+
+Trigger one ADF pipeline run, poll until terminal, and return per-activity results.
+
+**Default 10-minute timeout:**
+> Smoke-test pipeline `PL_LoadFactSales` in factory `adf-contoso-prod`, resource group `rg-contoso-data`, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`.
+
+**With pipeline parameters and a longer timeout:**
+> Smoke-test pipeline `PL_LoadFactSales` in factory `adf-contoso-prod` with parameters `runDate=2026-04-15` and `region=eastus2`. Use a 30-minute timeout. Resource group `rg-contoso-data`, subscription `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`.
+
+The result includes the run ID, terminal status, total duration, ADF-supplied error message (on failure), and per-activity rows with name / type / status / duration / error message.
+
+---
 
 ### Scan for Packages
 
@@ -369,7 +628,16 @@ Identify data flow sources that could read from your existing Enterprise Source 
 
 Use Azure OpenAI to translate C# Script Task code to Python automatically.
 
-**Before you start,** set these environment variables:
+**Before you start,** authenticate to Azure OpenAI. Two options:
+
+*Microsoft Entra ID (recommended; required when API keys are disabled by tenant policy):*
+```powershell
+$env:AZURE_OPENAI_ENDPOINT   = "https://my-resource.openai.azure.com/"
+$env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
+az login   # signed-in account needs the "Cognitive Services OpenAI User" role
+```
+
+*API key (legacy):*
 ```powershell
 $env:AZURE_OPENAI_ENDPOINT   = "https://my-resource.openai.azure.com/"
 $env:AZURE_OPENAI_API_KEY    = "<your-key>"

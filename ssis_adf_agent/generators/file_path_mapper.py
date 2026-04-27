@@ -17,7 +17,7 @@ from typing import Any
 
 
 def apply_file_path_map(
-    artifacts: dict[str, list[dict[str, Any]]],
+    artifacts: dict[str, list[dict[str, Any]] | dict[str, Any]],
     file_path_map: dict[str, str],
 ) -> int:
     """Apply file path substitutions across all artifact types.
@@ -35,17 +35,17 @@ def apply_file_path_map(
     count = 0
 
     # Linked services
-    for ls in artifacts.get("linked_services", []):
+    for ls in artifacts.get("linked_services", []) or []:
         count += _rewrite_dict(ls, sorted_prefixes, file_path_map)
 
     # Pipeline activities
     pipeline = artifacts.get("pipeline")
-    if pipeline:
+    if isinstance(pipeline, dict):
         for act in pipeline.get("properties", {}).get("activities", []):
             count += _rewrite_dict(act, sorted_prefixes, file_path_map)
 
     # Datasets
-    for ds in artifacts.get("datasets", []):
+    for ds in artifacts.get("datasets", []) or []:
         count += _rewrite_dict(ds, sorted_prefixes, file_path_map)
 
     return count

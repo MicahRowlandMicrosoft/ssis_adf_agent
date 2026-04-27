@@ -932,30 +932,31 @@ class TestDataFlowGeneratorIntegration:
         results = generate_data_flows(pkg, tmp_path)
         assert len(results) == 1
         df = results[0]
-        assert df["name"] == "DF_Load_Customers"
+        assert df["name"] == "DF_TestPkg_Load_Customers"
 
         # Transformations should include the DerivedColumn
         transforms = df["properties"]["typeProperties"]["transformations"]
         assert len(transforms) == 1
-        assert transforms[0]["type"] == "DerivedColumn"
-        col = transforms[0]["typeProperties"]["columns"][0]
-        assert col["name"] == "FullName"
-        assert "FirstName" in col["expression"]
+        # type/typeProperties are stripped (not valid ADF JSON); verify via description + script
+        assert "DerivedColumn" in transforms[0]["description"]
+        script = "\n".join(df["properties"]["typeProperties"]["scriptLines"])
+        assert "FullName" in script
+        assert "FirstName" in script
 
     def test_dsl_script_contains_derive(self, tmp_path):
         pkg = self._make_package_with_derived_column()
         results = generate_data_flows(pkg, tmp_path)
-        script = results[0]["properties"]["typeProperties"]["script"]
+        script = "\n".join(results[0]["properties"]["typeProperties"]["scriptLines"])
         assert "derive(" in script
         assert "FullName" in script
 
     def test_json_file_written(self, tmp_path):
         pkg = self._make_package_with_derived_column()
         generate_data_flows(pkg, tmp_path)
-        json_path = tmp_path / "dataflow" / "DF_Load_Customers.json"
+        json_path = tmp_path / "dataflow" / "DF_TestPkg_Load_Customers.json"
         assert json_path.exists()
         data = json.loads(json_path.read_text())
-        assert data["name"] == "DF_Load_Customers"
+        assert data["name"] == "DF_TestPkg_Load_Customers"
 
     def _make_package_with_aggregate(self) -> SSISPackage:
         src = DataFlowComponent(
@@ -990,9 +991,12 @@ class TestDataFlowGeneratorIntegration:
         assert len(results) == 1
         transforms = results[0]["properties"]["typeProperties"]["transformations"]
         assert len(transforms) == 1
-        assert transforms[0]["type"] == "Aggregate"
-        assert "Region" in transforms[0]["typeProperties"]["groupBy"]
-        assert transforms[0]["typeProperties"]["aggregations"][0]["function"] == "sum"
+        # type/typeProperties are stripped (not valid ADF JSON); verify via description + script
+        assert "Aggregate" in transforms[0]["description"]
+        script = "\n".join(results[0]["properties"]["typeProperties"]["scriptLines"])
+        assert "groupBy(" in script
+        assert "Region" in script
+        assert "sum(" in script
 
     def test_simple_copy_not_generated_as_dataflow(self, tmp_path):
         """Single source + single destination with no transforms → no data flow."""
@@ -1037,6 +1041,13 @@ class TestDataFlowGeneratorIntegration:
         )
         trans = DataFlowComponent(
             id="c3", name="Tr", component_type="DerivedColumn", component_class_id="x",
+            output_columns=[
+                DataFlowColumn(
+                    name="full_name",
+                    data_type=DataType.WSTRING,
+                    properties={"FriendlyExpression": "[nm] + ' suffix'"},
+                ),
+            ],
         )
         paths = [
             DataFlowPath(id="p1", name="p1", start_id="c1\\Output 0", end_id="c3\\Input 0"),
@@ -1050,7 +1061,7 @@ class TestDataFlowGeneratorIntegration:
         results = generate_data_flows(pkg, tmp_path)
         assert len(results) == 1
         # File on disk must be valid JSON (would crash on Pydantic models)
-        df = json.loads((tmp_path / "dataflow" / "DF_DFT.json").read_text())
+        df = json.loads((tmp_path / "dataflow" / "DF_P_DFT.json").read_text())
         # Private fields must not leak into the JSON
         for s in df["properties"]["typeProperties"]["sources"]:
             assert "_output_columns" not in s
@@ -1058,7 +1069,7 @@ class TestDataFlowGeneratorIntegration:
             assert "_input_columns" not in s
             assert "_key_columns" not in s
         # Script should include the typed source schema; no orphan _mapped node
-        script = df["properties"]["typeProperties"]["script"]
+        script = "\n".join(df["properties"]["typeProperties"]["scriptLines"])
         assert "id as integer" in script
         assert "nm as string" in script
         assert "_mapped" not in script

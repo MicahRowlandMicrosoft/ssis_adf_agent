@@ -1,0 +1,63 @@
+{
+  "version": "1",
+  "_meta": {
+    "vendor": "COZYROC",
+    "product": "SSIS+ Salesforce components",
+    "url": "https://www.cozyroc.com/ssis/salesforce",
+    "description": "Curated substitution mappings for COZYROC's Salesforce family — Source, Destination, Lookup, and the Salesforce Task control-flow component. Maps each to the closest native ADF activity / Mapping Data Flow transformation so a converted pipeline runs end-to-end without the third-party DLL on the host.",
+    "verification": "Component type strings reflect the public COZYROC component catalog as of 2024-10. Customers should run `analyze_ssis_package` against one of their own .dtsx files and cross-check that the component_class_id observed by the parser matches one of the keys below — vendors occasionally rename components between releases.",
+    "audit_notes": "Every Salesforce Source/Destination requires its own ADF Linked Service of type 'Salesforce' (or 'SalesforceServiceCloud'). The substitution shim only emits the activity shape; the linked service must be authored once per Salesforce org and referenced by name."
+  },
+  "data_flow_components": {
+    "Cozyroc.SSISPlus.SalesforceSource": {
+      "adf_type": "Source",
+      "notes": "Replace with a native ADF Salesforce source. Author a 'Salesforce' linked service (OAuth or username-password+security-token) and a Salesforce dataset; bind the dataset's 'objectApiName' parameter to the SObject the COZYROC source was reading. SOQL filters in the COZYROC component map to the dataset's SOQLQuery property.",
+      "type_properties": {
+        "store": "Salesforce",
+        "_review_required": "Set 'objectApiName' and 'SOQLQuery' to match the original SObject + filter."
+      }
+    },
+    "Cozyroc.SSISPlus.SalesforceDestination": {
+      "adf_type": "Sink",
+      "notes": "Replace with a native ADF Salesforce sink (Mapping Data Flow). Insert/Update/Upsert/Delete operation maps directly from the COZYROC ActionType property to the ADF sink writeBehavior. Set externalIdFieldName when the original component used Upsert.",
+      "type_properties": {
+        "store": "Salesforce",
+        "_review_required": "Map ActionType (Insert/Update/Upsert/Delete) -> writeBehavior (insert/update/upsert/delete) and copy externalIdFieldName for upserts."
+      }
+    },
+    "Cozyroc.SSISPlus.SalesforceLookup": {
+      "adf_type": "Lookup",
+      "notes": "Replace with the native MDF Lookup transformation against a Salesforce dataset. Cache mode (Full/Partial/None) in COZYROC has no MDF equivalent — MDF lookups are always streaming joins; flag as a perf review item if the source SObject is > 1M rows.",
+      "type_properties": {
+        "broadcast": "Auto",
+        "_review_required": "Confirm that the MDF streaming-join cost is acceptable; consider Cache transformation upstream for large SObjects."
+      }
+    },
+    "Cozyroc.SSISPlus.SalesforceBulkSource": {
+      "adf_type": "Source",
+      "notes": "Salesforce Bulk API source. ADF's Salesforce connector uses Bulk API automatically when row count exceeds the threshold; no separate setting required.",
+      "type_properties": {
+        "store": "Salesforce",
+        "_review_required": "No-op for ADF; just confirm the dataset references the same SObject."
+      }
+    },
+    "Cozyroc.SSISPlus.SalesforceBulkDestination": {
+      "adf_type": "Sink",
+      "notes": "Salesforce Bulk API destination. ADF Salesforce sink uses Bulk API automatically; copy ActionType -> writeBehavior as for the standard destination.",
+      "type_properties": {
+        "store": "Salesforce",
+        "_review_required": "Map ActionType -> writeBehavior; verify externalIdFieldName for Upsert."
+      }
+    }
+  },
+  "control_flow_tasks": {
+    "Cozyroc.SSISPlus.SalesforceTask": {
+      "adf_activity_type": "WebActivity",
+      "notes": "COZYROC Salesforce Task wraps Salesforce REST/SOAP calls (CreateJob, AbortJob, GetSession, etc.). Map each to a Web Activity hitting the corresponding Salesforce REST endpoint. Use the Salesforce Linked Service's OAuth token via @linkedService('LS_Salesforce').accessToken (custom expression).",
+      "type_properties": {
+        "method": "POST",
+        "_review_required": "Set 'url' to the Salesforce REST endpoint (e.g. https://{instance}.salesforce.com/services/data/v59.0/...). Inject Authorization header from the linked service token."
+      }
+    }
+  }
+}

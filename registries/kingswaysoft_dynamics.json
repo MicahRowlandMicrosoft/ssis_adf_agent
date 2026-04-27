@@ -1,0 +1,69 @@
+{
+  "version": "1",
+  "_meta": {
+    "vendor": "KingswaySoft",
+    "product": "SSIS Integration Toolkit for Microsoft Dynamics 365 / CRM",
+    "url": "https://www.kingswaysoft.com/products/ssis-integration-toolkit-for-microsoft-dynamics-365",
+    "description": "Curated substitution mappings for KingswaySoft's Dynamics 365 / CRM SSIS components — CRM Source, CRM Destination, CRM Lookup, and the OptionSet/Lookup helpers. Maps each to native ADF Mapping Data Flow shapes targeting the 'Common Data Service for Apps' (Dataverse) connector.",
+    "verification": "Component type strings reflect the public KingswaySoft component catalog as of 2024-10. The KingswaySoft toolkit ships several editions (Standard, Premium, Enterprise) with the same component_type strings; the registry is version-agnostic. Run `analyze_ssis_package` first to capture the actual component_class_id observed in the customer's .dtsx.",
+    "audit_notes": "Every entry expects an ADF Linked Service of type 'CommonDataServiceForApps' (Dataverse) using either Office365 / OAuth / Service Principal auth. Custom plugins / pre-images / post-images that the KingswaySoft destination supported are NOT replicable through the Dataverse connector — flag those for manual review."
+  },
+  "data_flow_components": {
+    "KingswaySoft.SSISCRMSource": {
+      "adf_type": "Source",
+      "notes": "Replace with a native ADF Dataverse source (Mapping Data Flow). FetchXML / QueryByAttribute / LinkedSearch source modes all map to the Dataverse dataset's 'entityName' + optional 'fetchXmlQuery' property.",
+      "type_properties": {
+        "store": "CommonDataServiceForApps",
+        "_review_required": "Set entityName + (if FetchXML mode) fetchXmlQuery. Verify column-set restriction matches the original component."
+      }
+    },
+    "KingswaySoft.SSISCRMDestination": {
+      "adf_type": "Sink",
+      "notes": "Replace with a native ADF Dataverse sink. Action mapping: Create -> writeBehavior=insert, Update -> upsert + alternateKey, Upsert -> upsert + alternateKey, Delete -> delete. KingswaySoft's 'ExecuteWorkflow' action has no Dataverse-sink equivalent; convert that downstream activity to a Web Activity hitting the Dataverse Web API.",
+      "type_properties": {
+        "store": "CommonDataServiceForApps",
+        "_review_required": "Map Action (Create/Update/Upsert/Delete/ExecuteWorkflow) -> writeBehavior; copy alternateKeyName for Upsert/Update."
+      }
+    },
+    "KingswaySoft.SSISCRMLookup": {
+      "adf_type": "Lookup",
+      "notes": "Replace with the native MDF Lookup transformation against a Dataverse dataset. KingswaySoft's 'lookup if not found insert' pattern requires an MDF Conditional Split + Sink downstream — flag as a manual review item.",
+      "type_properties": {
+        "broadcast": "Auto",
+        "_review_required": "If original used 'insert if not found', add Conditional Split (lookup_match=null branch) + Sink downstream."
+      }
+    },
+    "KingswaySoft.SSISCRMOptionSet": {
+      "adf_type": "DerivedColumn",
+      "notes": "OptionSet helper resolves option-set integer values to display labels (or vice versa). Easiest replacement is a Derived Column that calls a pre-built parameterized cached lookup against the OptionSetMetadata table; for static option sets, a Case() expression in a Derived Column inlines the mapping with zero runtime cost.",
+      "type_properties": {
+        "_review_required": "Inline the option-set value->label mapping as a Case() expression, or wire to a cached Dataverse lookup of OptionSetMetadata."
+      }
+    },
+    "KingswaySoft.PremiumDerivedColumn": {
+      "adf_type": "DerivedColumn",
+      "notes": "Premium Derived Column has the same shape as the SSIS-native Derived Column but supports KingswaySoft's expression library. Each KingswaySoft expression must be re-written using ADF MDF expressions; the converter does not auto-translate vendor-specific functions.",
+      "type_properties": {
+        "_review_required": "Re-author each expression in ADF MDF syntax. Common KingswaySoft helpers (TrimAll, Coalesce-with-blank-as-null, RegexReplace) all have direct MDF equivalents (trim/coalesce/regexReplace)."
+      }
+    },
+    "KingswaySoft.PremiumLookup": {
+      "adf_type": "Lookup",
+      "notes": "Premium Lookup uses an in-process cache that ADF MDF doesn't have. Map to Lookup with broadcast=Auto; for very large reference sets, use a Cache transformation to materialize the lookup once.",
+      "type_properties": {
+        "broadcast": "Auto",
+        "_review_required": "If original cache size > ~1M rows, add an upstream Cache sink and use a CachedLookup expression in a Derived Column instead."
+      }
+    }
+  },
+  "control_flow_tasks": {
+    "KingswaySoft.IntegrationToolkit.DynamicsCrm.RetrieveDataTask": {
+      "adf_activity_type": "WebActivity",
+      "notes": "Retrieve Data Task issues a one-shot FetchXML query and stores the result in a variable. Replace with a Web Activity hitting Dataverse Web API (POST /api/data/v9.2/$batch with the FetchXML in a query parameter), then a Set Variable activity to capture the response body.",
+      "type_properties": {
+        "method": "POST",
+        "_review_required": "Set 'url' to https://{org}.api.crm.dynamics.com/api/data/v9.2/{entitySetName}?fetchXml=... and inject the Bearer token from the linked service."
+      }
+    }
+  }
+}

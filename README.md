@@ -3,30 +3,33 @@
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-An MCP (Model Context Protocol) server that reads SSIS packages (`.dtsx`) and converts them to Azure Data Factory (ADF) JSON artifacts, exposed as tools directly inside **GitHub Copilot**.
+An MCP (Model Context Protocol) server that turns SSIS migration into an agent-driven workflow inside **GitHub Copilot**.
+
+The server exposes **31 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, post-deployment smoke testing, bulk trigger activation (H7), ARM-template content export (M2), cross-pipeline regression harness (N1), behavioral data-flow parity (P4-1, see [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md)), encrypted-package secret automation (P4-4, see [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md)), and Cost Management actuals reconciliation (P4-5).
 
 All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
 
 ```
-.dtsx file(s)  ──┐
+.dtsx file(s)  ───┐
                   │      ┌────────────────────────┐
-SQL Agent jobs ───┤      │   Optional configs:    │
-                  ├─────▶│  • ESI tables JSON     │
-  Config files ───┘      │  • Schema remap JSON   │
-                         │  • Shared artifacts dir │
+SQL Agent jobs ───┤      │  Optional configs:     │
+                  ├─────>│ • ESI tables JSON      │
+  Config files ───┘      │ • Schema remap JSON    │
+                         │ • Shared artifacts dir │
                          └──────────┬─────────────┘
                                     ▼
                     ┌─────────────────────────────┐
                     │      ssis-adf-agent         │  ← MCP stdio server
                     │                             │
-                    │  scan → analyze → convert   │
-                    │      → validate → deploy    │
+                    │  bulk_analyze → propose →   │
+                    │   convert → validate →      │
+                    │   deploy → activate         │
                     │                             │
                     │  Detects:                   │
-                    │  • Cross-DB / linked server  │
-                    │  • Delta / MERGE patterns    │
-                    │  • CDM-layer logic           │
-                    │  • ESI reuse candidates      │
+                    │  • Cross-DB / linked server │
+                    │  • Delta / MERGE patterns   │
+                    │  • CDM-layer logic          │
+                    │  • ESI reuse candidates     │
                     └──────────┬──────────────────┘
                                ▼
                     ADF JSON artifacts
@@ -44,6 +47,7 @@ SQL Agent jobs ───┤      │   Optional configs:    │
 - [Installation](#installation)
 - [Registering as an MCP Server in VS Code](#registering-as-an-mcp-server-in-vs-code)
 - [Trying It Out — Samples Directory](#trying-it-out--samples-directory)
+- [Migration Copilot Workflow (recommended)](#migration-copilot-workflow-recommended)
 - [Usage — End-to-End Walkthrough](#usage--end-to-end-walkthrough)
   - [1. Scan for packages](#1-scan-for-packages)
   - [2. Analyze a package](#2-analyze-a-package)
@@ -69,7 +73,21 @@ SQL Agent jobs ───┤      │   Optional configs:    │
 - [Development](#development)
 - [License](#license)
 
-> **New to the agent?** See [HOWTO.md](HOWTO.md) for an end-to-end conversation guide with copy-paste example prompts.
+> **Pre-1.0 status.** Version `0.1.0` is pre-1.0 and the semver caveat
+> applies — minor bumps may include breaking changes. See
+> [ROADMAP.md](ROADMAP.md) for the engineering items required to flip
+> to 1.0 and the deprecation-window policy for the `0.9.0 → 1.0.0`
+> transition.
+
+> **Need help?** Open a [GitHub Issue](https://github.com/MicahRowlandMicrosoft/ssis_adf_agent/issues)
+> for bugs, feature requests, or questions. This is a community-supported
+> open-source project, not an officially supported Microsoft product —
+> see [SUPPORT.md](SUPPORT.md) for the best-effort response model and
+> the bug-report sanitization checklist.
+
+> **New to the agent?** Start with [WORKFLOW.md](WORKFLOW.md) — the
+> 6-tool minimum path through a full migration. Then see [HOWTO.md](HOWTO.md)
+> for end-to-end conversation examples with copy-paste prompts.
 
 ---
 
@@ -92,7 +110,9 @@ SQL Agent jobs ───┤      │   Optional configs:    │
 Clone the repository and install in editable mode (recommended for development):
 
 ```bash
-git clone https://github.com/chsimons_microsoft/ssis_adf_agent.git
+# Replace <org>/<repo> with the GitHub coordinates of your fork or the
+# upstream repo you cloned this from.
+git clone https://github.com/<org>/<repo>.git ssis_adf_agent
 cd ssis_adf_agent
 pip install -e .
 ```
@@ -141,7 +161,9 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
 > If you installed into a virtual environment, replace `"command": "ssis-adf-agent"` with the full path to the script, e.g. `"C:\\path\\to\\.venv\\Scripts\\ssis-adf-agent.exe"` (Windows) or `"/path/to/.venv/bin/ssis-adf-agent"` (macOS/Linux).
 
 3. Restart VS Code (or reload the window: `Ctrl+Shift+P` → **Developer: Reload Window**).
-4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the eight tools appear:
+4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the 31 tools appear. They group into three tiers:
+
+   **Per-package backbone** — the deterministic conversion path:
    - `scan_ssis_packages`
    - `analyze_ssis_package`
    - `convert_ssis_package`
@@ -150,6 +172,23 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
    - `consolidate_packages`
    - `deploy_function_stubs`
    - `provision_function_app`
+   - `explain_ssis_package`
+   - `explain_adf_artifacts`
+   - `validate_conversion_parity`
+
+   **Migration Copilot — design & infrastructure:**
+   - `propose_adf_design` — emit a recommended `MigrationPlan` for a package
+   - `edit_migration_plan` — apply structured edits (auth mode, region, simplifications)
+   - `save_migration_plan` / `load_migration_plan` — round-trip plans to disk
+   - `provision_adf_environment` — generate Bicep + deploy ADF / Storage / Key Vault / RBAC
+
+   **Migration Copilot — estate scale:**
+   - `bulk_analyze` — triage every `.dtsx` in a directory
+   - `convert_estate` — propose + convert every package in one shot
+   - `plan_migration_waves` — group saved plans into ordered delivery waves *(requires saved plans)*
+   - `estimate_adf_costs` — plan-aware monthly USD projection from activity mix *(requires saved plans)*
+   - `build_estate_report` — stakeholder PDF from saved plans + waves + costs *(requires saved plans)*
+   - `smoke_test_pipeline` — trigger one ADF pipeline run + return per-activity results
 
 ---
 
@@ -176,9 +215,131 @@ The `samples/` directory is intended as a convenient drop zone for `.dtsx` files
 
 ---
 
+## Migration Copilot Workflow (recommended)
+
+The Migration Copilot tools wrap the per-package backbone into an estate-scale, agent-driven flow. Use this when you have a folder of SSIS packages and need to produce a credible plan and deliver it incrementally.
+
+```
+  Your SSIS project
+          │
+          ▼
+  bulk_analyze ............... Walk all .dtsx, score, classify, roll up effort
+          │
+          ▼
+  Per package (or convert_estate to do all at once):
+     propose_adf_design ...... Recommended MigrationPlan (target pattern,
+                               simplifications, linked services, infra,
+                               RBAC, risks, effort)
+     edit_migration_plan ..... Refinements (auth mode, region,
+                               drop a fold)
+     save_migration_plan
+          │
+          ▼
+  plan_migration_waves ....... Groups saved plans into delivery waves
+  estimate_adf_costs ......... Plan-aware monthly $ projection (activity mix)
+  build_estate_report ........ Stakeholder PDF (executive summary + waves + cost)
+          │
+          ▼
+  provision_adf_environment .. Generate Bicep + deploy ADF / Storage / KV / RBAC
+          │
+          ▼
+  convert_ssis_package ....... Honors the saved plan when design_path is supplied
+  validate_adf_artifacts
+  deploy_to_adf
+          │
+          ▼
+  smoke_test_pipeline ........ Trigger one run, poll, return per-activity status
+```
+
+### What `propose_adf_design` recommends
+
+The rule-based proposer is opinionated but conservative. It emits a `MigrationPlan` covering:
+
+- **Target pattern** — one of `scheduled_file_drop`, `ingest_file_to_sql`, `sql_to_sql_copy`, `incremental_load`, `dimensional_load`, `script_heavy`, `custom`.
+- **Simplifications** vs. SSIS-faithful conversion. Auto-detected patterns include:
+
+  | Detector | When it fires | Action |
+  |---|---|---|
+  | Atomic-write cleanup | FileSystemTask CopyFile/MoveFile/Rename around a cloud-targeted Data Flow | `drop` |
+  | Trivial Data Flow fold | 1 source + 1 sink + only DerivedColumn / DataConversion | `fold_to_copy_activity` |
+  | Lookup-only Data Flow fold | 1 source + 1 sink + only Lookup transforms | `fold_to_copy_activity` |
+  | Stage-then-merge fold | TRUNCATE/DELETE + INSERT/MERGE/UPDATE on same connection | `fold_to_stored_proc` |
+  | Audit-only ExecuteSQL drop | INSERT/UPDATE into `*log*` / `*audit*` tables | `drop` |
+  | Send Mail replacement | SSIS Send Mail Task | `replace_with_function` (Logic App / Function) |
+
+- **Linked services** — recommended target shape with **Managed Identity** by default.
+- **Infrastructure** to provision (ADF, Storage Account, Key Vault) and **RBAC** assignments.
+- **Risks** with severity and mitigation.
+- **Effort estimate** in hours, bucketed (low / medium / high / very_high).
+
+### `Project.params`-aware Key Vault recommendations
+
+When a sibling `Project.params` file exists next to a `.dtsx`, its parameters are auto-loaded onto the package. The proposer scans for **Sensitive** parameters whose names look like credentials (`password`, `secret`, `token`, `apikey`, `connectionstring`, `clientsecret`, etc.) and:
+
+- Emits an `AzureKeyVaultSecret` linked service per credential (e.g. `LS_KV_DbPassword` with `secret_name=ssis-dbpassword`).
+- Forces a `Microsoft.KeyVault/vaults` entry into `infrastructure_needed`.
+- Adds a `Key Vault Secrets User` RBAC assignment for `<ADF MI>` on each KV linked service.
+
+No flag required — the proposer just consumes whatever `Project.params` provides.
+
+### Editing the plan with `edit_migration_plan`
+
+Rather than hand-editing the JSON, apply structured mutations:
+
+```jsonc
+{
+  "set_auth_mode": "ManagedIdentity",
+  "set_region": "eastus2",
+  "set_target_pattern": "scheduled_file_drop",
+  "set_summary": "Approved simplification",
+  "add_simplification": {
+    "action": "drop",
+    "items": ["Send Audit Email"],
+    "reason": "Replaced by Logic App"
+  },
+  "drop_simplification": "fold_to_stored_proc",
+  "set_customer_decision": { "region": "eastus2", "approver": "jane@contoso.com" }
+}
+```
+
+Unknown keys are rejected so typos surface immediately.
+
+### Wave planning & costs (design-first)
+
+These tools **require saved MigrationPlans** — call `propose_adf_design` and `save_migration_plan` first. Estimating effort, cost, and delivery sequence before the architectural blueprints are agreed is like creating a project plan before the design is made.
+
+- `plan_migration_waves` reads saved plans (from a `plans_dir`) and produces ordered waves: bulk-convertible first (grouped by `target_pattern` so reviewers share context), then design-review waves capped at `max_packages_per_wave`.
+- `estimate_adf_costs` introspects each plan's `reasoning_input.task_counts` and `simplifications` to derive per-pipeline Copy vs Data Flow vs orchestration activity counts, then projects monthly USD across orchestration (activity runs), Copy DIU·hours, Mapping Data Flow v-cores, ADLS storage, and Key Vault ops. List-price US East defaults; override via the `rates` parameter.
+- `build_estate_report` rolls plans + waves + costs into a PDF deliverable for stakeholders. If no pre-computed wave or cost JSON is supplied, it derives both automatically from the plans.
+
+### Cross-package shared infrastructure detection
+
+`bulk_analyze` groups packages by their source directory and surfaces shared-infrastructure recommendations in `estate_summary.shared_infra_recommendations`:
+
+- **Single Key Vault per project** when 2+ packages share a `Project.params` file (instead of one KV per package).
+- **Single Self-Hosted Integration Runtime per project** when 2+ packages connect to the same on-prem SQL server.
+
+Each package row also gains `project_dir`, `has_project_params`, and `sensitive_project_params`. A top-level `projects` array provides per-project rollups (package count, shared sensitive params, shared on-prem SQL servers).
+
+### Provisioning with Bicep
+
+`provision_adf_environment` consumes a saved `MigrationPlan` and:
+
+1. Generates a Bicep template covering Data Factory (system-assigned MI), Storage Account (HNS-enabled ADLS Gen2), Key Vault, and the RBAC assignments the plan declared.
+2. Compiles the Bicep via `az bicep build` (requires Azure CLI on PATH).
+3. Deploys via `azure-mgmt-resource` against an existing resource group.
+
+Supports `dry_run=true` to validate without applying.
+
+### Smoke testing
+
+After `deploy_to_adf` succeeds, `smoke_test_pipeline` triggers one pipeline run, polls until terminal status, and returns per-activity results (status, duration, error) so the agent can immediately see what worked and what didn't.
+
+---
+
 ## Usage — End-to-End Walkthrough
 
-All eight tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below show what each tool does and the key parameters it accepts.
+All 31 tools are invoked from **GitHub Copilot Chat in Agent mode**. Type your request in natural language and Copilot will call the appropriate tool(s). The sections below cover the per-package backbone; see [Migration Copilot Workflow](#migration-copilot-workflow-recommended) above for the estate-scale tools.
 
 ---
 
@@ -569,15 +730,18 @@ SSIS Script Tasks contain C# (or VB.NET) code that cannot be rule-based converte
 1. **Extraction** — The parser decodes the base64-encoded ZIP blob inside `DTS:ObjectData/ScriptProject/BinaryData`, unzips it, and reads all `.cs` / `.vb` source files (excluding `AssemblyInfo` and designer files).
 2. **Translation** — `CSharpToPythonTranslator` sends the source to Azure OpenAI Chat Completions with a structured prompt that preserves business logic and replaces unsupported patterns (SQL calls, file I/O, SMTP) with `# TODO` comments pointing to Azure equivalents.
 3. **Stub output** — The generated `stubs/<FunctionName>/__init__.py` contains the translated Python body. The original C# is preserved as line comments below the implementation for reference.
-4. **Graceful fallback** — If the API key is not configured, the model deployment is unavailable, or the DTSX uses a self-closing stub format (no embedded source), the converter falls back to the standard `TODO` stub without raising an error. A warning comment is embedded in the stub file.
+4. **Graceful fallback** — If credentials are not configured, the model deployment is unavailable, or the DTSX uses a self-closing stub format (no embedded source), the converter falls back to the standard `TODO` stub without raising an error. A warning comment is embedded in the stub file.
 
 ### Required environment variables
 
 | Variable | Description | Default |
 |---|---|---|
 | `AZURE_OPENAI_ENDPOINT` | Your Azure OpenAI resource URL, e.g. `https://my-resource.openai.azure.com/` | required |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | required |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key. **Optional** — if omitted, the translator authenticates via Microsoft Entra ID using `DefaultAzureCredential`. Recommended to leave unset and use Entra ID. | optional |
 | `AZURE_OPENAI_DEPLOYMENT` | Model deployment name | `gpt-4o` |
+| `AZURE_OPENAI_API_VERSION` | API version | `2024-10-21` |
+
+When authenticating via Entra ID, the calling identity needs the **Cognitive Services OpenAI User** role on the Azure OpenAI resource.
 
 ### Installation
 
@@ -645,7 +809,29 @@ The service principal must have the **Data Factory Contributor** role on the tar
 
 ### Azure OpenAI (for LLM Script Task translation)
 
-Set the following environment variables before calling `convert_ssis_package` with `llm_translate=true`:
+**Microsoft Entra ID (recommended; required when API keys are disabled by tenant policy):**
+
+Only the endpoint is required. Credentials come from `DefaultAzureCredential`
+(Azure CLI / managed identity / workload identity / environment service
+principal). The signed-in identity needs the **Cognitive Services OpenAI User**
+role on the Azure OpenAI resource.
+
+```powershell
+# Windows (PowerShell)
+$env:AZURE_OPENAI_ENDPOINT   = "https://my-resource.openai.azure.com/"
+$env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"   # optional, defaults to gpt-4o
+```
+
+```bash
+# macOS / Linux
+export AZURE_OPENAI_ENDPOINT="https://my-resource.openai.azure.com/"
+export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
+```
+
+For local development, run `az login` once. For Azure-hosted compute, assign a
+managed identity and grant it the role above.
+
+**API key (legacy, only when key auth is enabled on the resource):**
 
 ```powershell
 # Windows (PowerShell)
@@ -845,7 +1031,7 @@ This project is licensed under the [MIT License](LICENSE).
 ```
 MIT License
 
-Copyright (c) 2026 chsimons_microsoft
+Copyright (c) 2026 Microsoft and contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

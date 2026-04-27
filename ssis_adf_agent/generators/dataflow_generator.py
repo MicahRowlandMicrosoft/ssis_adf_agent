@@ -13,16 +13,22 @@ Best practices applied:
 from __future__ import annotations
 
 import json
+import re as _re
 from pathlib import Path
 from typing import Any
-import re as _re
 
-from ..parsers.models import DataFlowComponent, DataFlowPath, DataFlowTask, DataType, SSISPackage, TaskType
-from ..converters.data_flow.source_converter import convert_source
 from ..converters.data_flow.destination_converter import convert_destination
+from ..converters.data_flow.source_converter import convert_source
 from ..converters.data_flow.transformation_converter import convert_transformation
-from ..translators.ssis_expression_translator import translate_expression
+from ..converters.substitution_registry import SubstitutionRegistry  # noqa: F401  (used in type hint)
+from ..parsers.models import (
+    DataFlowTask,
+    DataType,
+    SSISPackage,
+    TaskType,
+)
 from ..warnings_collector import warn
+from .naming import df_name as _df_name, ds_name as _ds_name, resolve_ls_name
 
 # ---------------------------------------------------------------------------
 # SSIS DataType → ADF Mapping Data Flow DSL type
@@ -90,6 +96,10 @@ _DEST_TYPES = frozenset({
 def generate_data_flows(
     package: SSISPackage,
     output_dir: Path,
+    *,
+    ls_name_map: dict[str, str] | None = None,
+    name_overrides: dict[str, str] | None = None,
+    substitution_registry: "SubstitutionRegistry | None" = None,
 ) -> list[dict[str, Any]]:
     """
     For every complex Data Flow Task in the package, generate a Mapping Data Flow JSON.
@@ -119,15 +129,24 @@ def generate_data_flows(
         if not transform_comps and len(sources_comps) <= 1 and len(dest_comps) <= 1:
             continue  # handled as Copy Activity
 
-        df_name = f"DF_{task.name.replace(' ', '_')}"
+        df_nm = _df_name(package.name, task.name, name_overrides=name_overrides)
 
-        sources = [convert_source(c) for c in sources_comps]
-        sinks = [convert_destination(c) for c in dest_comps]
+        sources = [convert_source(c, package_name=package.name, ls_name_map=ls_name_map) for c in sources_comps]
+        sinks = [convert_destination(c, package_name=package.name, ls_name_map=ls_name_map) for c in dest_comps]
         transformations: list[dict[str, Any]] = []
         for comp in transform_comps:
-            t = convert_transformation(comp)
+            if substitution_registry is not None:
+                t = convert_transformation(comp, registry=substitution_registry)
+            else:
+                t = convert_transformation(comp)
             if t is not None:
                 transformations.append(t)
+
+        # Re-check after conversion: if all transforms were no-ops (e.g. empty
+        # DerivedColumn) and there's a single source → single sink, skip the
+        # data flow and let the pipeline generator emit a Copy Activity instead.
+        if not transformations and len(sources_comps) <= 1 and len(dest_comps) <= 1:
+            continue
 
         # Collect key columns from destination components for upsert config
         key_cols: list[str] = []
@@ -138,13 +157,23 @@ def generate_data_flows(
         # Build data flow script using topology from parsed paths
         script = _build_dsl_script(sources, transformations, sinks, key_cols, task)
 
-        # Strip private metadata fields (Pydantic models) before JSON serialization
+        # Strip internal fields before JSON serialization.
+        # Private metadata (_output_columns, etc.) was used by _build_dsl_script;
+        # typeProperties/type are used by _emit_transformation but are NOT valid
+        # in the ADF Mapping Data Flow REST schema (all config lives in scriptLines).
+        # linkedService is also removed from sources/sinks — the LS is already
+        # defined in the referenced dataset; including it at the source/sink
+        # level causes "Unable to parse" errors.
         for _d in (*sources, *sinks):
-            for _k in ("_output_columns", "_input_columns", "_key_columns"):
+            for _k in ("_output_columns", "_input_columns", "_key_columns",
+                        "typeProperties", "linkedService"):
+                _d.pop(_k, None)
+        for _d in transformations:
+            for _k in ("type", "typeProperties"):
                 _d.pop(_k, None)
 
         df: dict[str, Any] = {
-            "name": df_name,
+            "name": df_nm,
             "properties": {
                 "description": f"Mapping Data Flow for SSIS Data Flow Task: {task.name}",
                 "type": "MappingDataFlow",
@@ -152,14 +181,13 @@ def generate_data_flows(
                     "sources": sources,
                     "sinks": sinks,
                     "transformations": transformations,
-                    "script": script,
                     "scriptLines": script.splitlines(),
                 },
                 "annotations": ["ssis-adf-agent"],
             },
         }
 
-        (df_dir / f"{df_name}.json").write_text(
+        (df_dir / f"{df_nm}.json").write_text(
             json.dumps(df, indent=4, ensure_ascii=False),
             encoding="utf-8",
         )
@@ -298,14 +326,14 @@ def _emit_source(lines: list[str], s: dict) -> None:
         col_defs = ",\n        ".join(
             f"{_q(c.name)} as {_DATATYPE_TO_DSL.get(c.data_type, 'string')}" for c in cols
         )
-        lines.append(f"source(output(")
+        lines.append("source(output(")
         lines.append(f"        {col_defs}")
-        lines.append(f"    ),")
+        lines.append("    ),")
     else:
-        lines.append(f"source(output(_ssis_todo as string),")
-    lines.append(f"    allowSchemaDrift: true,")
-    lines.append(f"    validateSchema: false,")
-    lines.append(f"    isolationLevel: 'READ_UNCOMMITTED',")
+        lines.append("source(output(_ssis_todo as string),")
+    lines.append("    allowSchemaDrift: true,")
+    lines.append("    validateSchema: false,")
+    lines.append("    isolationLevel: 'READ_UNCOMMITTED',")
     lines.append(f"    errorHandlingOption: 'stopOnFirstError') ~> {s['name']}")
 
 
@@ -409,17 +437,17 @@ def _emit_sink(
     # Select transformation to the transformations array.
 
     lines.append(f"{upstream} sink(allowSchemaDrift: true,")
-    lines.append(f"    validateSchema: false,")
-    lines.append(f"    errorHandlingOption: 'stopOnFirstError',")
+    lines.append("    validateSchema: false,")
+    lines.append("    errorHandlingOption: 'stopOnFirstError',")
     if has_keys:
         keys_str = ", ".join(f"'{k}'" for k in key_columns)
         lines.append(f"    keys: [{keys_str}],")
-        lines.append(f"    deletable: false,")
-        lines.append(f"    insertable: true,")
-        lines.append(f"    updateable: true,")
+        lines.append("    deletable: false,")
+        lines.append("    insertable: true,")
+        lines.append("    updateable: true,")
         lines.append(f"    upsertable: true) ~> {sk['name']}")
     else:
-        lines.append(f"    deletable: false,")
-        lines.append(f"    insertable: true,")
-        lines.append(f"    updateable: false,")
+        lines.append("    deletable: false,")
+        lines.append("    insertable: true,")
+        lines.append("    updateable: false,")
         lines.append(f"    upsertable: false) ~> {sk['name']}")

@@ -7,14 +7,17 @@ Mapping Data Flow JSON.
 """
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from ...parsers.models import DataFlowComponent
 from ...translators.ssis_expression_translator import translate_expression
 from ...warnings_collector import warn
+from ..substitution_registry import (
+    EMPTY_REGISTRY,
+    DataFlowSubstitution,
+    SubstitutionRegistry,
+)
 from ._naming import safe_node_name
-
 
 # ---------------------------------------------------------------------------
 # Aggregation type enum used in SSIS Aggregate component
@@ -31,11 +34,25 @@ _AGG_TYPE_MAP: dict[str, str] = {
 }
 
 
-def convert_transformation(component: DataFlowComponent) -> dict[str, Any] | None:
+def convert_transformation(
+    component: DataFlowComponent,
+    *,
+    registry: SubstitutionRegistry = EMPTY_REGISTRY,
+) -> dict[str, Any] | None:
     """
     Dispatch to the right transformation builder based on component_type.
     Returns None for component types that should be silently skipped.
+
+    M7 — if ``registry`` declares a substitution for this component_type
+    (typically a 3rd-party Cozyroc / KingswaySoft / in-house component), use
+    it instead of falling through to the generic placeholder. The substitution
+    short-circuits everything below — it is the customer's responsibility to
+    ensure the chosen ADF transformation type is valid.
     """
+    sub = registry.lookup_data_flow(component.component_type)
+    if sub is not None:
+        return _from_substitution(component, sub)
+
     dispatch: dict[str, Any] = {
         "DerivedColumn": _derived_column,
         "Lookup": _lookup,
@@ -79,18 +96,33 @@ def _base(component: DataFlowComponent, transform_type: str) -> dict[str, Any]:
 # DerivedColumn — reads Expression from each output column's properties
 # ---------------------------------------------------------------------------
 
-def _derived_column(component: DataFlowComponent) -> dict[str, Any]:
+def _derived_column(component: DataFlowComponent) -> dict[str, Any] | None:
     t = _base(component, "DerivedColumn")
     columns: list[dict] = []
     for col in component.output_columns:
-        ssis_expr = col.properties.get("Expression") or col.properties.get("FriendlyExpression")
+        # Prefer FriendlyExpression (uses column names) over Expression (uses
+        # lineage IDs like #{Package\...\Columns[X]} that ADF cannot parse).
+        ssis_expr = col.properties.get("FriendlyExpression") or col.properties.get("Expression")
         if ssis_expr:
             adf_expr = translate_expression(ssis_expr)
         else:
             # Fallback: check component-level properties keyed by column name
             ssis_expr = component.properties.get(col.name)
             adf_expr = translate_expression(ssis_expr) if ssis_expr else f"/* TODO: expression for {col.name} */"
+
+        # Skip pure pass-through columns (expression is just the column name
+        # with no transformation).  These flow automatically via allowSchemaDrift.
+        stripped = adf_expr.strip()
+        if stripped == col.name or stripped == col.name.strip("{}"):
+            continue
+
         columns.append({"name": col.name, "expression": adf_expr})
+
+    # If no meaningful columns remain, this DerivedColumn is a no-op — skip it
+    # so the generator can fall back to a Copy Activity if no other transforms exist.
+    if not columns:
+        return None
+
     t["typeProperties"]["columns"] = columns
     return t
 
@@ -112,10 +144,8 @@ def _lookup(component: DataFlowComponent) -> dict[str, Any]:
                 "rightColumn": ref_col,
             })
 
-    # Determine lookup type from component properties
-    no_match_behavior = component.properties.get("NoMatchBehavior") or "0"
-    # 0 = fail on no match, 1 = redirect to no-match output
-    match_multiple = (component.properties.get("DefaultCodePage") or "") != ""  # heuristic
+    # TODO: surface NoMatchBehavior / match-multiple semantics from
+    # component.properties when emitting the Lookup transformation.
 
     t["typeProperties"] = {
         "lookupTable": {
@@ -350,6 +380,30 @@ def _script_component(component: DataFlowComponent) -> dict[str, Any]:
         source="transformation_converter",
         message=f"Script Component '{component.name}' requires manual implementation",
         detail="Mapped to ExternalCall placeholder — implement in Azure Function or Databricks",
+    )
+    return t
+
+
+def _from_substitution(
+    component: DataFlowComponent,
+    sub: DataFlowSubstitution,
+) -> dict[str, Any]:
+    """Build a transformation node from a substitution-registry entry (M7)."""
+    t = _base(component, sub.adf_type)
+    t["description"] = (
+        f"[REGISTRY SUBSTITUTION] {component.component_type} -> {sub.adf_type}"
+        + (f" — {sub.notes}" if sub.notes else "")
+    )
+    if sub.type_properties:
+        t["typeProperties"] = dict(sub.type_properties)
+    warn(
+        phase="convert", severity="info",
+        source="transformation_converter",
+        message=(
+            f"Component '{component.name}' ({component.component_type}) "
+            f"replaced by registry substitution -> {sub.adf_type}"
+        ),
+        detail=sub.notes or "Substitution registry entry applied verbatim.",
     )
     return t
 

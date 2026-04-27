@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..parsers.models import SqlAgentSchedule, SSISPackage
-
+from .naming import pl_name as _pl_name, tr_name as _tr_name
 
 # SQL Agent freq_type → ADF frequency
 _FREQ_MAP: dict[int, str] = {
@@ -135,6 +135,8 @@ def generate_triggers(
     package: SSISPackage,
     output_dir: Path,
     cron_expression: str | None = None,
+    *,
+    name_overrides: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Generate an ADF ScheduleTrigger JSON for the pipeline derived from *package*.
@@ -150,8 +152,8 @@ def generate_triggers(
     trigger_dir = output_dir / "trigger"
     trigger_dir.mkdir(parents=True, exist_ok=True)
 
-    pipeline_name = f"PL_{package.name.replace(' ', '_')}"
-    trigger_name = f"TR_{package.name.replace(' ', '_')}"
+    pipeline_name = _pl_name(package.name, name_overrides=name_overrides)
+    trigger_name = _tr_name(package.name, name_overrides=name_overrides)
 
     description_parts = [f"Auto-generated trigger for pipeline {pipeline_name}."]
     recurrence: dict[str, Any]

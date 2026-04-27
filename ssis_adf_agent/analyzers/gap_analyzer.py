@@ -13,20 +13,20 @@ from ..parsers.models import (  # type: ignore[attr-defined]
     CrossDbReferenceType,
     DataFlowTask,
     ExecuteProcessTask,
-    ExecuteSQLTask,
     FileSystemTask,
-    ForEachLoopContainer,
     ForEachEnumeratorType,
+    ForEachLoopContainer,
     ForLoopContainer,
     GapItem,
+    ProtectionLevel,
     ScriptTask,
     SequenceContainer,
+    Severity,
     SSISPackage,
     SSISTask,
     TaskType,
-    ProtectionLevel,
 )
-from .script_classifier import classify_script, ScriptComplexity
+from .script_classifier import ScriptComplexity, classify_script
 
 # Data flow component types that ADF Mapping Data Flow cannot represent directly
 _UNSUPPORTED_DF_COMPONENTS: frozenset[str] = frozenset({
@@ -72,7 +72,7 @@ def analyze_gaps(package: SSISPackage) -> list[GapItem]:
             task_id=package.id,
             task_name=package.name,
             task_type="Package",
-            severity="warning",
+            severity=Severity.WARNING,
             message=(
                 f"Package uses ProtectionLevel={package.protection_level.value}. "
                 "Sensitive values may not be readable without the password. "
@@ -110,7 +110,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type="ScriptTask",
-                severity="info",
+                severity=Severity.INFO,
                 message=(
                     f"Script Task ({lang}) classified as trivial: {classification.reason}. "
                     "This can be replaced with ADF pipeline variables, parameters, or expressions."
@@ -125,7 +125,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type="ScriptTask",
-                severity="info" if classification.adf_expressible else "warning",
+                severity=(Severity.INFO if classification.adf_expressible else Severity.WARNING),
                 message=(
                     f"Script Task ({lang}) classified as simple: {classification.reason}. "
                     + (
@@ -146,7 +146,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type="ScriptTask",
-                severity="warning",
+                severity=Severity.WARNING,
                 message=(
                     f"Script Task ({lang}) classified as moderate complexity: {classification.reason}. "
                     "An Azure Function stub has been generated."
@@ -161,7 +161,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type="ScriptTask",
-                severity="manual_required",
+                severity=Severity.MANUAL_REQUIRED,
                 message=(
                     f"Script Task ({lang}) classified as complex: {classification.reason}. "
                     "An Azure Function stub has been generated."
@@ -177,7 +177,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
             task_id=task.id,
             task_name=task.name,
             task_type="Unknown",
-            severity="manual_required",
+            severity=Severity.MANUAL_REQUIRED,
             message="Task type was not recognised and cannot be converted automatically.",
             recommendation="Identify the task type from the original SSIS package and implement a custom converter.",
         ))
@@ -188,7 +188,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
             task_id=task.id,
             task_name=task.name,
             task_type="ExecuteProcessTask",
-            severity="manual_required",
+            severity=Severity.MANUAL_REQUIRED,
             message=(
                 f"Execute Process Task runs executable '{task.executable}' which has no ADF equivalent. "
                 "ADF Custom Activity or Azure Batch is the closest option."
@@ -210,7 +210,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type="ForEachLoop",
-                severity="warning",
+                severity=Severity.WARNING,
                 message=(
                     f"ForEach enumerator type '{task.enumerator_type.value}' has no direct ADF equivalent. "
                     "It has been mapped to a ForEach Activity but the items expression needs manual review."
@@ -224,7 +224,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
             task_id=task.id,
             task_name=task.name,
             task_type="ForLoop",
-            severity="warning",
+            severity=Severity.WARNING,
             message=(
                 "For Loop Container has been mapped to an Until Activity. "
                 "Verify that the loop exit condition translates correctly."
@@ -243,8 +243,11 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type="FileSystemTask",
-                severity="warning",
-                message=f"File System Task operation '{task.operation}' has been mapped to a Web Activity calling an Azure Function.",
+                severity=Severity.WARNING,
+                message=(
+                    f"File System Task operation '{task.operation}' has been mapped to a "
+                    "Web Activity calling an Azure Function."
+                ),
                 recommendation="Implement the file delete logic in the generated Azure Function stub.",
             ))
 
@@ -256,7 +259,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                     task_id=comp.id,
                     task_name=f"{task.name} / {comp.name}",
                     task_type=f"DataFlow/{comp.component_type}",
-                    severity="manual_required",
+                    severity=Severity.MANUAL_REQUIRED,
                     message=(
                         f"Data Flow component '{comp.component_type}' is not supported in ADF Mapping Data Flows. "
                         "Manual implementation required."
@@ -271,7 +274,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                     task_id=comp.id,
                     task_name=f"{task.name} / {comp.name}",
                     task_type=f"DataFlow/{comp.component_type}",
-                    severity="warning",
+                    severity=Severity.WARNING,
                     message=_REVIEW_DF_COMPONENTS[comp.component_type],
                     recommendation="Review the generated Mapping Data Flow transformation.",
                 ))
@@ -283,7 +286,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type=f"{task.task_type.value}/LinkedServer",
-                severity="manual_required",
+                severity=Severity.MANUAL_REQUIRED,
                 message=(
                     f"Linked server reference detected: {ref.raw_match}. "
                     f"Server '{ref.server_name}' → database '{ref.database_name}'. "
@@ -300,7 +303,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type=f"{task.task_type.value}/CrossDatabase",
-                severity="warning",
+                severity=Severity.WARNING,
                 message=(
                     f"Cross-database reference detected: {ref.raw_match}. "
                     f"Database '{ref.database_name}' → '{ref.schema_name}.{ref.table_name}'. "
@@ -316,7 +319,7 @@ def _analyze_task(task: SSISTask) -> list[GapItem]:
                 task_id=task.id,
                 task_name=task.name,
                 task_type=f"{task.task_type.value}/{ref.ref_type.value}",
-                severity="manual_required",
+                severity=Severity.MANUAL_REQUIRED,
                 message=(
                     f"{ref.ref_type.value.upper()} detected: {ref.raw_match}. "
                     "This pattern is not supported in Azure SQL."

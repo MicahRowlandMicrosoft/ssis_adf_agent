@@ -15,7 +15,6 @@ import re
 
 from ..warnings_collector import warn as _warn
 
-
 # ---------------------------------------------------------------------------
 # Function name mapping: SSIS → ADF
 # ---------------------------------------------------------------------------
@@ -113,6 +112,20 @@ _CAST_MAP: dict[str, str] = {
 # Column reference: [ColumnName]
 _COL_REF_RE = re.compile(r"\[([^\]]+)\]")
 
+# Bare ADF DSL identifier: letters/digits/underscores, starting with letter or _.
+_BARE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _replace_col_ref(m: re.Match) -> str:
+    """Replace SSIS ``[Col Name]`` with ADF DSL identifier.
+
+    Simple names → bare identifier; names with spaces/specials → ``{Col Name}``.
+    """
+    name = m.group(1)
+    if _BARE_IDENT_RE.match(name):
+        return name
+    return "{" + name + "}"
+
 # SSIS cast: (DT_XXX) expr  or  (DT_XXX, len, codepage) expr
 _CAST_RE = re.compile(
     r"\(\s*(DT_\w+)(?:\s*,\s*\d+)*(?:\s*,\s*\d+)*\s*\)",
@@ -168,8 +181,9 @@ def translate_expression(ssis_expr: str | None) -> str:
     # 5. Function calls
     expr = _translate_functions(expr)
 
-    # 6. Column references: [ColName] → ColName
-    expr = _COL_REF_RE.sub(r"\1", expr)
+    # 6. Column references: [ColName] → ColName or {Col Name} (ADF DSL
+    #    requires curly braces for identifiers containing spaces/special chars)
+    expr = _COL_REF_RE.sub(_replace_col_ref, expr)
 
     # 7. SSIS boolean operators
     expr = expr.replace("&&", "&&").replace("||", "||")

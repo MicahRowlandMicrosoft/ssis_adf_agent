@@ -1,0 +1,7 @@
+id,region,gross_amount,discount_pct
+1,EU,100.00,0.05
+2,EU,250.00,0.10
+3,US,50.00,0.00
+4,US,300.00,0.15
+5,APAC,75.00,0.00
+6,APAC,180.00,0.20

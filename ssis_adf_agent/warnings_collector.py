@@ -28,8 +28,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any
 
 from .parsers.models import ConversionWarning
 
@@ -45,7 +44,7 @@ class WarningsCollector:
     def __init__(self) -> None:
         self.warnings: list[ConversionWarning] = []
 
-    def __enter__(self) -> "WarningsCollector":
+    def __enter__(self) -> WarningsCollector:
         _local.collector = self
         return self
 

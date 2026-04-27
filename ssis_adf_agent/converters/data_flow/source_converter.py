@@ -8,7 +8,9 @@ from typing import Any
 
 from ...parsers.models import DataFlowComponent
 from ...warnings_collector import warn
+from ...generators.naming import ds_name as _ds_name, resolve_ls_name
 from ._naming import safe_node_name
+
 
 # Map SSIS source component type → ADF dataset type
 _SOURCE_DATASET_TYPE: dict[str, str] = {
@@ -26,7 +28,12 @@ _SOURCE_STORE_SETTINGS: dict[str, dict] = {
 }
 
 
-def convert_source(component: DataFlowComponent) -> dict[str, Any]:
+def convert_source(
+    component: DataFlowComponent,
+    *,
+    package_name: str = "",
+    ls_name_map: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """
     Return an ADF Mapping Data Flow ``source`` transformation dict.
 
@@ -37,7 +44,7 @@ def convert_source(component: DataFlowComponent) -> dict[str, Any]:
     # ADF Mapping Data Flow node names must be alphanumeric only.
     safe_name = safe_node_name(component.name, fallback="Source")
     # Dataset resource names allow underscores; keep the underscore form for refs.
-    ds_ref_name = component.name.replace(" ", "_")
+    ds_ref = _ds_name(package_name, component.name) if package_name else f"DS_{component.name.replace(' ', '_')}"
 
     conn_ref = component.connection_id
     if not conn_ref:
@@ -52,11 +59,11 @@ def convert_source(component: DataFlowComponent) -> dict[str, Any]:
         "name": safe_name,
         "description": f"Source from SSIS {comp_type}: {component.name}",
         "dataset": {
-            "referenceName": f"DS_{ds_ref_name}",
+            "referenceName": ds_ref,
             "type": "DatasetReference",
         },
         "linkedService": {
-            "referenceName": f"LS_{conn_ref}",
+            "referenceName": resolve_ls_name(conn_ref, ls_name_map),
             "type": "LinkedServiceReference",
         },
         "typeProperties": {

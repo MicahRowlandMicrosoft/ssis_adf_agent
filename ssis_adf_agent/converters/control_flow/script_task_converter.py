@@ -18,8 +18,8 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+from ...analyzers.script_classifier import ScriptComplexity, classify_script
 from ...parsers.models import PrecedenceConstraint, ScriptTask, SSISTask
-from ...analyzers.script_classifier import classify_script, ScriptComplexity
 from ..base_converter import BaseConverter
 
 
@@ -170,8 +170,12 @@ class ScriptTaskConverter(BaseConverter):
             translated_body, translation_warning = _attempt_llm_translation(task)
         elif self.llm_translate and not task.source_code:
             translation_warning = (
-                f"[LLM translation skipped for '{task.name}': no C# source code was "
-                "extracted from the DTSX (package may use self-closing stub format)]"
+                f"[LLM translation skipped for '{task.name}': no "
+                f"{task.script_language} source code was extracted from the DTSX. "
+                "The Script Task may use an unsupported VSTA project layout, "
+                "may be encrypted with a package password (EncryptAllWithPassword), "
+                "or may be a pre-2008 binary-only stub. Re-export the package with "
+                "DontSaveSensitive or supply the password to recover the source.]"
             )
 
         # Original C# included as line comments whenever source is available
@@ -202,7 +206,7 @@ class ScriptTaskConverter(BaseConverter):
                 warn_line
                 + orig_block
                 + "    # TODO: implement converted logic here\n"
-                + f"    raise NotImplementedError(\n"
+                + "    raise NotImplementedError(\n"
                 + f'        "Script Task \'{task.name}\' has not been implemented yet. "\n'
                 + f'        "See the original {task.script_language} code above."\n'
                 + "    )"
@@ -278,14 +282,25 @@ def _attempt_llm_translation(task: ScriptTask) -> tuple[str | None, str]:
     On success: (code_str, "").
     On failure: (None, warning_message) — caller falls back to TODO stub.
     """
-    from ...translators.csharp_to_python import CSharpToPythonTranslator, TranslationError
+    from ...translators.csharp_to_python import (
+        CSharpToPythonTranslator,
+        TranslationError,
+        no_llm_policy_enabled,
+    )
 
     translator = CSharpToPythonTranslator()
     if not translator.is_configured():
-        msg = (
-            "[LLM translation skipped: AZURE_OPENAI_ENDPOINT and/or AZURE_OPENAI_API_KEY "
-            "are not set. Set these env vars to enable automatic C# → Python translation.]"
-        )
+        if no_llm_policy_enabled():
+            msg = (
+                f"[LLM translation skipped for '{task.name}': disabled by policy "
+                "(SSIS_ADF_NO_LLM env var is set). Falling back to deterministic "
+                "TODO stub. Unset the env var to allow Azure OpenAI calls.]"
+            )
+        else:
+            msg = (
+                "[LLM translation skipped: AZURE_OPENAI_ENDPOINT and/or AZURE_OPENAI_API_KEY "
+                "are not set. Set these env vars to enable automatic C# → Python translation.]"
+            )
         warnings.warn(msg, stacklevel=4)
         return None, msg
 

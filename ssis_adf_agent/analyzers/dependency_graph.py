@@ -11,11 +11,8 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
 from ..parsers.models import (  # type: ignore[attr-defined]
-    ForEachLoopContainer,
-    ForLoopContainer,
     PrecedenceConstraint,
     PrecedenceValue,
-    SequenceContainer,
     SSISPackage,
     SSISTask,
 )
@@ -25,7 +22,7 @@ from ..parsers.models import (  # type: ignore[attr-defined]
 class TaskNode:
     task_id: str
     task_name: str
-    depends_on: list["DependsOnEntry"] = field(default_factory=list)
+    depends_on: list[DependsOnEntry] = field(default_factory=list)
 
 
 @dataclass
@@ -92,7 +89,6 @@ def topological_sort(
 
     Handles cycles by appending remaining nodes at the end with a warning.
     """
-    nodes = build_dependency_graph(tasks, constraints)
     task_ids = [t.id for t in tasks]
 
     # Build adjacency: from_id → set of to_ids

@@ -93,8 +93,8 @@ If you need to register it in your **user** settings instead (e.g. for use acros
 > - macOS/Linux: `"/path/to/.venv/bin/ssis-adf-agent"`
 
 3. Reload VS Code (`Ctrl+Shift+P` → **Developer: Reload Window**).
-4. Open **Copilot Chat** → switch to **Agent** mode → confirm five tools appear:
-   `scan_ssis_packages`, `analyze_ssis_package`, `convert_ssis_package`, `validate_adf_artifacts`, `deploy_to_adf`
+4. Open **Copilot Chat** → switch to **Agent** mode → confirm the server registered and that the 23 SSIS→ADF tools appear (a partial list of the most commonly used ones):
+   `scan_ssis_packages`, `analyze_ssis_package`, `bulk_analyze`, `propose_adf_design`, `convert_ssis_package`, `convert_estate`, `validate_adf_artifacts`, `validate_conversion_parity`, `smoke_test_pipeline`, `deploy_to_adf`. The complete list is in [README.md](README.md#tools-reference).
 
 ---
 
@@ -115,20 +115,38 @@ For local development, `az login` is sufficient — no environment variables nee
 
 ### Required for LLM Script Task translation
 
-Set these when using `convert_ssis_package` with `llm_translate=true`:
+Set these when using `convert_ssis_package` with `llm_translate=true`.
+
+**Microsoft Entra ID (recommended; required when API keys are disabled by tenant policy):**
+
+Only the endpoint is required — credentials come from `DefaultAzureCredential`
+(Azure CLI, managed identity, workload identity, environment service principal,
+etc.). Run `az login` for local development. The signed-in identity needs the
+**Cognitive Services OpenAI User** role on the Azure OpenAI resource.
+
+> **Per-tool RBAC minimums for everything else** — `deploy_to_adf`,
+> `provision_adf_environment`, `upload_encrypted_secrets`, etc. — are
+> documented in [RBAC.md](RBAC.md). "Owner on the subscription" is never
+> required.
 
 ```powershell
 # PowerShell
 $env:AZURE_OPENAI_ENDPOINT   = "https://my-resource.openai.azure.com/"
-$env:AZURE_OPENAI_API_KEY    = "<your-key>"
 $env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"   # optional, defaults to gpt-4o
 ```
 
 ```bash
 # Bash
 export AZURE_OPENAI_ENDPOINT="https://my-resource.openai.azure.com/"
-export AZURE_OPENAI_API_KEY="<your-key>"
 export AZURE_OPENAI_DEPLOYMENT="gpt-4o"
+```
+
+**API key (legacy, only when key auth is enabled):**
+
+```powershell
+$env:AZURE_OPENAI_ENDPOINT   = "https://my-resource.openai.azure.com/"
+$env:AZURE_OPENAI_API_KEY    = "<your-key>"
+$env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
 ```
 
 ---
@@ -229,6 +247,6 @@ The project enforces `ruff` with `line-length = 100` and `mypy --strict`.
 | Tools don't appear in Copilot Chat | Reload VS Code; confirm `.vscode/mcp.json` exists and Agent mode is selected |
 | ODBC errors when scanning SQL Server | Install [ODBC Driver 17+](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server) and verify with `odbcinst -j` (Linux) or ODBC Data Source Administrator (Windows) |
 | `EncryptAllWithPassword` warnings | The SSIS package has encrypted connection strings. Passwords must be filled in manually in linked service JSON or referenced via Key Vault (`use_key_vault=true`) |
-| LLM translation returns TODO stubs | Verify `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_API_KEY` are set. Check that the deployment name matches your Azure OpenAI resource. |
+| LLM translation returns TODO stubs | Verify `AZURE_OPENAI_ENDPOINT` is set. For Entra ID auth, run `az login` and confirm your account has the **Cognitive Services OpenAI User** role on the Azure OpenAI resource. For key auth, also set `AZURE_OPENAI_API_KEY`. Check that the deployment name matches your Azure OpenAI resource. |
 | `az login` required for deployment | Run `az login` before calling `deploy_to_adf`. For CI/CD, set `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`. |
 | Cross-DB references flagged as `manual_required` | Four-part names and `OPENQUERY`/`OPENROWSET` calls require architectural decisions — replace with elastic queries, external tables, or separate linked services. |

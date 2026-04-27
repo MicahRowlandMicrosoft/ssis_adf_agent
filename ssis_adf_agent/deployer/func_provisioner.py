@@ -26,36 +26,41 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 try:
+    from azure.core.exceptions import (
+        ClientAuthenticationError,
+        HttpResponseError,
+        ResourceExistsError,
+    )
     from azure.identity import DefaultAzureCredential
-    from azure.mgmt.web import WebSiteManagementClient
-    from azure.mgmt.web.models import (
-        AppServicePlan,
-        Site,
-        SiteConfig,
-        NameValuePair,
-        SkuDescription,
-    )
-    from azure.mgmt.storage import StorageManagementClient
-    from azure.mgmt.storage.models import (
-        StorageAccountCreateParameters,
-        Sku as StorageSku,
-        Kind as StorageKind,
-    )
+
+    from ..credential import get_credential
     from azure.mgmt.applicationinsights import ApplicationInsightsManagementClient
     from azure.mgmt.applicationinsights.models import (
         ApplicationInsightsComponent,
     )
-    from azure.core.exceptions import (
-        HttpResponseError,
-        ClientAuthenticationError,
-        ResourceExistsError,
+    from azure.mgmt.storage import StorageManagementClient
+    from azure.mgmt.storage.models import (
+        Kind as StorageKind,
+    )
+    from azure.mgmt.storage.models import (
+        Sku as StorageSku,
+    )
+    from azure.mgmt.storage.models import (
+        StorageAccountCreateParameters,
+    )
+    from azure.mgmt.web import WebSiteManagementClient
+    from azure.mgmt.web.models import (
+        AppServicePlan,
+        NameValuePair,
+        Site,
+        SiteConfig,
+        SkuDescription,
     )
     _AZURE_AVAILABLE = True
 except ImportError:
@@ -151,13 +156,13 @@ class FuncProvisioner:
         self.subscription_id = subscription_id
         self.resource_group = resource_group
         self.location = location
-        self._credential = credential or DefaultAzureCredential()
+        self._credential = credential or get_credential()
         self._web_client: Any = None
         self._storage_client: Any = None
         self._insights_client: Any = None
 
     @property
-    def web_client(self) -> "WebSiteManagementClient":
+    def web_client(self) -> WebSiteManagementClient:
         if self._web_client is None:
             self._web_client = WebSiteManagementClient(
                 self._credential, self.subscription_id
@@ -165,7 +170,7 @@ class FuncProvisioner:
         return self._web_client
 
     @property
-    def storage_client(self) -> "StorageManagementClient":
+    def storage_client(self) -> StorageManagementClient:
         if self._storage_client is None:
             self._storage_client = StorageManagementClient(
                 self._credential, self.subscription_id
@@ -173,7 +178,7 @@ class FuncProvisioner:
         return self._storage_client
 
     @property
-    def insights_client(self) -> "ApplicationInsightsManagementClient":
+    def insights_client(self) -> ApplicationInsightsManagementClient:
         if self._insights_client is None:
             self._insights_client = ApplicationInsightsManagementClient(
                 self._credential, self.subscription_id

@@ -5,9 +5,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..ssis_parser import SSISParser, parse_project_params
-from ..models import SSISPackage
 from ...warnings_collector import warn
+from ..models import SSISPackage
+from ..ssis_parser import SSISParser, parse_project_params
 
 
 class LocalReader:

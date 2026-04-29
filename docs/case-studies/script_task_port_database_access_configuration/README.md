@@ -2,7 +2,7 @@
 
 This is a **complete, end-to-end** port of one real SSIS Script Task to an
 Azure Function, anchoring the per-Script-Task hour estimates in
-[EFFORT_METHODOLOGY.md](../../../EFFORT_METHODOLOGY.md) to a concrete example
+[effort-methodology.md](../../conversion/effort-methodology.md) to a concrete example
 buyers can audit before signing off on a migration plan.
 
 | Field | Value |

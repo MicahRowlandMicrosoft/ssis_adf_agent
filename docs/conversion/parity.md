@@ -30,7 +30,7 @@ explicitly pass one.
 - **Row-level data parity.** This validator is structural. To compare the
   *actual data* produced by an SSIS Data Flow against its converted ADF
   Mapping Data Flow, see the **behavioral parity harness** (P4-1) documented
-  in [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md). That harness ships a
+  in [behavioral-parity.md](behavioral-parity.md). That harness ships a
   `compare_dataflow_output` MCP tool and a worked example with a seeded
   regression.
 - **Performance parity.** RU / DIU / SHIR sizing is not estimated.
@@ -93,7 +93,7 @@ Headline findings on this sample:
 ## Catching a known defect
 
 The parity validator was designed to catch the kind of regression we hit in
-[BACKLOG.md](BACKLOG.md) item B1 (Copy activity emitting `AzureSqlSink` against
+[backlog.md](../development/backlog.md) item B1 (Copy activity emitting `AzureSqlSink` against
 a `DelimitedText` dataset). When the SDK dry-run deserializes a Copy activity
 whose `sink.type` does not match the dataset type referenced from the same
 activity, `azure.mgmt.datafactory` raises a schema error that the validator

@@ -128,7 +128,7 @@ steps:
 
 Recommended pattern: **always** dry-run first in CI, then trigger an
 approval gate for the real deploy. Pair with `--skip-if-exists` once the
-factory has hand-edited artifacts (see [BACKLOG.md](BACKLOG.md) H8).
+factory has hand-edited artifacts (see [backlog.md](backlog.md) H8).
 
 ---
 

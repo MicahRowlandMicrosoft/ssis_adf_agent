@@ -119,7 +119,7 @@ Strategy 1 was unnecessary.
 
 | Control | Effect |
 |---|---|
-| **`deploy_to_adf` with `pre_flight=true` first** (P4-6) | Pre-flight attempts a managed-identity token-fetch against each linked-service host *and* reads the deploying identity's roles; it would have flagged "factory MI has no role on `kv-adf-secrets-CUSTOMER`" before any resource was created. **This is now the recommended first step in [WORKFLOW.md](../../WORKFLOW.md).** |
+| **`deploy_to_adf` with `pre_flight=true` first** (P4-6) | Pre-flight attempts a managed-identity token-fetch against each linked-service host *and* reads the deploying identity's roles; it would have flagged "factory MI has no role on `kv-adf-secrets-CUSTOMER`" before any resource was created. **This is now the recommended first step in [workflow.md](../../getting-started/workflow.md).** |
 | **RBAC.md row for `deploy_to_adf`** (P4-7) | The matrix names *Key Vault Secrets User on the referenced vault, granted to the factory's system-assigned identity* as a required role for any deploy that includes Key Vault-backed linked services. Reading the matrix before the deploy would have prevented the wrong-identity hypothesis. |
 | **Provisioning the role assignment in the factory's Bicep** | If the factory itself is provisioned via `provision_adf_environment`, the role assignment can be co-deployed. The customer in this capture had pre-existing factory resources, so this option was not available. |
 
@@ -137,17 +137,17 @@ Strategy 1 was unnecessary.
    It distinguished the 41 succeeded from the 6 failed cleanly, which
    is what enabled the targeted retry instead of a full teardown.
 4. **Pre-flight (P4-6) is now mandatory for first deploys.**
-   `WORKFLOW.md` step 5 explicitly calls out running with
+   `workflow.md` step 5 explicitly calls out running with
    `pre_flight=true` first; this case is why.
 
 ---
 
 ## See also
 
-- [ROLLBACK.md](../../ROLLBACK.md) — the generalized rollback decision tree.
-- [WORKFLOW.md](../../WORKFLOW.md) §5 — why pre-flight is the default.
-- [RBAC.md](../../RBAC.md) — required roles per tool, including the
+- [rollback.md](../../operations/rollback.md) — the generalized rollback decision tree.
+- [workflow.md](../../getting-started/workflow.md) §5 — why pre-flight is the default.
+- [rbac.md](../../operations/rbac.md) — required roles per tool, including the
   factory MI / Key Vault row.
-- [ENCRYPTED_PACKAGES.md](../../ENCRYPTED_PACKAGES.md) — the upstream
+- [encrypted-packages.md](../../operations/encrypted-packages.md) — the upstream
   flow that put the Key Vault references in the linked services in the
   first place.

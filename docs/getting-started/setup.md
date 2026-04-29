@@ -126,7 +126,7 @@ etc.). Run `az login` for local development. The signed-in identity needs the
 
 > **Per-tool RBAC minimums for everything else** — `deploy_to_adf`,
 > `provision_adf_environment`, `upload_encrypted_secrets`, etc. — are
-> documented in [RBAC.md](RBAC.md). "Owner on the subscription" is never
+> documented in [rbac.md](../operations/rbac.md). "Owner on the subscription" is never
 > required.
 
 ```powershell

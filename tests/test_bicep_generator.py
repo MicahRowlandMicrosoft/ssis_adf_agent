@@ -92,7 +92,7 @@ def test_with_observability_emits_diagnostic_settings() -> None:
     )
     assert "Microsoft.Insights/diagnosticSettings" in bicep
     assert workspace_id in bicep
-    # All five OBSERVABILITY.md categories present
+    # All five docs/operations/observability.md categories present
     for cat in (
         "PipelineRuns",
         "ActivityRuns",

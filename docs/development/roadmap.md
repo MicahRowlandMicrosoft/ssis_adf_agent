@@ -9,7 +9,7 @@ flag set, the on-disk artifact layout, the Pydantic IR models, and the
 strategy until 1.0.
 
 The current quarter's focus is **shipping the P4 buyer-followup
-backlog** (see [BACKLOG.md](BACKLOG.md) §"P4 — Buyer follow-up backlog"),
+backlog** (see [backlog.md](backlog.md) §"P4 — Buyer follow-up backlog"),
 which closes the remaining gaps a customer-facing review surfaced
 against the 0.1.0 surface. Of the 14 P4 items, 12 are shipped at the
 time of writing; P4-13 (this document) and P4-14 (SUPPORT.md) close
@@ -119,8 +119,8 @@ indefinitely on the latest minor.
 
 ## See also
 
-- [BACKLOG.md](BACKLOG.md) — full prioritized backlog including the
+- [backlog.md](backlog.md) — full prioritized backlog including the
   P4 buyer follow-up set this roadmap closes out.
 - [CHANGELOG.md](CHANGELOG.md) — what has actually shipped.
-- [WORKFLOW.md](WORKFLOW.md) — the 6-tool minimum migration path that
+- [workflow.md](../getting-started/workflow.md) — the 6-tool minimum migration path that
   any 1.0 release must keep working.

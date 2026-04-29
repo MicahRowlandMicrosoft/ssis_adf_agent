@@ -1,6 +1,6 @@
 """P4-4 — Encrypted-package secret upload + linked-service rewrite helper.
 
-The end-to-end recipe in [ENCRYPTED_PACKAGES.md](../../ENCRYPTED_PACKAGES.md)
+The end-to-end recipe in [encrypted-packages.md](../../docs/operations/encrypted-packages.md)
 is six manual steps; for an estate of 50 encrypted packages, doing those
 steps by hand is error-prone and a security-review hot spot. This module
 automates the two longest steps:

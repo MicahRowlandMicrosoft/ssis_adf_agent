@@ -1,7 +1,7 @@
 """P5-12: validate_deployer_rbac — read-only RBAC compliance check.
 
 Compares an identity's actual role assignments against the per-tool minimum
-roles documented in RBAC.md. Reports which planned tools the identity can
+roles documented in docs/operations/rbac.md. Reports which planned tools the identity can
 run today and which it cannot, without creating any resource or attempting
 any deployment. All Azure SDK calls are read-only listings (no writes).
 """
@@ -14,7 +14,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# RBAC.md "Quick reference — minimum role per tool".
+# docs/operations/rbac.md "Quick reference — minimum role per tool".
 # Each entry is the *minimum* set of role names the deploying identity must
 # hold somewhere up the scope chain (subscription | RG | resource) for the
 # tool to succeed. "Or" alternatives are inner lists.
@@ -149,7 +149,7 @@ def evaluate_rbac(
         if spec is None:
             findings.append(ToolRbacFinding(
                 tool=tool, status="unknown",
-                rbac_md_anchor="(not in RBAC.md matrix)",
+                rbac_md_anchor="(not in docs/operations/rbac.md matrix)",
             ))
             continue
         missing_arm = _alt_satisfied(spec["arm"], held_arm)
@@ -183,7 +183,7 @@ def evaluate_rbac(
             "tools_blocked": len(findings) - ok_count,
         },
         "findings": [f.__dict__ for f in findings],
-        "rbac_md": "RBAC.md — Quick reference — minimum role per tool",
+        "rbac_md": "docs/operations/rbac.md — Quick reference — minimum role per tool",
     }
 
 

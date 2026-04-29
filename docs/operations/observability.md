@@ -243,7 +243,7 @@ next to the workbook.
 
 ## See also
 
-- [WORKFLOW.md](WORKFLOW.md) — the 6-tool minimum migration path.
-- [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md) — pre-cut-over data
+- [workflow.md](../getting-started/workflow.md) — the 6-tool minimum migration path.
+- [behavioral-parity.md](../conversion/behavioral-parity.md) — pre-cut-over data
   parity (this doc covers post-cut-over behavior).
-- [ROLLBACK.md](ROLLBACK.md) — what to do *after* alert A fires.
+- [rollback.md](rollback.md) — what to do *after* alert A fires.

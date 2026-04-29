@@ -175,9 +175,9 @@ content, not crash.
 ## Related
 
 * [SECURITY.md](SECURITY.md) — the agent's overall secret-handling policy.
-* [BACKLOG.md](BACKLOG.md) #B3 — generator-side stripping of credential-shaped
+* [backlog.md](../development/backlog.md) #B3 — generator-side stripping of credential-shaped
   defaults.
-* [BACKLOG.md](BACKLOG.md) #H8 — non-destructive deploy mode.
+* [backlog.md](../development/backlog.md) #H8 — non-destructive deploy mode.
 
 ---
 

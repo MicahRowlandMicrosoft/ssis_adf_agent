@@ -32,7 +32,7 @@ Exposes thirty-one tools to GitHub Copilot (and any MCP-compatible client):
 27. compare_dataflow_output   — behavioral parity: row+column diff of SSIS DFT vs converted MDF (P4-1)
 28. upload_encrypted_secrets  — push secrets from an unprotected .dtsx to Key Vault + rewrite linked services (P4-4)
 29. compare_estimates_to_actuals — join lineage.json + Cost Management actuals into a per-factory variance report (P4-5)
-30. validate_deployer_rbac    — read-only RBAC compliance check against RBAC.md per-tool minimums (P5-12)
+30. validate_deployer_rbac    — read-only RBAC compliance check against docs/operations/rbac.md per-tool minimums (P5-12)
 31. diff_estate               — compare two converted estate output directories and surface what changed (P5-16)
 
 Run as an MCP stdio server::
@@ -704,7 +704,7 @@ async def list_tools() -> list[types.Tool]:
                 "into the same template; SQL-server-side roles like db_datareader are skipped "
                 "with a note (must be granted via T-SQL post-deploy). Requires the Azure CLI "
                 "on PATH (for 'az bicep build') and authentication via DefaultAzureCredential. "
-                "Day-2 follow-up: see OBSERVABILITY.md for the recommended Log Analytics "
+                "Day-2 follow-up: see docs/operations/observability.md for the recommended Log Analytics "
                 "diagnostic-settings target (PipelineRuns, ActivityRuns, TriggerRuns, "
                 "PipelineActivityRuns, AllMetrics) plus the three baseline alert rules. Pass "
                 "with_observability=<workspace-resource-id> to emit the diagnosticSettings "
@@ -747,7 +747,7 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "with_observability": {
                         "type": "string",
-                        "description": "Optional. Full ARM resource id of a Log Analytics workspace (e.g. /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<name>). When set, the generated Bicep includes a Microsoft.Insights/diagnosticSettings child resource on the factory wired to this workspace with the five log/metric categories named in OBSERVABILITY.md (P5-7).",
+                        "description": "Optional. Full ARM resource id of a Log Analytics workspace (e.g. /subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<name>). When set, the generated Bicep includes a Microsoft.Insights/diagnosticSettings child resource on the factory wired to this workspace with the five log/metric categories named in docs/operations/observability.md (P5-7).",
                     },
                 },
                 "required": ["plan_path"],
@@ -1232,7 +1232,7 @@ async def list_tools() -> list[types.Tool]:
             name="upload_encrypted_secrets",
             description=(
                 "Encrypted-package automation helper (P4-4). Automates Steps 2 + 4 "
-                "of the ENCRYPTED_PACKAGES.md recipe: extracts secrets from an "
+                "of the docs/operations/encrypted-packages.md recipe: extracts secrets from an "
                 "unprotected .dtsx (the customer still runs dtutil manually so "
                 "the decrypt remains auditable on their side), uploads each secret "
                 "to Azure Key Vault, then rewrites the placeholder secretName "
@@ -1284,7 +1284,7 @@ async def list_tools() -> list[types.Tool]:
             name="validate_deployer_rbac",
             description=(
                 "Read-only RBAC compliance check (P5-12). Compares the role assignments held by "
-                "a deploying identity against the per-tool minimum roles documented in RBAC.md "
+                "a deploying identity against the per-tool minimum roles documented in docs/operations/rbac.md "
                 "and reports which planned tools the identity can run today and which it cannot. "
                 "Creates nothing, deploys nothing — every Azure SDK call is a list/get. Useful "
                 "as a pre-flight gate before deploy_to_adf / provision_adf_environment / "

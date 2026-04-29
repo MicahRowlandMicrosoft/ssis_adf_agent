@@ -47,7 +47,7 @@ aware:
   packages as untrusted XML. The parser uses `lxml` and does not enable
   network entity resolution, but a defence-in-depth review is welcome.
 - **Generated pipeline JSON is redacted for known credential-shaped
-  defaults** (see [BACKLOG.md](BACKLOG.md) item B3 and the regression tests
+  defaults** (see [backlog.md](docs/development/backlog.md) item B3 and the regression tests
   in `tests/test_pipeline_sensitive_redaction.py`). Always pair generation
   with a code review before pushing JSON to source control. Do not assume
   the redaction list is exhaustive for every customer's naming convention.
@@ -55,7 +55,7 @@ aware:
   `DefaultAzureCredential`.** The caller's identity is what writes to your
   factory / resource group. Scope RBAC accordingly — *Data Factory
   Contributor* on a dedicated RG, not Owner on a subscription. The full
-  per-tool minimum-permissions matrix lives in [RBAC.md](RBAC.md).
+  per-tool minimum-permissions matrix lives in [rbac.md](docs/operations/rbac.md).
 - **Generated Azure Function stubs contain `# TODO` blocks and the original
   Script Task source as comments.** Review before publishing — the original
   source may itself contain hardcoded secrets.

@@ -253,6 +253,6 @@ so it can never accidentally pause production traffic.
 
 ## Related
 
-* [BACKLOG.md](BACKLOG.md) #M1 — lineage manifest backfill.
-* [BACKLOG.md](BACKLOG.md) #H7 — bulk trigger activation.
-* [BACKLOG.md](BACKLOG.md) #H8 — `skip_if_exists` non-destructive deploy.
+* [backlog.md](../development/backlog.md) #M1 — lineage manifest backfill.
+* [backlog.md](../development/backlog.md) #H7 — bulk trigger activation.
+* [backlog.md](../development/backlog.md) #H8 — `skip_if_exists` non-destructive deploy.

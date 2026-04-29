@@ -180,7 +180,7 @@ def generate_bicep(
     When ``observability_workspace_id`` is set (full ARM id of a Log Analytics
     workspace), a ``Microsoft.Insights/diagnosticSettings`` child resource is
     emitted on the generated factory enabling the five log/metric categories
-    documented in OBSERVABILITY.md (P5-7).
+    documented in docs/operations/observability.md (P5-7).
     """
     header = dedent(f"""
         // Auto-generated from MigrationPlan for {plan.package_name}
@@ -262,7 +262,7 @@ def _diag_settings_resource(factory_sym: str, workspace_id: str) -> str:
     """Emit a Microsoft.Insights/diagnosticSettings child resource on the
     factory wired to a Log Analytics workspace (P5-7).
 
-    Categories match OBSERVABILITY.md: PipelineRuns, ActivityRuns,
+    Categories match docs/operations/observability.md: PipelineRuns, ActivityRuns,
     TriggerRuns, PipelineActivityRuns, AllMetrics. The category list is
     intentionally not parameterized — drift between the doc and the
     generator is a defect, not a feature toggle.

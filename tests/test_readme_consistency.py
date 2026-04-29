@@ -44,16 +44,16 @@ def test_readme_tool_count_matches_list_tools() -> None:
 def test_readme_workflow_diagram_matches_six_step_path() -> None:
     """The README architecture diagram must show the six-step path
     (bulk_analyze \u2192 propose \u2192 convert \u2192 validate \u2192 deploy \u2192 activate)
-    that WORKFLOW.md prescribes, not the older 5-step (scan \u2192 analyze \u2192
+    that docs/getting-started/workflow.md prescribes, not the older 5-step (scan \u2192 analyze \u2192
     convert \u2192 validate \u2192 deploy) path."""
     text = README.read_text(encoding="utf-8")
     # The six-step path MUST appear.
     assert "bulk_analyze" in text and "activate" in text, (
         "README architecture diagram should reference the six-step path "
-        "from WORKFLOW.md (bulk_analyze \u2192 ... \u2192 activate)."
+        "from docs/getting-started/workflow.md (bulk_analyze \u2192 ... \u2192 activate)."
     )
     # The older five-step path MUST NOT appear in the diagram.
     assert "scan \u2192 analyze \u2192 convert" not in text, (
         "README architecture diagram still shows the older 5-step path; "
-        "update it to the 6-step path that WORKFLOW.md documents."
+        "update it to the 6-step path that docs/getting-started/workflow.md documents."
     )

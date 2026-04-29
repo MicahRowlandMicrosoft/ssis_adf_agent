@@ -66,5 +66,5 @@ format is a plain JSON object — `jq -s '.[0] * .[1]' a.json b.json` works).
   should be shaped.
 - Not a substitute for a runtime test. The generated ADF JSON should still
   be put through `validate_adf_artifacts` and a `--pre-flight` deploy
-  before going to production. See [PARITY.md](../PARITY.md) and
-  [BEHAVIORAL_PARITY.md](../BEHAVIORAL_PARITY.md) for end-to-end checks.
+  before going to production. See [parity.md](../docs/conversion/parity.md) and
+  [behavioral-parity.md](../docs/conversion/behavioral-parity.md) for end-to-end checks.

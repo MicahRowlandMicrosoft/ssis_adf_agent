@@ -1,6 +1,6 @@
 # Behavioral Data-Flow Parity Harness (P4-1)
 
-`validate_conversion_parity` (see [PARITY.md](PARITY.md)) checks **structural**
+`validate_conversion_parity` (see [parity.md](parity.md)) checks **structural**
 parity: task counts, linked services, parameters, schema-shape of generated
 JSON.  It does *not* compare actual data.  A Conditional Split that routes
 the wrong rows, a Derived Column with an off-by-one expression, or a Lookup
@@ -161,7 +161,7 @@ engine doesn't care where the rows came from.
 * **Not a guarantee of conversion correctness.**  It tests the inputs you
   supply and nothing else.
 * **Not a performance harness.**  Use ADF Monitoring + Cost Management for
-  that (see [OBSERVABILITY.md](OBSERVABILITY.md)).
+  that (see [observability.md](../operations/observability.md)).
 * **Not a side-effect harness.**  Pre/post `Execute SQL` audit writes, file
   moves, and stored-procedure calls are out of scope here — they belong in
   end-to-end smoke tests via `smoke_test_pipeline` / `smoke_test_wave`.

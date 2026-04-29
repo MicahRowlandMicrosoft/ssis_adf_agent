@@ -5,7 +5,7 @@
 
 An MCP (Model Context Protocol) server that turns SSIS migration into an agent-driven workflow inside **GitHub Copilot**.
 
-The server exposes **31 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, post-deployment smoke testing, bulk trigger activation (H7), ARM-template content export (M2), cross-pipeline regression harness (N1), behavioral data-flow parity (P4-1, see [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md)), encrypted-package secret automation (P4-4, see [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md)), and Cost Management actuals reconciliation (P4-5).
+The server exposes **31 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, post-deployment smoke testing, bulk trigger activation (H7), ARM-template content export (M2), cross-pipeline regression harness (N1), behavioral data-flow parity (P4-1, see [behavioral-parity.md](docs/conversion/behavioral-parity.md)), encrypted-package secret automation (P4-4, see [encrypted-packages.md](docs/operations/encrypted-packages.md)), and Cost Management actuals reconciliation (P4-5).
 
 All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
 
@@ -75,7 +75,7 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 
 > **Pre-1.0 status.** Version `0.1.0` is pre-1.0 and the semver caveat
 > applies — minor bumps may include breaking changes. See
-> [ROADMAP.md](ROADMAP.md) for the engineering items required to flip
+> [roadmap.md](docs/development/roadmap.md) for the engineering items required to flip
 > to 1.0 and the deprecation-window policy for the `0.9.0 → 1.0.0`
 > transition.
 
@@ -85,8 +85,8 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 > see [SUPPORT.md](SUPPORT.md) for the best-effort response model and
 > the bug-report sanitization checklist.
 
-> **New to the agent?** Start with [WORKFLOW.md](WORKFLOW.md) — the
-> 6-tool minimum path through a full migration. Then see [HOWTO.md](HOWTO.md)
+> **New to the agent?** Start with [workflow.md](docs/getting-started/workflow.md) — the
+> 6-tool minimum path through a full migration. Then see [howto.md](docs/getting-started/howto.md)
 > for end-to-end conversation examples with copy-paste prompts.
 
 ---

@@ -59,7 +59,7 @@ later. They are simply left out of the next step.
 
 Output: one `MigrationPlan` JSON per package — target shape, recommended
 simplifications, hours estimate broken down by activity bucket and Script
-Task tier (see [EFFORT_METHODOLOGY.md](EFFORT_METHODOLOGY.md)).
+Task tier (see [effort-methodology.md](../conversion/effort-methodology.md)).
 
 **Reviewer edits welcome.** `edit_migration_plan` mutates a saved plan via
 structured operations; the converter respects whatever the plan ends up
@@ -156,7 +156,7 @@ ship a full migration without touching any of them.
 | Tool | Reach for it when… |
 |---|---|
 | `validate_conversion_parity` | Reviewer wants explicit SSIS↔ADF mapping evidence (control-flow + data-flow diff). Structural, not behavioral. |
-| `compare_dataflow_output` | (P4-1) Behavioral parity for one Data Flow Task: row-and-column diff against the converted MDF. Captured-mode runs in CI; `live` mode requires `dtexec` + Azure. See [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md). |
+| `compare_dataflow_output` | (P4-1) Behavioral parity for one Data Flow Task: row-and-column diff against the converted MDF. Captured-mode runs in CI; `live` mode requires `dtexec` + Azure. See [behavioral-parity.md](../conversion/behavioral-parity.md). |
 | `smoke_test_pipeline` | Single-pipeline post-deploy smoke test. |
 | `smoke_test_wave` | Same, scaled to many pipelines with aggregation. **Use this instead of looping `smoke_test_pipeline`.** |
 
@@ -197,9 +197,9 @@ These pairs of tools are easy to confuse:
 
 - The full per-tool argument schema — see [README.md](README.md).
 - The migration-plan editor — see HOWTO.md.
-- Encrypted-package handling — see [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md).
-- RBAC requirements per tool — see [RBAC.md](RBAC.md).
-- Behavioral parity (data-level diff) — see [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md).
+- Encrypted-package handling — see [encrypted-packages.md](../operations/encrypted-packages.md).
+- RBAC requirements per tool — see [rbac.md](../operations/rbac.md).
+- Behavioral parity (data-level diff) — see [behavioral-parity.md](../conversion/behavioral-parity.md).
 - Air-gapped / no-LLM operation — see [SECURITY.md](SECURITY.md) §"What
   the LLM translator sends, where, and how to disable".
 

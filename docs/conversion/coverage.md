@@ -27,7 +27,7 @@ wired) and [`analyzers/gap_analyzer.py`](ssis_adf_agent/analyzers/gap_analyzer.p
 | SSIS task | Status | ADF target | Notes | Evidence |
 |---|---|---|---|---|
 | Execute SQL Task | ✅ | `Lookup` / `SqlServerStoredProcedure` / `Script` | Routing depends on `ResultSetType` and the SQL pattern. | [test_execute_sql_params.py](tests/test_execute_sql_params.py) |
-| Data Flow Task (1 source → 1 sink, no transforms) | ✅ | `Copy` activity | See B1 fix in [BACKLOG.md](BACKLOG.md) — source/sink types now derive from the actual SSIS component. | [test_realworld_fixes.py](tests/test_realworld_fixes.py) |
+| Data Flow Task (1 source → 1 sink, no transforms) | ✅ | `Copy` activity | See B1 fix in [backlog.md](../development/backlog.md) — source/sink types now derive from the actual SSIS component. | [test_realworld_fixes.py](tests/test_realworld_fixes.py) |
 | Data Flow Task (transforms / fanout) | ✅ | `ExecuteDataFlow` + a generated mapping data flow JSON | Per-component mapping is in the data-flow section below. | [test_data_flow_transforms.py](tests/test_data_flow_transforms.py) |
 | Execute Package Task | ✅ | `ExecutePipeline` | Child pipeline must be converted as a separate package. | [execute_package_converter.py](ssis_adf_agent/converters/control_flow/execute_package_converter.py) |
 | Sequence Container | ✅ | Flattened — children promoted with `dependsOn` chaining | No ADF equivalent; intentional. | [test_constraint_resolution.py](tests/test_constraint_resolution.py) |
@@ -191,6 +191,6 @@ but the operator should review the output for parity.
    flagged as 🔴 or 🟡 in this matrix for that specific package.
 2. Run `convert_ssis_package` and read the `unresolved_objects` and
    `conversion_warnings` arrays in the response.
-3. Run `validate_conversion_parity` ([PARITY.md](PARITY.md)) to confirm the
+3. Run `validate_conversion_parity` ([parity.md](parity.md)) to confirm the
    structural conversion held together and to surface placeholder linked
    services / pending Script Task ports as warnings before deploy.

@@ -202,9 +202,9 @@ should) be rejected.
 ## Related
 
 * [SECURITY.md](SECURITY.md) — secret-handling policy and threat model.
-* [SETUP.md](SETUP.md) — bootstrap order: provision → assign roles →
+* [setup.md](../getting-started/setup.md) — bootstrap order: provision → assign roles →
   deploy.
-* [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md) — KV-side details for the
+* [encrypted-packages.md](encrypted-packages.md) — KV-side details for the
   one-shot `upload_encrypted_secrets` flow (P4-4).
-* [ROLLBACK.md](ROLLBACK.md) — what to do if a deploy under these roles
+* [rollback.md](rollback.md) — what to do if a deploy under these roles
   goes sideways.

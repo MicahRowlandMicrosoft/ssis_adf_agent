@@ -10,7 +10,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
-- **P5-19** — [ENCRYPTED_PACKAGES.md](ENCRYPTED_PACKAGES.md) gained
+- **P5-19** — [encrypted-packages.md](docs/operations/encrypted-packages.md) gained
   a "🧯 Real failure walkthrough" callout at the top linking to
   [docs/case-studies/first_deploy_keyvault_recovery/](docs/case-studies/first_deploy_keyvault_recovery/README.md),
   the captured P4-11 case study. The cross-link is now
@@ -18,8 +18,8 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   pre-flight requirement (factory MI vs. deployer SP) before they
   hit the same `ManagedServiceIdentityCredentialNotFound` failure.
 
-- **P5-18** — [HOWTO.md](HOWTO.md) gained a "🚀 Start here"
-  callout at the top pointing at [WORKFLOW.md](WORKFLOW.md) as the
+- **P5-18** — [howto.md](docs/getting-started/howto.md) gained a "🚀 Start here"
+  callout at the top pointing at [workflow.md](docs/getting-started/workflow.md) as the
   recommended first read for new users. Names the 6-tool minimum
   path inline. Closes the gap that buyers landing on HOWTO from a
   Google search were missing the minimum-path doc.
@@ -28,7 +28,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   Trailing "22 tools" references in `README.md` updated to `29` to
   match the header. Architecture diagram replaced with the
   6-step `bulk_analyze → propose → convert → validate → deploy →
-  activate` path that [WORKFLOW.md](WORKFLOW.md) prescribes (was the
+  activate` path that [workflow.md](docs/getting-started/workflow.md) prescribes (was the
   older 5-step `scan → analyze → convert → validate → deploy`).
   New [`tests/test_readme_consistency.py`](tests/test_readme_consistency.py)
   asserts (a) all three README tool-count strings equal
@@ -54,7 +54,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   passwords). README "Need help?" callout added pointing at
   SUPPORT.md. **All 14 P4 buyer follow-ups now closed.**
 
-- **P4-13** — New top-level [`ROADMAP.md`](ROADMAP.md) defines what
+- **P4-13** — New top-level [`roadmap.md`](docs/development/roadmap.md) defines what
   1.0 means (committed: MCP tool I/O, CLI, on-disk artifact layout +
   `lineage.json`/`migration_plan.json` schemas, public Pydantic IR;
   not committed: internal implementation, generated stub text,
@@ -67,7 +67,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   a "Pre-1.0 status" callout pointing at ROADMAP.md.
 
 ### Changed
-- **P4-12** — [`COVERAGE.md`](COVERAGE.md) gained an **Evidence**
+- **P4-12** — [`coverage.md`](docs/conversion/coverage.md) gained an **Evidence**
   column on all five tables (Control Flow tasks, Sources,
   Transformations, Destinations, Connection managers, Package-level
   constructs). Each ✅ / 🟡 row links to the unit-test fixture that
@@ -89,7 +89,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   pre-flight, P4-7 RBAC matrix, and the WORKFLOW.md "pre-flight first"
   default. Linked from the top of ROLLBACK.md so the generalized
   strategies sit on top of one concrete instance.
-- **P4-10** — New top-level [`OBSERVABILITY.md`](OBSERVABILITY.md)
+- **P4-10** — New top-level [`observability.md`](docs/operations/observability.md)
   documents the post-cut-over BAU monitoring story: Log Analytics as
   the recommended diagnostic-settings target (with the five log/metric
   categories to enable and a one-time Bicep snippet), two saved KQL
@@ -98,7 +98,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   (any failure, duration regression vs. 14-day p95, trigger silently
   stopped firing). BEHAVIORAL_PARITY.md "when published" placeholder
   link replaced with the live cross-reference.
-- **P4-9** — New top-level [`WORKFLOW.md`](WORKFLOW.md) names the
+- **P4-9** — New top-level [`workflow.md`](docs/getting-started/workflow.md) names the
   **6-tool minimum path** through a full migration
   (`bulk_analyze` → `propose_adf_design` → `convert_estate` →
   `validate_adf_artifacts` → `deploy_to_adf` (pre-flight first) →
@@ -121,7 +121,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   customer's own Azure OpenAI deployment), and the three
   mutually-reinforcing kill switches. 877 tests passing.
 - **P4-7** — Published per-tool RBAC / least-privilege matrix in new
-  [`RBAC.md`](RBAC.md). Names the minimum Azure RBAC role(s) and Key
+  [`rbac.md`](docs/operations/rbac.md). Names the minimum Azure RBAC role(s) and Key
   Vault data-plane permission for each of the 29 MCP tools, the scope
   that role should be granted at, and the rationale for the chosen role
   family (Data Factory Contributor, Key Vault Secrets Officer / User,
@@ -174,7 +174,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   vendor and a cross-registry key-collision guard.
 - **P4-3** — Worked Script Task port checked into the repo at
   [docs/case-studies/script_task_port_database_access_configuration/](docs/case-studies/script_task_port_database_access_configuration/README.md).
-  Anchors the `moderate` bucket in [EFFORT_METHODOLOGY.md](EFFORT_METHODOLOGY.md)
+  Anchors the `moderate` bucket in [effort-methodology.md](docs/conversion/effort-methodology.md)
   to a real LNI Script Task (80 LOC VB → production-ready Python Function;
   predicted 3.2h vs actual 3.5h, with phase-by-phase breakdown). Demonstrates
   the canonical migration pattern for SSIS Connection-Manager-mutating Script
@@ -193,7 +193,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   ignore lists, numeric tolerance, and case/whitespace normalization. Worked
   example with a *seeded regression* under
   [tests/fixtures/dataflow_parity/](tests/fixtures/dataflow_parity/) plus
-  documentation in [BEHAVIORAL_PARITY.md](BEHAVIORAL_PARITY.md). 27 new tests.
+  documentation in [behavioral-parity.md](docs/conversion/behavioral-parity.md). 27 new tests.
 
 ### Fixed
 - **B1** — `convert_ssis_package` now derives a Copy activity's `source.type`
@@ -217,10 +217,10 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   format" warning was rewritten.
 
 ### Added
-- **H4** — `PARITY.md` documents every check `validate_conversion_parity`
+- **H4** — `parity.md` documents every check `validate_conversion_parity`
   performs, with explicit boundaries (no row-level / performance comparison).
   A worked example is captured against the LNI ADDS-MIPS-TC sample.
-- `BACKLOG.md` — buyer's-perspective evaluation findings, prioritised P0–P3
+- `backlog.md` — buyer's-perspective evaluation findings, prioritised P0–P3
   with execution order. Each entry is updated as items land.
 - `CHANGELOG.md`, `SECURITY.md` — repo metadata required for enterprise
   consumption.

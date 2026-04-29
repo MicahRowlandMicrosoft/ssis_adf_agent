@@ -76,8 +76,8 @@ the maintainers' inconvenience.
 
 - [SECURITY.md](SECURITY.md) — vulnerability disclosure (separate from
   this document; do **not** file vulnerabilities as bugs).
-- [WORKFLOW.md](WORKFLOW.md) — the 6-tool minimum migration path; if
+- [workflow.md](docs/getting-started/workflow.md) — the 6-tool minimum migration path; if
   you are deviating from it, that's often the source of the issue.
-- [ROLLBACK.md](ROLLBACK.md) — what to do when a deploy goes wrong.
+- [rollback.md](docs/operations/rollback.md) — what to do when a deploy goes wrong.
 - [docs/case-studies/](docs/case-studies/) — captured real failures
   and their resolutions; check here before filing.

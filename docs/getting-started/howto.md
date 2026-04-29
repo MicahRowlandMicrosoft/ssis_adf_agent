@@ -1,6 +1,6 @@
 # HOWTO — SSIS → ADF Agent Conversation Guide
 
-> **🚀 Start here:** If you have not yet read [WORKFLOW.md](WORKFLOW.md),
+> **🚀 Start here:** If you have not yet read [workflow.md](workflow.md),
 > read it first. It documents the **6-tool minimum migration path**
 > (`bulk_analyze` → `propose_adf_design` → `convert_estate` →
 > `validate_adf_artifacts` → `deploy_to_adf` → `activate_triggers`)
@@ -18,7 +18,7 @@ This guide shows how to use the SSIS → ADF Agent through natural-language prom
 > different wording, different counts, and different artifact paths depending
 > on your packages, your model, and your prompt. For a real captured run on a
 > production-shape package, see [PARITY_REPORT_ADDS_MIPS_TC.md](../test-lni-packages/PARITY_REPORT_ADDS_MIPS_TC.md)
-> in the LNI sample workspace and the [worked example in PARITY.md](PARITY.md#worked-example--lni-adds-mips-tc).
+> in the LNI sample workspace and the [worked example in PARITY.md](../conversion/parity.md#worked-example--lni-adds-mips-tc).
 
 > **Tip:** Switch Copilot Chat to **Agent** mode before sending prompts so it can call the MCP tools automatically.
 >

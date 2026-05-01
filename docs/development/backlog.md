@@ -276,6 +276,14 @@ customer pilot, not in this backlog.
 
 ---
 
+## P6 — Fabric target follow-ups
+
+### P6-1. T-SQL notebook stub language for SQL-shaped Data Flow Tasks — **LOW** ⏳ NOT STARTED
+- **Context:** Fabric target (Phase 1) generates a PySpark notebook stub for every Data Flow Task because Fabric Data Pipelines have no Mapping Data Flow equivalent. PySpark is the right default — it handles arbitrary transformations — but a meaningful subset of LNI-shaped data flows are pure SQL patterns (OLE DB Source with `sqlReaderQuery` → optional Lookup / Derived Column → OLE DB Destination on the same server). A T-SQL notebook stub would be a shorter, easier port for those cases.
+- **Acceptance:** New stub generator emits a Fabric T-SQL notebook (`%%sql` or `language: tsql` notebook metadata) when the Data Flow Task's components are all OLEDB-family and the transformations are SQL-expressible (no Script Component, no third-party transform, no fanout to multiple destinations). Falls back to the PySpark stub otherwise. Heuristic captured in `analyzers/dataflow_classifier.py`. Tests cover both routing paths and a captured T-SQL stub for the LNI ADDS Transaction GL "GL extract" data flow.
+- **Out of scope for first ship:** automatic SQL generation from the SSIS lineage graph (Lookup → JOIN, Derived Column → SELECT expression). Stub remains a TODO scaffold that names the source query and target table; the engineer writes the SELECT.
+
+
 ## Suggested execution order
 
 All B / H / M / N / P3 / P4 items are ✅ done. Remaining work:

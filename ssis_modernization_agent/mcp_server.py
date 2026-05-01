@@ -1358,6 +1358,52 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["before_dir", "after_dir"],
             },
         ),
+        types.Tool(
+            name="convert_ssis_to_fabric",
+            description=(
+                "Convert one SSIS package to Microsoft Fabric Data Pipelines artifacts "
+                "(pipeline-content.json + .platform sidecar, Fabric notebook stubs for "
+                "Data Flow Tasks, and a connections_required.json manifest the deployer "
+                "fills in with real Fabric Connection GUIDs). Reuses the proven ADF "
+                "converter in-memory and translates to the Fabric JSON shape; "
+                "differences from ADF: Connections instead of linked services, inlined "
+                "datasets in Copy activities, PySpark notebook stubs in place of "
+                "Mapping Data Flow (no Fabric equivalent). Use this for the Fabric "
+                "target; for ADF, use convert_ssis_package."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_path": {"type": "string", "description": "Path to the .dtsx file."},
+                    "output_dir": {"type": "string", "description": "Directory where Fabric artifacts are written."},
+                    "pipeline_prefix": {"type": "string", "default": "PL_"},
+                    "llm_translate": {"type": "boolean", "default": False},
+                    "on_prem_ir_name": {"type": "string", "default": "OnPremSHIR"},
+                    "auth_type": {"type": "string", "default": "ServicePrincipal"},
+                    "use_key_vault": {"type": "boolean", "default": False},
+                    "kv_ls_name": {"type": "string", "default": "AzureKeyVault"},
+                    "kv_url": {"type": "string"},
+                },
+                "required": ["package_path", "output_dir"],
+            },
+        ),
+        types.Tool(
+            name="validate_fabric_artifacts",
+            description=(
+                "Structural validation of Fabric pipeline artifacts under a directory "
+                "(checks pipeline-content.json shape, .platform sidecars, notebook stubs, "
+                "and the connections_required.json manifest). Surfaces translator "
+                "warnings (unmapped LS references, missing notebook stubs) without "
+                "failing. Use after convert_ssis_to_fabric and before deploy_to_fabric."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "artifacts_dir": {"type": "string", "description": "Directory containing pipeline/, notebook/, and connections_required.json."},
+                },
+                "required": ["artifacts_dir"],
+            },
+        ),
     ]
 
 
@@ -1442,6 +1488,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _validate_deployer_rbac(arguments)
         elif name == "diff_estate":
             return await _diff_estate(arguments)
+        elif name == "convert_ssis_to_fabric":
+            return await _convert_ssis_to_fabric(arguments)
+        elif name == "validate_fabric_artifacts":
+            return await _validate_fabric_artifacts(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -2840,6 +2890,45 @@ async def _diff_estate(args: dict[str, Any]) -> list[types.TextContent]:
         report["report_path"] = str(out)
 
     return [types.TextContent(type="text", text=json.dumps(report, indent=2, default=str))]
+
+
+# ---------------------------------------------------------------------------
+# Fabric target handlers
+# ---------------------------------------------------------------------------
+
+async def _convert_ssis_to_fabric(args: dict[str, Any]) -> list[types.TextContent]:
+    """Convert one SSIS package to Fabric Data Pipelines artifacts."""
+    from .fabric import convert_package_to_fabric
+    from .parsers.readers.local_reader import LocalReader
+
+    package_path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
+    output_dir = _safe_resolve(args["output_dir"], label="output_dir")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    with WarningsCollector() as wc:
+        package = LocalReader().read(package_path)
+        result = convert_package_to_fabric(
+            package, output_dir,
+            pipeline_prefix=args.get("pipeline_prefix", "PL_"),
+            llm_translate=args.get("llm_translate", False),
+            on_prem_ir_name=args.get("on_prem_ir_name", "OnPremSHIR"),
+            auth_type=args.get("auth_type", "ServicePrincipal"),
+            use_key_vault=args.get("use_key_vault", False),
+            kv_ls_name=args.get("kv_ls_name", "AzureKeyVault"),
+            kv_url=args.get("kv_url"),
+        )
+        result["warnings"] = [w.model_dump() for w in wc.warnings]
+
+    return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+
+async def _validate_fabric_artifacts(args: dict[str, Any]) -> list[types.TextContent]:
+    """Structural validation of Fabric pipeline artifacts."""
+    from .fabric import validate_fabric_artifacts
+
+    artifacts_dir = _safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir")
+    result = validate_fabric_artifacts(artifacts_dir)
+    return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 
 
 # ---------------------------------------------------------------------------

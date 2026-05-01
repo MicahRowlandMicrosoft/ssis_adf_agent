@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from ssis_adf_agent.deployer.adf_deployer import (
+from ssis_modernization_agent.deployer.adf_deployer import (
     AdfDeployer,
     DeployResult,
     _retry_delay,
@@ -123,7 +123,7 @@ class TestRetryDelay:
 # ---------------------------------------------------------------------------
 
 class TestValidationGate:
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_invalid_artifacts_skipped(self, tmp_path):
         """Files that fail validation should not be deployed."""
         arts = _make_artifacts(tmp_path, {
@@ -155,7 +155,7 @@ class TestValidationGate:
         good = next(r for r in results if r.name == "Good")
         assert good.success is True
 
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_validation_off(self, tmp_path):
         """When validate_first=False, bad artifacts are not pre-filtered."""
         arts = _make_artifacts(tmp_path, {
@@ -174,7 +174,7 @@ class TestValidationGate:
         assert len(results) == 1
         assert results[0].success is True  # dry_run succeeds regardless of content
 
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_all_valid_no_extra_failures(self, tmp_path):
         arts = _make_artifacts(tmp_path, {
             "linkedService/LS1.json": _valid_linked_service("LS1"),
@@ -201,7 +201,7 @@ class TestValidationGate:
 # ---------------------------------------------------------------------------
 
 class TestRetryLogic:
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_retries_on_transient_error(self, tmp_path):
         """Transient 503 should be retried and eventually succeed."""
         arts = _make_artifacts(tmp_path, {
@@ -224,7 +224,7 @@ class TestRetryLogic:
 
         deployer._deploy_pipeline = _mock_deploy_pipeline
 
-        with patch("ssis_adf_agent.deployer.adf_deployer.time.sleep"):
+        with patch("ssis_modernization_agent.deployer.adf_deployer.time.sleep"):
             results = deployer.deploy_all(
                 arts, dry_run=False, validate_first=False,
                 max_retries=3, retry_base_delay=0.01,
@@ -234,7 +234,7 @@ class TestRetryLogic:
         assert results[0].success is True
         assert results[0].retries == 2  # succeeded on 3rd attempt (0-indexed)
 
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_exhaust_retries(self, tmp_path):
         """If all retries exhausted, report failure with retry count."""
         arts = _make_artifacts(tmp_path, {
@@ -251,7 +251,7 @@ class TestRetryLogic:
             side_effect=_make_http_error(429, "Throttled")
         )
 
-        with patch("ssis_adf_agent.deployer.adf_deployer.time.sleep"):
+        with patch("ssis_modernization_agent.deployer.adf_deployer.time.sleep"):
             results = deployer.deploy_all(
                 arts, dry_run=False, validate_first=False,
                 max_retries=2, retry_base_delay=0.01,
@@ -262,7 +262,7 @@ class TestRetryLogic:
         assert results[0].retries == 2
         assert "429" in (results[0].error or "")
 
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_auth_error_no_retry(self, tmp_path):
         """ClientAuthenticationError should not be retried."""
         arts = _make_artifacts(tmp_path, {
@@ -279,7 +279,7 @@ class TestRetryLogic:
             side_effect=ClientAuthenticationError("bad creds")
         )
 
-        with patch("ssis_adf_agent.deployer.adf_deployer.time.sleep"):
+        with patch("ssis_modernization_agent.deployer.adf_deployer.time.sleep"):
             results = deployer.deploy_all(
                 arts, dry_run=False, validate_first=False,
                 max_retries=3, retry_base_delay=0.01,
@@ -290,7 +290,7 @@ class TestRetryLogic:
         assert results[0].retries == 0  # no retries for auth errors
         assert "Authentication failed" in (results[0].error or "")
 
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_connection_error_retried(self, tmp_path):
         """Network-level errors should be retried."""
         arts = _make_artifacts(tmp_path, {
@@ -313,7 +313,7 @@ class TestRetryLogic:
 
         deployer._deploy_linked_service = _mock
 
-        with patch("ssis_adf_agent.deployer.adf_deployer.time.sleep"):
+        with patch("ssis_modernization_agent.deployer.adf_deployer.time.sleep"):
             results = deployer.deploy_all(
                 arts, dry_run=False, validate_first=False,
                 max_retries=2, retry_base_delay=0.01,
@@ -322,7 +322,7 @@ class TestRetryLogic:
         assert results[0].success is True
         assert results[0].retries == 1
 
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_non_transient_http_error_not_retried(self, tmp_path):
         """A 400 Bad Request should NOT be retried."""
         arts = _make_artifacts(tmp_path, {
@@ -339,7 +339,7 @@ class TestRetryLogic:
             side_effect=_make_http_error(400, "Bad Request")
         )
 
-        with patch("ssis_adf_agent.deployer.adf_deployer.time.sleep"):
+        with patch("ssis_modernization_agent.deployer.adf_deployer.time.sleep"):
             results = deployer.deploy_all(
                 arts, dry_run=False, validate_first=False,
                 max_retries=3, retry_base_delay=0.01,
@@ -349,7 +349,7 @@ class TestRetryLogic:
         assert results[0].retries == 0  # no retries for 400
         assert "400" in (results[0].error or "")
 
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_429_respects_retry_after(self, tmp_path):
         """429 response with Retry-After should use that delay."""
         arts = _make_artifacts(tmp_path, {
@@ -373,7 +373,7 @@ class TestRetryLogic:
         deployer._deploy_pipeline = _mock
         sleep_calls = []
 
-        with patch("ssis_adf_agent.deployer.adf_deployer.time.sleep", side_effect=lambda d: sleep_calls.append(d)):
+        with patch("ssis_modernization_agent.deployer.adf_deployer.time.sleep", side_effect=lambda d: sleep_calls.append(d)):
             results = deployer.deploy_all(
                 arts, dry_run=False, validate_first=False,
                 max_retries=3, retry_base_delay=1.0,
@@ -389,7 +389,7 @@ class TestRetryLogic:
 # ---------------------------------------------------------------------------
 
 class TestErrorCollection:
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_collects_all_results(self, tmp_path):
         """Deploy should not stop on first error — collect results from all artifacts."""
         arts = _make_artifacts(tmp_path, {
@@ -412,7 +412,7 @@ class TestErrorCollection:
         deployer._deploy_linked_service = _fail_ls2
         deployer._deploy_pipeline = MagicMock()
 
-        with patch("ssis_adf_agent.deployer.adf_deployer.time.sleep"):
+        with patch("ssis_modernization_agent.deployer.adf_deployer.time.sleep"):
             results = deployer.deploy_all(
                 arts, dry_run=False, validate_first=False, max_retries=0,
             )
@@ -424,7 +424,7 @@ class TestErrorCollection:
         assert ("PL1", True) in names_and_status
         assert ("PL2", True) in names_and_status
 
-    @patch("ssis_adf_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.adf_deployer._AZURE_AVAILABLE", True)
     def test_deploy_order_respected(self, tmp_path):
         """Linked services before datasets before pipelines."""
         arts = _make_artifacts(tmp_path, {

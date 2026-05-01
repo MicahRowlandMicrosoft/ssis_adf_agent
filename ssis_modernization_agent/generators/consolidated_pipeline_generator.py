@@ -206,7 +206,7 @@ def _build_parent_pipeline(
             },
             "variables": {},
             "annotations": [
-                "ssis-adf-agent",
+                "ssis-modernization-agent",
                 "consolidated-parent",
                 f"child-pipeline:{child_name}",
             ],

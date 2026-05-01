@@ -1,7 +1,7 @@
 """N3 — configurable prefix overrides for naming helpers."""
 from __future__ import annotations
 
-from ssis_adf_agent.generators.naming import (
+from ssis_modernization_agent.generators.naming import (
     df_name,
     ds_name,
     pl_name,

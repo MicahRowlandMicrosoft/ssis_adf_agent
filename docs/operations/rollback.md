@@ -66,7 +66,7 @@ Useful when one pipeline regressed but the rest of the deploy is fine.
    ```powershell
    New-Item -ItemType Directory -Path tmp_revert/pipeline | Out-Null
    Move-Item restore.json tmp_revert/pipeline/PL_MyPackage.json
-   python -m ssis_adf_agent deploy `
+   python -m ssis_modernization_agent deploy `
      --artifacts-dir  tmp_revert `
      --subscription-id <sub> `
      --resource-group <rg> `
@@ -87,7 +87,7 @@ implicated.
    ```
 3. Re-deploy the entire wave from the good tree:
    ```powershell
-   python -m ssis_adf_agent deploy `
+   python -m ssis_modernization_agent deploy `
      --artifacts-dir adf/<package> `
      --subscription-id <sub> `
      --resource-group <rg> `
@@ -240,7 +240,7 @@ Triggers are always deployed in `Stopped` state. To revert an *activation*
 (rather than a deploy), just stop them:
 
 ```powershell
-python -m ssis_adf_agent activate-triggers `
+python -m ssis_modernization_agent activate-triggers `
   --subscription-id <sub> `
   --resource-group <rg> `
   --factory-name <adf> `

@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from lxml import etree
 
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.parsers.models import (
     ConnectionManagerType,
     ExecutePackageTask,
     SSISTask,
@@ -87,7 +87,7 @@ class TestExecutePackageParserSubElements:
         return elem, od
 
     def test_sub_element_package_name(self):
-        from ssis_adf_agent.parsers.ssis_parser import SSISParser
+        from ssis_modernization_agent.parsers.ssis_parser import SSISParser
         elem, od = self._make_xml(
             "<UseProjectReference>True</UseProjectReference>"
             "<PackageName>ChildPackage.dtsx</PackageName>"
@@ -101,7 +101,7 @@ class TestExecutePackageParserSubElements:
         assert result.package_path == "ChildPackage.dtsx"
 
     def test_sub_element_connection(self):
-        from ssis_adf_agent.parsers.ssis_parser import SSISParser
+        from ssis_modernization_agent.parsers.ssis_parser import SSISParser
         elem, od = self._make_xml(
             "<Connection>{01BF011B-C3E2-4E07-9CE7-25F5AA7E53BA}</Connection>"
         )
@@ -111,7 +111,7 @@ class TestExecutePackageParserSubElements:
         assert result.package_connection_id == "01BF011B-C3E2-4E07-9CE7-25F5AA7E53BA"
 
     def test_sub_element_parameter_assignment(self):
-        from ssis_adf_agent.parsers.ssis_parser import SSISParser
+        from ssis_modernization_agent.parsers.ssis_parser import SSISParser
         elem, od = self._make_xml(
             "<UseProjectReference>True</UseProjectReference>"
             "<PackageName>Child.dtsx</PackageName>"
@@ -130,7 +130,7 @@ class TestExecutePackageParserSubElements:
 
     def test_attribute_format_still_works(self):
         """Older format where PackageName is an XML attribute."""
-        from ssis_adf_agent.parsers.ssis_parser import SSISParser
+        from ssis_modernization_agent.parsers.ssis_parser import SSISParser
         ns = "www.microsoft.com/SqlServer/Dts"
         xml = textwrap.dedent(f"""\
         <DTS:Executable xmlns:DTS="{ns}"
@@ -171,7 +171,7 @@ class TestExecutePackageConverterPrefix:
         )
 
     def test_default_prefix(self):
-        from ssis_adf_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
+        from ssis_modernization_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
         conv = ExecutePackageConverter()
         task = self._make_task(project_pkg="Child.dtsx", use_project=True)
         acts = conv.convert(task, [], {})
@@ -179,35 +179,35 @@ class TestExecutePackageConverterPrefix:
         assert ref == "PL_Child"
 
     def test_custom_prefix(self):
-        from ssis_adf_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
+        from ssis_modernization_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
         conv = ExecutePackageConverter(pipeline_prefix="ADF_")
         task = self._make_task(project_pkg="Child.dtsx", use_project=True)
         acts = conv.convert(task, [], {})
         assert acts[0]["typeProperties"]["pipeline"]["referenceName"] == "ADF_Child"
 
     def test_unknown_gets_prefix(self):
-        from ssis_adf_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
+        from ssis_modernization_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
         conv = ExecutePackageConverter(pipeline_prefix="PL_")
         task = self._make_task()
         acts = conv.convert(task, [], {})
         assert acts[0]["typeProperties"]["pipeline"]["referenceName"] == "PL_UNKNOWN"
 
     def test_package_path_gets_prefix(self):
-        from ssis_adf_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
+        from ssis_modernization_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
         conv = ExecutePackageConverter()
         task = self._make_task(pkg_path="\\\\server\\share\\MyPkg.dtsx")
         acts = conv.convert(task, [], {})
         assert acts[0]["typeProperties"]["pipeline"]["referenceName"] == "PL_MyPkg"
 
     def test_prefix_threaded_through_dispatcher(self):
-        from ssis_adf_agent.converters.dispatcher import ConverterDispatcher
+        from ssis_modernization_agent.converters.dispatcher import ConverterDispatcher
         d = ConverterDispatcher(pipeline_prefix="X_")
         task = self._make_task(project_pkg="Sub.dtsx", use_project=True)
         acts = d.convert_task(task, [], {})
         assert acts[0]["typeProperties"]["pipeline"]["referenceName"] == "X_Sub"
 
     def test_parameter_assignment_conversion(self):
-        from ssis_adf_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
+        from ssis_modernization_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
         conv = ExecutePackageConverter()
         task = ExecutePackageTask(
             id="ep2", name="WithParams", task_type=TaskType.EXECUTE_PACKAGE,
@@ -230,7 +230,7 @@ class TestExecutePackageConverterPrefix:
 
 class TestActivityNameDedup:
     def test_unique_names_untouched(self):
-        from ssis_adf_agent.generators.pipeline_generator import _deduplicate_activity_names
+        from ssis_modernization_agent.generators.pipeline_generator import _deduplicate_activity_names
         acts = [
             {"name": "A", "dependsOn": []},
             {"name": "B", "dependsOn": []},
@@ -240,7 +240,7 @@ class TestActivityNameDedup:
         assert [a["name"] for a in acts] == ["A", "B", "C"]
 
     def test_duplicates_get_suffix(self):
-        from ssis_adf_agent.generators.pipeline_generator import _deduplicate_activity_names
+        from ssis_modernization_agent.generators.pipeline_generator import _deduplicate_activity_names
         acts = [
             {"name": "Script Task", "dependsOn": []},
             {"name": "Script Task", "dependsOn": []},
@@ -251,7 +251,7 @@ class TestActivityNameDedup:
         assert names == ["Script Task", "Script Task_2", "Script Task_3"]
 
     def test_mixed_duplicates(self):
-        from ssis_adf_agent.generators.pipeline_generator import _deduplicate_activity_names
+        from ssis_modernization_agent.generators.pipeline_generator import _deduplicate_activity_names
         acts = [
             {"name": "A", "dependsOn": []},
             {"name": "B", "dependsOn": []},
@@ -264,7 +264,7 @@ class TestActivityNameDedup:
         assert names == ["A", "B", "A_2", "B_2", "C"]
 
     def test_all_names_unique(self):
-        from ssis_adf_agent.generators.pipeline_generator import _deduplicate_activity_names
+        from ssis_modernization_agent.generators.pipeline_generator import _deduplicate_activity_names
         acts = [{"name": f"X", "dependsOn": []} for _ in range(5)]
         _deduplicate_activity_names(acts)
         names = [a["name"] for a in acts]
@@ -278,7 +278,7 @@ class TestActivityNameDedup:
 
 class TestFileConnectionLinkedService:
     def test_file_unc_path(self):
-        from ssis_adf_agent.generators.linked_service_generator import _file_ls
+        from ssis_modernization_agent.generators.linked_service_generator import _file_ls
         cm = _cm("FileConn", type=ConnectionManagerType.FILE,
                  file_path=r"\\server\share\data.csv")
         ls = _file_ls(cm, "SelfHostedIR", "SystemAssignedManagedIdentity", False, "")
@@ -286,26 +286,26 @@ class TestFileConnectionLinkedService:
         assert ls["properties"]["typeProperties"]["host"] == r"\\server\share\data.csv"
 
     def test_file_drive_path(self):
-        from ssis_adf_agent.generators.linked_service_generator import _file_ls
+        from ssis_modernization_agent.generators.linked_service_generator import _file_ls
         cm = _cm("DriveConn", type=ConnectionManagerType.FILE,
                  file_path=r"C:\data\input.txt")
         ls = _file_ls(cm, "SelfHostedIR", "SystemAssignedManagedIdentity", False, "")
         assert ls["properties"]["type"] == "FileServer"
 
     def test_file_unknown_path_blob(self):
-        from ssis_adf_agent.generators.linked_service_generator import _file_ls
+        from ssis_modernization_agent.generators.linked_service_generator import _file_ls
         cm = _cm("BlobConn", type=ConnectionManagerType.FILE,
                  file_path="https://something.blob.core.windows.net/container")
         ls = _file_ls(cm, "IR", "Managed", False, "")
         assert ls["properties"]["type"] == "AzureBlobStorage"
 
     def test_file_in_builders(self):
-        from ssis_adf_agent.generators.linked_service_generator import _BUILDERS
+        from ssis_modernization_agent.generators.linked_service_generator import _BUILDERS
         assert ConnectionManagerType.FILE in _BUILDERS
         assert ConnectionManagerType.MULTIFILE in _BUILDERS
 
     def test_file_keyvault(self):
-        from ssis_adf_agent.generators.linked_service_generator import _file_ls
+        from ssis_modernization_agent.generators.linked_service_generator import _file_ls
         cm = _cm("KVConn", type=ConnectionManagerType.FILE,
                  file_path=r"\\nas\share")
         ls = _file_ls(cm, "IR", "Managed", True, "LS_KV")
@@ -321,7 +321,7 @@ class TestFileConnectionLinkedService:
 class TestXMLTaskOperationType:
     def test_operation_type_in_properties(self):
         """Parser should extract OperationType from XMLTaskData attributes."""
-        from ssis_adf_agent.parsers.ssis_parser import SSISParser
+        from ssis_modernization_agent.parsers.ssis_parser import SSISParser
         ns = "www.microsoft.com/SqlServer/Dts"
         xml = textwrap.dedent(f"""\
         <DTS:Executable xmlns:DTS="{ns}"
@@ -355,7 +355,7 @@ class TestXMLTaskOperationType:
 
     def test_xml_converter_uses_operation_type(self, tmp_path):
         """XMLConverter should read OperationType from task.properties."""
-        from ssis_adf_agent.converters.dispatcher import ConverterDispatcher
+        from ssis_modernization_agent.converters.dispatcher import ConverterDispatcher
         d = ConverterDispatcher(stubs_dir=tmp_path / "stubs")
         task = _task("XMLTask", name="Merge_Docs",
                      properties={"OperationType": "Merge", "Source": "a.xml"})
@@ -367,7 +367,7 @@ class TestXMLTaskOperationType:
 
     def test_xml_converter_fallback_unknown(self, tmp_path):
         """Without OperationType in properties, defaults to Unknown."""
-        from ssis_adf_agent.converters.dispatcher import ConverterDispatcher
+        from ssis_modernization_agent.converters.dispatcher import ConverterDispatcher
         d = ConverterDispatcher(stubs_dir=tmp_path / "stubs")
         task = _task("XMLTask", name="NoOp", properties={})
         acts = d.convert_task(task, [], {})

@@ -13,7 +13,7 @@ import asyncio
 import re
 from pathlib import Path
 
-from ssis_adf_agent.mcp_server import list_tools
+from ssis_modernization_agent.mcp_server import list_tools
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 README = REPO_ROOT / "README.md"

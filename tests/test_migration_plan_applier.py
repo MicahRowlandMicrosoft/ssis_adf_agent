@@ -1,14 +1,14 @@
 """Tests for ``migration_plan.applier`` — applying a plan to a parsed package."""
 from __future__ import annotations
 
-from ssis_adf_agent.migration_plan import (
+from ssis_modernization_agent.migration_plan import (
     MigrationPlan,
     Simplification,
     SimplificationAction,
     TargetPattern,
     apply_plan,
 )
-from ssis_adf_agent.parsers.models import (  # type: ignore[attr-defined]
+from ssis_modernization_agent.parsers.models import (  # type: ignore[attr-defined]
     FileSystemTask,
     PrecedenceConstraint,
     PrecedenceEvalOp,

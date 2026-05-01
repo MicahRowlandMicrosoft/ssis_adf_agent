@@ -11,7 +11,7 @@ import json
 import pytest
 from pathlib import Path
 
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.parsers.models import (
     DataFlowColumn,
     DataFlowComponent,
     DataFlowPath,
@@ -20,9 +20,9 @@ from ssis_adf_agent.parsers.models import (
     SSISPackage,
     TaskType,
 )
-from ssis_adf_agent.translators.ssis_expression_translator import translate_expression
-from ssis_adf_agent.converters.data_flow.transformation_converter import convert_transformation
-from ssis_adf_agent.generators.dataflow_generator import generate_data_flows, _build_dsl_script
+from ssis_modernization_agent.translators.ssis_expression_translator import translate_expression
+from ssis_modernization_agent.converters.data_flow.transformation_converter import convert_transformation
+from ssis_modernization_agent.generators.dataflow_generator import generate_data_flows, _build_dsl_script
 
 
 # ==========================================================================
@@ -744,8 +744,8 @@ class TestDataFlowColumnProperties:
 # Audit-driven improvements
 # ==========================================================================
 
-from ssis_adf_agent.converters.data_flow.source_converter import convert_source
-from ssis_adf_agent.converters.data_flow.destination_converter import convert_destination
+from ssis_modernization_agent.converters.data_flow.source_converter import convert_source
+from ssis_modernization_agent.converters.data_flow.destination_converter import convert_destination
 
 
 class TestSourceOutputColumns:

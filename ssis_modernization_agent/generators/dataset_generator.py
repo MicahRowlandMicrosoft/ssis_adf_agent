@@ -119,7 +119,7 @@ def _build_dataset(
             "type": "LinkedServiceReference",
         },
         "description": description,
-        "annotations": ["ssis-adf-agent"],
+        "annotations": ["ssis-modernization-agent"],
         "type": ds_type,
         "typeProperties": {},
         "schema": _columns_to_schema(columns) if columns else [],

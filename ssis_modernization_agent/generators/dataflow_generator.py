@@ -183,7 +183,7 @@ def generate_data_flows(
                     "transformations": transformations,
                     "scriptLines": script.splitlines(),
                 },
-                "annotations": ["ssis-adf-agent"],
+                "annotations": ["ssis-modernization-agent"],
             },
         }
 

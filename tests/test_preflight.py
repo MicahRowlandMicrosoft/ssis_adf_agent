@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.deployer.preflight import (
+from ssis_modernization_agent.deployer.preflight import (
     HostTarget,
     KvSecretRef,
     PreflightReport,

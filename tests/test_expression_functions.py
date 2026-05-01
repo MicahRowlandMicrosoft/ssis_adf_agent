@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ssis_adf_agent.translators.control_flow_expression import (
+from ssis_modernization_agent.translators.control_flow_expression import (
     translate_control_flow_expr,
 )
 

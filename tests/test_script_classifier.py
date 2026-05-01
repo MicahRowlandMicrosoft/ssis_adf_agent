@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.parsers.models import (
     ComplexityScore,
     SSISPackage,
     ScriptTask,
@@ -14,17 +14,17 @@ from ssis_adf_agent.parsers.models import (
     TaskType,
     ProtectionLevel,
 )
-from ssis_adf_agent.analyzers.script_classifier import (
+from ssis_modernization_agent.analyzers.script_classifier import (
     ScriptClassificationResult,
     ScriptComplexity,
     TIER_WEIGHTS,
     classify_script,
 )
-from ssis_adf_agent.analyzers.complexity_scorer import (
+from ssis_modernization_agent.analyzers.complexity_scorer import (
     score_package,
     score_package_detailed,
 )
-from ssis_adf_agent.analyzers.gap_analyzer import analyze_gaps
+from ssis_modernization_agent.analyzers.gap_analyzer import analyze_gaps
 
 
 # ---------------------------------------------------------------------------

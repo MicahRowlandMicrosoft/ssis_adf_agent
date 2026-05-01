@@ -5,7 +5,7 @@ ADF Mapping Data Flow on a controlled input set, producing a row-and-column
 diff report.
 
 This package answers the buyer concern that
-:mod:`ssis_adf_agent.documentation.parity_validator` only checks *structural*
+:mod:`ssis_modernization_agent.documentation.parity_validator` only checks *structural*
 parity: it counts tasks, linked services, and parameters but never compares
 actual data values. ``compare_dataflow_output`` closes that gap.
 

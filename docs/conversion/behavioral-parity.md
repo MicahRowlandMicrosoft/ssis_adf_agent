@@ -135,7 +135,7 @@ fit `dtexec` (encrypted packages, Project deployment, etc.) can subclass or
 substitute their own:
 
 ```python
-from ssis_adf_agent.parity import (
+from ssis_modernization_agent.parity import (
     compare_dataflow_output,
     SSISDataFlowRunner,
     AdfDataFlowRunner,

@@ -5,7 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from ssis_adf_agent.mcp_server import _bulk_analyze
+from ssis_modernization_agent.mcp_server import _bulk_analyze
 
 
 _DTSX_TEMPLATE = """<?xml version="1.0"?>

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ssis_adf_agent import mcp_server
+from ssis_modernization_agent import mcp_server
 
 
 def _run(args: dict) -> dict:
@@ -27,7 +27,7 @@ def _fail(name: str) -> dict:
 class TestSmokeTestWave:
     def test_aggregates_across_explicit_pipeline_names(self):
         with patch.object(mcp_server, "_smoke_test_wave", wraps=mcp_server._smoke_test_wave):
-            with patch("ssis_adf_agent.migration_plan.smoke_test_pipeline", side_effect=[_ok("A"), _ok("B"), _fail("C")]):
+            with patch("ssis_modernization_agent.migration_plan.smoke_test_pipeline", side_effect=[_ok("A"), _ok("B"), _fail("C")]):
                 payload = _run({
                     "subscription_id": "00000000-0000-0000-0000-000000000000",
                     "resource_group": "rg",
@@ -45,7 +45,7 @@ class TestSmokeTestWave:
         (pipelines / "PL_one.json").write_text("{}")
         (pipelines / "PL_two.json").write_text("{}")
 
-        with patch("ssis_adf_agent.migration_plan.smoke_test_pipeline", side_effect=[_ok("PL_one"), _ok("PL_two")]):
+        with patch("ssis_modernization_agent.migration_plan.smoke_test_pipeline", side_effect=[_ok("PL_one"), _ok("PL_two")]):
             payload = _run({
                 "subscription_id": "00000000-0000-0000-0000-000000000000",
                 "resource_group": "rg",
@@ -56,7 +56,7 @@ class TestSmokeTestWave:
         assert payload["summary"]["succeeded"] == 2
 
     def test_stop_on_failure_skips_remaining(self):
-        with patch("ssis_adf_agent.migration_plan.smoke_test_pipeline", side_effect=[_ok("A"), _fail("B"), _ok("C")]):
+        with patch("ssis_modernization_agent.migration_plan.smoke_test_pipeline", side_effect=[_ok("A"), _fail("B"), _ok("C")]):
             payload = _run({
                 "subscription_id": "00000000-0000-0000-0000-000000000000",
                 "resource_group": "rg",
@@ -71,7 +71,7 @@ class TestSmokeTestWave:
         assert payload["results"][2]["status"] == "skipped"
 
     def test_errored_pipeline_recorded(self):
-        with patch("ssis_adf_agent.migration_plan.smoke_test_pipeline", side_effect=RuntimeError("boom")):
+        with patch("ssis_modernization_agent.migration_plan.smoke_test_pipeline", side_effect=RuntimeError("boom")):
             payload = _run({
                 "subscription_id": "00000000-0000-0000-0000-000000000000",
                 "resource_group": "rg",

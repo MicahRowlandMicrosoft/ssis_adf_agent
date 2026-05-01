@@ -12,21 +12,21 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.migration_plan import (
+from ssis_modernization_agent.migration_plan import (
     EffortEstimate,
     LinkedServiceSpec,
     MigrationPlan,
     TargetPattern,
     plan_migration_waves,
 )
-from ssis_adf_agent.migration_plan.proposer import (
+from ssis_modernization_agent.migration_plan.proposer import (
     _dataflow_hours,
     _effort_from_package,
     _script_loc,
     _script_porting_hours,
     propose_design,
 )
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.parsers.models import (
     ConnectionManagerType,
     DataFlowComponent,
     DataFlowTask,

@@ -87,11 +87,11 @@ def _make_activity(name, atype, status, start, end, error=None):
 def test_smoke_test_pipeline_succeeds_and_returns_activities(monkeypatch):
     captured = _install_fake_sdk(monkeypatch)
     # Reload to pick up new sys.modules entries.
-    if "ssis_adf_agent.credential" in sys.modules:
-        del sys.modules["ssis_adf_agent.credential"]
-    if "ssis_adf_agent.migration_plan.smoke_tester" in sys.modules:
-        del sys.modules["ssis_adf_agent.migration_plan.smoke_tester"]
-    from ssis_adf_agent.migration_plan import smoke_tester  # noqa: WPS433
+    if "ssis_modernization_agent.credential" in sys.modules:
+        del sys.modules["ssis_modernization_agent.credential"]
+    if "ssis_modernization_agent.migration_plan.smoke_tester" in sys.modules:
+        del sys.modules["ssis_modernization_agent.migration_plan.smoke_tester"]
+    from ssis_modernization_agent.migration_plan import smoke_tester  # noqa: WPS433
 
     start = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     end = start + timedelta(seconds=42)
@@ -140,11 +140,11 @@ def test_smoke_test_pipeline_succeeds_and_returns_activities(monkeypatch):
 
 def test_smoke_test_pipeline_reports_timeout(monkeypatch):
     _install_fake_sdk(monkeypatch)
-    if "ssis_adf_agent.credential" in sys.modules:
-        del sys.modules["ssis_adf_agent.credential"]
-    if "ssis_adf_agent.migration_plan.smoke_tester" in sys.modules:
-        del sys.modules["ssis_adf_agent.migration_plan.smoke_tester"]
-    from ssis_adf_agent.migration_plan import smoke_tester  # noqa: WPS433
+    if "ssis_modernization_agent.credential" in sys.modules:
+        del sys.modules["ssis_modernization_agent.credential"]
+    if "ssis_modernization_agent.migration_plan.smoke_tester" in sys.modules:
+        del sys.modules["ssis_modernization_agent.migration_plan.smoke_tester"]
+    from ssis_modernization_agent.migration_plan import smoke_tester  # noqa: WPS433
 
     start = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(smoke_tester.time, "sleep", lambda *_: None)
@@ -182,11 +182,11 @@ def test_smoke_test_pipeline_reports_timeout(monkeypatch):
 
 def test_smoke_test_pipeline_captures_activity_errors(monkeypatch):
     _install_fake_sdk(monkeypatch)
-    if "ssis_adf_agent.credential" in sys.modules:
-        del sys.modules["ssis_adf_agent.credential"]
-    if "ssis_adf_agent.migration_plan.smoke_tester" in sys.modules:
-        del sys.modules["ssis_adf_agent.migration_plan.smoke_tester"]
-    from ssis_adf_agent.migration_plan import smoke_tester  # noqa: WPS433
+    if "ssis_modernization_agent.credential" in sys.modules:
+        del sys.modules["ssis_modernization_agent.credential"]
+    if "ssis_modernization_agent.migration_plan.smoke_tester" in sys.modules:
+        del sys.modules["ssis_modernization_agent.migration_plan.smoke_tester"]
+    from ssis_modernization_agent.migration_plan import smoke_tester  # noqa: WPS433
 
     start = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     end = start + timedelta(seconds=5)

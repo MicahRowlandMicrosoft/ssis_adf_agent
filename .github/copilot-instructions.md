@@ -5,7 +5,7 @@ applyTo: "**"
 # SSIS → ADF Conversion Agent — Copilot Domain Knowledge
 
 ## Project Overview
-This project exposes an MCP server (`ssis-adf-agent`) that reads SSIS packages (.dtsx)
+This project exposes an MCP server (`ssis-modernization-agent`) that reads SSIS packages (.dtsx)
 and converts them to Azure Data Factory (ADF) JSON artifacts.  **31 tools** are
 available via the MCP server; use them in the order that makes sense for the task.
 The table below lists the most commonly used ones — see `mcp_server.py` for the
@@ -108,7 +108,7 @@ Score drivers: Script Tasks (+2 to +25, content-aware: trivial/simple/moderate/c
 ## Python Package Layout
 
 ```
-ssis_adf_agent/
+ssis_modernization_agent/
   mcp_server.py          ← MCP entry point (this is the stdio server)
   parsers/
     models.py            ← Pydantic IR models

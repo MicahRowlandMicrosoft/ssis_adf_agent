@@ -37,11 +37,11 @@ Exposes thirty-one tools to GitHub Copilot (and any MCP-compatible client):
 
 Run as an MCP stdio server::
 
-    python -m ssis_adf_agent.mcp_server
+    python -m ssis_modernization_agent.mcp_server
 
 Or via the installed script::
 
-    ssis-adf-agent
+    ssis-modernization-agent
 """
 from __future__ import annotations
 
@@ -58,13 +58,13 @@ from mcp.server import Server
 from .path_safety import safe_resolve as _safe_resolve
 from .warnings_collector import WarningsCollector
 
-logger = logging.getLogger("ssis_adf_agent")
+logger = logging.getLogger("ssis_modernization_agent")
 
 # ---------------------------------------------------------------------------
 # Server setup
 # ---------------------------------------------------------------------------
 
-server = Server("ssis-adf-agent")
+server = Server("ssis-modernization-agent")
 
 
 # ---------------------------------------------------------------------------

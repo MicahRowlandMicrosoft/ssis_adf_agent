@@ -7,7 +7,7 @@ import json
 import pytest
 from pathlib import Path
 
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.parsers.models import (
     ConnectionManagerType,
     ExecuteSQLTask,
     FileSystemTask,
@@ -19,14 +19,14 @@ from ssis_adf_agent.parsers.models import (
     SSISVariable,
     TaskType,
 )
-from ssis_adf_agent.analyzers.similarity_analyzer import (
+from ssis_modernization_agent.analyzers.similarity_analyzer import (
     ConsolidationGroup,
     PackageFingerprint,
     SimilarityResult,
     fingerprint_package,
     group_similar_packages,
 )
-from ssis_adf_agent.generators.consolidated_pipeline_generator import (
+from ssis_modernization_agent.generators.consolidated_pipeline_generator import (
     generate_consolidated_pipelines,
 )
 

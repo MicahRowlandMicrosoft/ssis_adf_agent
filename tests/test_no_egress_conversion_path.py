@@ -116,7 +116,7 @@ def test_convert_estate_makes_no_outbound_calls(
     monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
     monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
 
-    from ssis_adf_agent.mcp_server import _convert_estate
+    from ssis_modernization_agent.mcp_server import _convert_estate
 
     src = _seed_packages(tmp_path, count=2)
     out = tmp_path / "out"
@@ -137,7 +137,7 @@ def test_bulk_analyze_makes_no_outbound_calls(
     tmp_path: Path, block_all_egress
 ) -> None:
     """bulk_analyze must also be fully offline."""
-    from ssis_adf_agent.mcp_server import _bulk_analyze
+    from ssis_modernization_agent.mcp_server import _bulk_analyze
 
     src = _seed_packages(tmp_path, count=3)
 

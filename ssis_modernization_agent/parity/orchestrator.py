@@ -62,9 +62,9 @@ def compare_dataflow_output(
     """Run both sides of a data-flow comparison and return a structured diff.
 
     ``ssis_runner`` and ``adf_runner`` are protocols, so callers can plug in
-    :class:`~ssis_adf_agent.parity.runners.DtexecRunner` /
-    :class:`~ssis_adf_agent.parity.runners.AdfDebugRunner` for live runs, or
-    :class:`~ssis_adf_agent.parity.runners.CapturedOutputRunner` for replay
+    :class:`~ssis_modernization_agent.parity.runners.DtexecRunner` /
+    :class:`~ssis_modernization_agent.parity.runners.AdfDebugRunner` for live runs, or
+    :class:`~ssis_modernization_agent.parity.runners.CapturedOutputRunner` for replay
     (used by the worked example and the unit-test suite).
     """
     package_path = Path(package_path)

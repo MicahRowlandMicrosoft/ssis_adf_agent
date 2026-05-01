@@ -10,11 +10,11 @@ from __future__ import annotations
 import asyncio
 import json
 
-from ssis_adf_agent.deployer.rbac_validator import (
+from ssis_modernization_agent.deployer.rbac_validator import (
     evaluate_rbac,
     list_known_tools,
 )
-from ssis_adf_agent.mcp_server import _validate_deployer_rbac
+from ssis_modernization_agent.mcp_server import _validate_deployer_rbac
 
 
 def test_known_tools_includes_core_deployment_surface() -> None:

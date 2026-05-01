@@ -145,7 +145,7 @@ class CSharpToPythonTranslator:
         except ImportError as exc:
             raise TranslationError(
                 "The 'openai' package is not installed. "
-                "Run: pip install 'ssis-adf-agent[llm]'",
+                "Run: pip install 'ssis-modernization-agent[llm]'",
                 exc,
             ) from exc
 

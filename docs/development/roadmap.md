@@ -25,7 +25,7 @@ guarantees** on the four surfaces a downstream automation depends on:
 | Surface | 1.0 commitment |
 |---|---|
 | **MCP tool inputs / outputs** | Tool names, argument names, argument types, and the shape of the JSON returned by each tool are stable within `1.x`. New tools may be added; existing tools may gain optional arguments and additional output keys. |
-| **CLI** | `ssis-adf-agent` subcommand names, flag names, and exit-code conventions are stable within `1.x`. |
+| **CLI** | `ssis-modernization-agent` subcommand names, flag names, and exit-code conventions are stable within `1.x`. |
 | **On-disk artifact layout** | The directory structure under `<output_dir>/` (`pipeline/`, `linkedService/`, `dataset/`, `dataflow/`, `trigger/`, `stubs/`), file naming convention, and the schemas of `lineage.json` and `migration_plan.json` are stable within `1.x`. |
 | **Pydantic IR models** | The public `parsers.models` types (the IR consumed by every converter and generator) carry semver-style field-deprecation guarantees: a field removed in `2.x` will be deprecated for one full `1.y` minor cycle first. |
 
@@ -70,9 +70,9 @@ line names the gap and either an existing tracked item (P-prefix) or
 
 | # | Item | Status |
 |---|---|---|
-| E1 | `ssis-adf-agent` CLI surfaces every MCP tool (currently a subset) so the project is usable without the MCP server | NEW |
+| E1 | `ssis-modernization-agent` CLI surfaces every MCP tool (currently a subset) so the project is usable without the MCP server | NEW |
 | E2 | `--dry-run` flag honored uniformly across every tool that touches Azure | Partial: `deploy_to_adf --pre-flight=true` (P4-6) and `activate_triggers --dry-run=true` exist; `provision_adf_environment` and `provision_function_app` do not. NEW |
-| E3 | Single-binary distribution (`pip install ssis-adf-agent` plus `pipx run ssis-adf-agent` smoke-tested per release) | NEW |
+| E3 | Single-binary distribution (`pip install ssis-modernization-agent` plus `pipx run ssis-modernization-agent` smoke-tested per release) | NEW |
 
 ### Operational
 

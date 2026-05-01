@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.documentation import (
+from ssis_modernization_agent.documentation import (
     build_adf_outline,
     build_pre_migration_pdf,
     build_ssis_outline,
@@ -14,8 +14,8 @@ from ssis_adf_agent.documentation import (
     render_ssis_markdown,
     validate_parity,
 )
-from ssis_adf_agent.documentation.parity_validator import render_parity_markdown
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.documentation.parity_validator import render_parity_markdown
+from ssis_modernization_agent.parsers.models import (
     ConnectionManagerType,
     DataFlowTask,
     ExecuteSQLTask,
@@ -72,7 +72,7 @@ def _write_minimal_adf(out: Path, package_name: str = "TestPackage") -> None:
         "name": f"PL_{package_name}",
         "properties": {
             "description": "Test pipeline",
-            "annotations": ["ssis-adf-agent"],
+            "annotations": ["ssis-modernization-agent"],
             "activities": [
                 {
                     "name": "Truncate staging",

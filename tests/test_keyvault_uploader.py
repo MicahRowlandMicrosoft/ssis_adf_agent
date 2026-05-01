@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from ssis_adf_agent.deployer.keyvault_uploader import (
+from ssis_modernization_agent.deployer.keyvault_uploader import (
     DEFAULT_SECRET_NAME_TEMPLATE,
     ExtractedSecret,
     SecretMapping,

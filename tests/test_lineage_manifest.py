@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.generators.lineage_generator import (
+from ssis_modernization_agent.generators.lineage_generator import (
     generate_lineage_manifest,
     update_lineage_with_deployment,
 )
-from ssis_adf_agent.parsers.models import SSISPackage
+from ssis_modernization_agent.parsers.models import SSISPackage
 
 
 def _make_package(tmp_path: Path) -> SSISPackage:

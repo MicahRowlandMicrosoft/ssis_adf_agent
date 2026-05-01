@@ -11,11 +11,11 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from ssis_adf_agent.analyzers.dependency_graph import (
+from ssis_modernization_agent.analyzers.dependency_graph import (
     get_depends_on_for_task,
     topological_sort,
 )
-from ssis_adf_agent.parsers.ssis_parser import SSISParser
+from ssis_modernization_agent.parsers.ssis_parser import SSISParser
 
 
 _DTSX_TEMPLATE = """<?xml version="1.0"?>

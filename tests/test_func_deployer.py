@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ssis_adf_agent.deployer.func_deployer import (
+from ssis_modernization_agent.deployer.func_deployer import (
     FuncDeployer,
     FuncDeployResult,
     _build_zip,
@@ -169,8 +169,8 @@ class TestBuildZip:
 # ===================================================================
 
 class TestDryRun:
-    @patch("ssis_adf_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", True)
-    @patch("ssis_adf_agent.deployer.func_deployer._HTTPX_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_deployer._HTTPX_AVAILABLE", True)
     def test_dry_run_returns_zip_info(self, tmp_path):
         stubs_dir = tmp_path / "stubs"
         _make_func_project(stubs_dir, ["OrderProcessor", "NotifySender"])
@@ -187,8 +187,8 @@ class TestDryRun:
         assert result.zip_size_bytes > 0
         assert "DRY RUN" in result.error
 
-    @patch("ssis_adf_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", True)
-    @patch("ssis_adf_agent.deployer.func_deployer._HTTPX_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_deployer._HTTPX_AVAILABLE", True)
     def test_dry_run_fails_on_invalid_project(self, tmp_path):
         stubs_dir = tmp_path / "stubs"
         stubs_dir.mkdir()  # Empty — no host.json
@@ -210,18 +210,18 @@ class TestDryRun:
 
 class TestErrorHandling:
     def test_missing_azure_web_sdk(self):
-        with patch("ssis_adf_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", False):
+        with patch("ssis_modernization_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", False):
             with pytest.raises(ImportError, match="azure-mgmt-web"):
                 FuncDeployer("sub", "rg", "func")
 
     def test_missing_httpx(self):
-        with patch("ssis_adf_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", True):
-            with patch("ssis_adf_agent.deployer.func_deployer._HTTPX_AVAILABLE", False):
+        with patch("ssis_modernization_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", True):
+            with patch("ssis_modernization_agent.deployer.func_deployer._HTTPX_AVAILABLE", False):
                 with pytest.raises(ImportError, match="httpx"):
                     FuncDeployer("sub", "rg", "func")
 
-    @patch("ssis_adf_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", True)
-    @patch("ssis_adf_agent.deployer.func_deployer._HTTPX_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_deployer._HTTPX_AVAILABLE", True)
     def test_auth_failure(self, tmp_path):
         stubs_dir = tmp_path / "stubs"
         _make_func_project(stubs_dir, ["FuncA"])
@@ -233,7 +233,7 @@ class TestErrorHandling:
         deployer._credential = MagicMock()
 
         mock_client = MagicMock()
-        from ssis_adf_agent.deployer.func_deployer import ClientAuthenticationError
+        from ssis_modernization_agent.deployer.func_deployer import ClientAuthenticationError
         mock_client.web_apps.list_publishing_credentials.return_value.result.side_effect = (
             ClientAuthenticationError("No credentials")
         )
@@ -243,8 +243,8 @@ class TestErrorHandling:
         assert result.success is False
         assert "Authentication failed" in result.error
 
-    @patch("ssis_adf_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", True)
-    @patch("ssis_adf_agent.deployer.func_deployer._HTTPX_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_deployer._AZURE_WEB_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_deployer._HTTPX_AVAILABLE", True)
     def test_deploy_result_dataclass(self):
         r = FuncDeployResult(
             success=True,

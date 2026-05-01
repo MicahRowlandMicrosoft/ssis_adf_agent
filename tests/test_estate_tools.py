@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.migration_plan import (
+from ssis_modernization_agent.migration_plan import (
     AuthMode,
     EffortEstimate,
     LinkedServiceSpec,

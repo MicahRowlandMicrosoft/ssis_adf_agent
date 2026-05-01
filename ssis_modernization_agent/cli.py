@@ -261,7 +261,7 @@ def _add_auto_tools(sub: argparse._SubParsersAction) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ssis-adf-agent",
+        prog="ssis-modernization-agent",
         description=(
             "Headless CLI for the SSIS -> ADF conversion agent. Legacy "
             "subcommands (analyze/convert/validate/deploy/activate-triggers) "

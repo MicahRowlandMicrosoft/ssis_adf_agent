@@ -1,8 +1,8 @@
 """Tests for Project.params-aware Key Vault linked-service emission in the proposer."""
 from __future__ import annotations
 
-from ssis_adf_agent.migration_plan import propose_design
-from ssis_adf_agent.parsers.models import (  # type: ignore[attr-defined]
+from ssis_modernization_agent.migration_plan import propose_design
+from ssis_modernization_agent.parsers.models import (  # type: ignore[attr-defined]
     ConnectionManagerType,
     SSISConnectionManager,
     SSISPackage,

@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.generators.trigger_generator import (
+from ssis_modernization_agent.generators.trigger_generator import (
     _schedule_from_agent,
     _start_time_iso,
     _end_time_iso,
     _hhmmss_to_parts,
     generate_triggers,
 )
-from ssis_adf_agent.parsers.models import SqlAgentSchedule, SSISPackage
+from ssis_modernization_agent.parsers.models import SqlAgentSchedule, SSISPackage
 
 
 def _make_schedule(**overrides) -> SqlAgentSchedule:

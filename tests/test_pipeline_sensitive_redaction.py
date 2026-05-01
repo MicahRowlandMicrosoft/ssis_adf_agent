@@ -6,7 +6,7 @@ account names, on-prem FQDNs, password-style names) as cleartext defaultValues.
 """
 from __future__ import annotations
 
-from ssis_adf_agent.generators.pipeline_generator import (
+from ssis_modernization_agent.generators.pipeline_generator import (
     _is_sensitive_name,
     _looks_like_credential_value,
     _redact_sensitive_default,

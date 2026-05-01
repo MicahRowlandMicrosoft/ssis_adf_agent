@@ -6,7 +6,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from ssis_adf_agent.path_safety import safe_resolve, ALLOWED_ROOT
+from ssis_modernization_agent.path_safety import safe_resolve, ALLOWED_ROOT
 
 
 # ---------------------------------------------------------------------------
@@ -61,17 +61,17 @@ class TestAllowedRoot:
         child = tmp_path / "sub" / "pkg.dtsx"
         child.parent.mkdir(parents=True, exist_ok=True)
         child.touch()
-        with patch("ssis_adf_agent.path_safety.ALLOWED_ROOT", tmp_path.resolve()):
+        with patch("ssis_modernization_agent.path_safety.ALLOWED_ROOT", tmp_path.resolve()):
             result = safe_resolve(str(child), must_exist=True)
             assert result == child.resolve()
 
     def test_allowed_root_accepts_root_itself(self, tmp_path):
-        with patch("ssis_adf_agent.path_safety.ALLOWED_ROOT", tmp_path.resolve()):
+        with patch("ssis_modernization_agent.path_safety.ALLOWED_ROOT", tmp_path.resolve()):
             result = safe_resolve(str(tmp_path))
             assert result == tmp_path.resolve()
 
     def test_allowed_root_rejects_outside(self, tmp_path):
         outside = tmp_path.parent / "other"
-        with patch("ssis_adf_agent.path_safety.ALLOWED_ROOT", tmp_path.resolve()):
+        with patch("ssis_modernization_agent.path_safety.ALLOWED_ROOT", tmp_path.resolve()):
             with pytest.raises(ValueError, match="outside the allowed root"):
                 safe_resolve(str(outside), label="test")

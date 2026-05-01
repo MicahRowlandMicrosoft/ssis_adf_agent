@@ -230,7 +230,7 @@ def _base_ls(
         "name": name,
         "properties": {
             "description": f"Auto-generated from SSIS Connection Manager: {cm.name}",
-            "annotations": ["ssis-adf-agent"],
+            "annotations": ["ssis-modernization-agent"],
             "connectVia": {
                 "referenceName": ir_name,
                 "type": "IntegrationRuntimeReference",
@@ -576,7 +576,7 @@ def _generate_kv_linked_service(
         "name": kv_ls_name,
         "properties": {
             "description": "Azure Key Vault for storing connection secrets.",
-            "annotations": ["ssis-adf-agent"],
+            "annotations": ["ssis-modernization-agent"],
             "type": "AzureKeyVault",
             "typeProperties": {
                 "baseUrl": kv_url,

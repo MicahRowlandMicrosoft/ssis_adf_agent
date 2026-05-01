@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.migration_plan.cost_actuals import (
+from ssis_modernization_agent.migration_plan.cost_actuals import (
     ActualRow,
     compare_estimates_to_actuals,
     load_actuals,

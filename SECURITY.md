@@ -87,7 +87,7 @@ caller's identity needs *Cognitive Services OpenAI User* on that resource).
 
 **Behavior at the 18 000-char truncation bound (P5-24).** The 18 000-char
 cap on `source_code` is enforced silently in
-[`translators/csharp_to_python.py`](ssis_adf_agent/translators/csharp_to_python.py)
+[`translators/csharp_to_python.py`](ssis_modernization_agent/translators/csharp_to_python.py)
 (`_MAX_INPUT_CHARS`, ~6 000 tokens at ~3 chars/token). When the source
 exceeds that bound:
 
@@ -143,14 +143,14 @@ that introduced this section by grep-walking for `requests`, `httpx`,
 
 | Destination | Triggered by | Library | How to disable |
 |---|---|---|---|
-| **Azure OpenAI** (your tenant) | `convert_ssis_package(llm_translate=true)` *and* `AZURE_OPENAI_ENDPOINT` set *and* `SSIS_ADF_NO_LLM` unset. | `openai.AzureOpenAI` from [`translators/csharp_to_python.py`](ssis_adf_agent/translators/csharp_to_python.py). | Default. Or set `SSIS_ADF_NO_LLM=1`, or pass `no_llm=true`, or leave `llm_translate` unset (defaults to false). |
-| **Azure Resource Manager** (control plane) | The deployment / provisioning tools: `deploy_to_adf`, `provision_adf_environment`, `provision_function_app`, `validate_adf_artifacts` (when sub/RG supplied), `activate_triggers`, `deploy_function_stubs`, the `keyvault_uploader`, the `preflight` / RBAC checks. | `azure.identity.DefaultAzureCredential` + the `azure.mgmt.*` SDKs. Plus `httpx` for Function App zip-deploy in [`deployer/func_deployer.py`](ssis_adf_agent/deployer/func_deployer.py). | Don't invoke those tools. The conversion path (`scan_ssis_packages`, `analyze_ssis_package`, `convert_ssis_package`, `convert_estate`, `validate_adf_artifacts` *without* sub/RG, `bulk_analyze`, `propose_adf_design`, `consolidate_packages`, `explain_ssis_package`, `build_estate_report`, `build_predeployment_report`, every `*_plan.json` / cost / wave tool) is fully offline. |
-| **A SQL Server instance** | `scan_ssis_packages` with the SQL reader path (reads `.dtsx` rows from SSISDB or a `[ssis].[packages]` table). | `pyodbc` from [`parsers/readers/sql_reader.py`](ssis_adf_agent/parsers/readers/sql_reader.py). | Use the local-disk or Git reader instead — they are the default for `scan_ssis_packages`. |
+| **Azure OpenAI** (your tenant) | `convert_ssis_package(llm_translate=true)` *and* `AZURE_OPENAI_ENDPOINT` set *and* `SSIS_ADF_NO_LLM` unset. | `openai.AzureOpenAI` from [`translators/csharp_to_python.py`](ssis_modernization_agent/translators/csharp_to_python.py). | Default. Or set `SSIS_ADF_NO_LLM=1`, or pass `no_llm=true`, or leave `llm_translate` unset (defaults to false). |
+| **Azure Resource Manager** (control plane) | The deployment / provisioning tools: `deploy_to_adf`, `provision_adf_environment`, `provision_function_app`, `validate_adf_artifacts` (when sub/RG supplied), `activate_triggers`, `deploy_function_stubs`, the `keyvault_uploader`, the `preflight` / RBAC checks. | `azure.identity.DefaultAzureCredential` + the `azure.mgmt.*` SDKs. Plus `httpx` for Function App zip-deploy in [`deployer/func_deployer.py`](ssis_modernization_agent/deployer/func_deployer.py). | Don't invoke those tools. The conversion path (`scan_ssis_packages`, `analyze_ssis_package`, `convert_ssis_package`, `convert_estate`, `validate_adf_artifacts` *without* sub/RG, `bulk_analyze`, `propose_adf_design`, `consolidate_packages`, `explain_ssis_package`, `build_estate_report`, `build_predeployment_report`, every `*_plan.json` / cost / wave tool) is fully offline. |
+| **A SQL Server instance** | `scan_ssis_packages` with the SQL reader path (reads `.dtsx` rows from SSISDB or a `[ssis].[packages]` table). | `pyodbc` from [`parsers/readers/sql_reader.py`](ssis_modernization_agent/parsers/readers/sql_reader.py). | Use the local-disk or Git reader instead — they are the default for `scan_ssis_packages`. |
 
 **Calls explicitly NOT made by the agent**, verified by grep:
 
 - No `import requests`, no `import urllib.request`, no `import aiohttp`,
-  no `import http.client` anywhere under `ssis_adf_agent/`. The only
+  no `import http.client` anywhere under `ssis_modernization_agent/`. The only
   HTTP client present is `httpx`, scoped to the Function App zip-deploy
   path.
 - No telemetry, analytics, crash-reporting, or update-check code path.

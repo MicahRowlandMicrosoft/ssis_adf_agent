@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from ssis_adf_agent.translators.control_flow_expression import (
+from ssis_modernization_agent.translators.control_flow_expression import (
     translate_control_flow_expr,
     strip_variable_namespace,
 )
@@ -264,7 +264,7 @@ class TestCompoundExpressions:
 
 class TestForLoopIntegration:
     def test_negate_eval_expression(self):
-        from ssis_adf_agent.converters.control_flow.for_loop_converter import (
+        from ssis_modernization_agent.converters.control_flow.for_loop_converter import (
             _negate_ssis_expression,
         )
 
@@ -272,7 +272,7 @@ class TestForLoopIntegration:
         assert result == "@not(less(variables('Counter'), 10))"
 
     def test_negate_with_paren_syntax(self):
-        from ssis_adf_agent.converters.control_flow.for_loop_converter import (
+        from ssis_modernization_agent.converters.control_flow.for_loop_converter import (
             _negate_ssis_expression,
         )
 
@@ -280,7 +280,7 @@ class TestForLoopIntegration:
         assert result == "@not(less(variables('I'), variables('Max')))"
 
     def test_negate_with_bracket_syntax(self):
-        from ssis_adf_agent.converters.control_flow.for_loop_converter import (
+        from ssis_modernization_agent.converters.control_flow.for_loop_converter import (
             _negate_ssis_expression,
         )
 
@@ -288,7 +288,7 @@ class TestForLoopIntegration:
         assert result == "@not(equals(variables('Done'), true))"
 
     def test_negate_none(self):
-        from ssis_adf_agent.converters.control_flow.for_loop_converter import (
+        from ssis_modernization_agent.converters.control_flow.for_loop_converter import (
             _negate_ssis_expression,
         )
 
@@ -297,8 +297,8 @@ class TestForLoopIntegration:
 
     def test_full_for_loop_conversion(self):
         """End-to-end For Loop with @[User::...] syntax"""
-        from ssis_adf_agent.parsers.models import ForLoopContainer
-        from ssis_adf_agent.converters.control_flow.for_loop_converter import ForLoopConverter
+        from ssis_modernization_agent.parsers.models import ForLoopContainer
+        from ssis_modernization_agent.converters.control_flow.for_loop_converter import ForLoopConverter
 
         task = ForLoopContainer(
             id="FL1",
@@ -356,8 +356,8 @@ class TestStripVariableNamespace:
 
 class TestConverterNamespaceFix:
     def test_execute_sql_strips_namespace(self):
-        from ssis_adf_agent.parsers.models import ExecuteSQLTask, TaskType
-        from ssis_adf_agent.converters.control_flow.execute_sql_converter import ExecuteSQLConverter
+        from ssis_modernization_agent.parsers.models import ExecuteSQLTask, TaskType
+        from ssis_modernization_agent.converters.control_flow.execute_sql_converter import ExecuteSQLConverter
 
         task = ExecuteSQLTask(
             id="T1",
@@ -386,8 +386,8 @@ class TestConverterNamespaceFix:
                 )
 
     def test_execute_package_strips_namespace(self):
-        from ssis_adf_agent.parsers.models import ExecutePackageTask, TaskType
-        from ssis_adf_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
+        from ssis_modernization_agent.parsers.models import ExecutePackageTask, TaskType
+        from ssis_modernization_agent.converters.control_flow.execute_package_converter import ExecutePackageConverter
 
         task = ExecutePackageTask(
             id="T1",

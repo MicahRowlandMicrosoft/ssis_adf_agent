@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from ssis_adf_agent.converters.control_flow.foreach_converter import ForEachConverter
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.converters.control_flow.foreach_converter import ForEachConverter
+from ssis_modernization_agent.parsers.models import (
     ForEachEnumeratorType,
     ForEachLoopContainer,
     PrecedenceConstraint,

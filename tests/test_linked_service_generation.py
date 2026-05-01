@@ -18,13 +18,13 @@ from typing import Any
 
 import pytest
 
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.parsers.models import (
     ConnectionManagerType,
     SSISConnectionManager,
     SSISPackage,
     ProtectionLevel,
 )
-from ssis_adf_agent.generators.linked_service_generator import (
+from ssis_modernization_agent.generators.linked_service_generator import (
     parse_connection_string,
     generate_linked_services,
     _is_on_prem,
@@ -541,32 +541,32 @@ class TestNamingFunctionOverrides:
     """Test ds_name, df_name, pl_name, tr_name with name_overrides."""
 
     def test_ds_name_override(self):
-        from ssis_adf_agent.generators.naming import ds_name
+        from ssis_modernization_agent.generators.naming import ds_name
         result = ds_name("Pkg", "MySource", name_overrides={"DS:MySource": "DS_Custom"})
         assert result == "DS_Custom"
 
     def test_ds_name_no_override(self):
-        from ssis_adf_agent.generators.naming import ds_name
+        from ssis_modernization_agent.generators.naming import ds_name
         result = ds_name("Pkg", "MySource", name_overrides={"DS:Other": "DS_X"})
         assert result == "DS_Pkg_MySource"
 
     def test_df_name_override(self):
-        from ssis_adf_agent.generators.naming import df_name
+        from ssis_modernization_agent.generators.naming import df_name
         result = df_name("Pkg", "LoadData", name_overrides={"DF:LoadData": "DF_Custom"})
         assert result == "DF_Custom"
 
     def test_pl_name_override(self):
-        from ssis_adf_agent.generators.naming import pl_name
+        from ssis_modernization_agent.generators.naming import pl_name
         result = pl_name("Pkg", name_overrides={"PL": "PL_MyPipeline"})
         assert result == "PL_MyPipeline"
 
     def test_tr_name_override(self):
-        from ssis_adf_agent.generators.naming import tr_name
+        from ssis_modernization_agent.generators.naming import tr_name
         result = tr_name("Pkg", name_overrides={"TR": "TR_MyTrigger"})
         assert result == "TR_MyTrigger"
 
     def test_overrides_are_case_insensitive(self):
-        from ssis_adf_agent.generators.naming import pl_name
+        from ssis_modernization_agent.generators.naming import pl_name
         result = pl_name("Pkg", name_overrides={"pl": "PL_Custom"})
         assert result == "PL_Custom"
 

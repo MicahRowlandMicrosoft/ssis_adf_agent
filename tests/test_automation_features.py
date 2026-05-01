@@ -13,8 +13,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from ssis_adf_agent.converters.dispatcher import ConverterDispatcher
-from ssis_adf_agent.generators.file_path_mapper import (
+from ssis_modernization_agent.converters.dispatcher import ConverterDispatcher
+from ssis_modernization_agent.generators.file_path_mapper import (
     apply_file_path_map,
     _replace_path,
     _rewrite_dict,
@@ -26,7 +26,7 @@ from ssis_adf_agent.generators.file_path_mapper import (
 # ---------------------------------------------------------------------------
 
 def _task(task_type: str, name: str = "TestTask", **extra) -> SimpleNamespace:
-    from ssis_adf_agent.parsers.models import TaskType
+    from ssis_modernization_agent.parsers.models import TaskType
     tt = TaskType(task_type)
     defaults = dict(
         id=f"id_{name}",

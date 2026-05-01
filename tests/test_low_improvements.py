@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from ssis_adf_agent.warnings_collector import WarningsCollector, warn
+from ssis_modernization_agent.warnings_collector import WarningsCollector, warn
 
 
 # ===================================================================

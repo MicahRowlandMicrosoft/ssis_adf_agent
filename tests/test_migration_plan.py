@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.migration_plan import (
+from ssis_modernization_agent.migration_plan import (
     PLAN_SCHEMA_VERSION,
     AuthMode,
     MigrationPlan,
@@ -16,7 +16,7 @@ from ssis_adf_agent.migration_plan import (
     propose_design,
     save_plan,
 )
-from ssis_adf_agent.parsers.models import (  # type: ignore[attr-defined]
+from ssis_modernization_agent.parsers.models import (  # type: ignore[attr-defined]
     ConnectionManagerType,
     DataFlowComponent,
     DataFlowTask,

@@ -7,7 +7,7 @@ import pytest
 
 reportlab = pytest.importorskip("reportlab")
 
-from ssis_adf_agent.documentation.estate_pdf_report import build_estate_report_pdf  # noqa: E402
+from ssis_modernization_agent.documentation.estate_pdf_report import build_estate_report_pdf  # noqa: E402
 
 
 def test_build_estate_report_pdf_writes_file(tmp_path: Path) -> None:

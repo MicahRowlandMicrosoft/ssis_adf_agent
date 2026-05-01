@@ -13,7 +13,7 @@ Usage in a tool handler::
 
 Usage in a converter/generator::
 
-    from ssis_adf_agent.warnings_collector import warn
+    from ssis_modernization_agent.warnings_collector import warn
 
     warn(
         phase="convert",
@@ -32,7 +32,7 @@ from typing import Any
 
 from .parsers.models import ConversionWarning
 
-logger = logging.getLogger("ssis_adf_agent")
+logger = logging.getLogger("ssis_modernization_agent")
 
 # Thread-local storage for the active collector
 _local = threading.local()
@@ -72,7 +72,7 @@ def warn(
     """Emit a conversion warning.
 
     If a ``WarningsCollector`` context is active, the warning is collected.
-    The warning is always logged via the ``ssis_adf_agent`` logger regardless.
+    The warning is always logged via the ``ssis_modernization_agent`` logger regardless.
     """
     w = ConversionWarning(
         phase=phase,

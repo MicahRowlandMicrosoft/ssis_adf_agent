@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **ssis-adf-agent** will be recorded here. The format
+All notable changes to **ssis-modernization-agent** will be recorded here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 While the package is still on the `0.x` line, the public surface (MCP tool
@@ -131,7 +131,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   audit checklist the security reviewer can run before approving the
   change ticket. Cross-linked from SECURITY.md and SETUP.md.
 - **P4-6** — Deeper deploy dry-run / pre-flight. New module
-  `ssis_adf_agent/deployer/preflight.py` plus a `pre_flight=true` flag on
+  `ssis_modernization_agent/deployer/preflight.py` plus a `pre_flight=true` flag on
   the `deploy_to_adf` MCP tool that short-circuits the actual deploy and
   instead probes the external dependencies the linked services declare:
   Key Vault secret existence + read permission, host DNS resolution, and
@@ -140,7 +140,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   probe boundary is injectable so the test path never touches Azure or
   DNS. 19 new tests with stub clients.
 - **P4-5** — Cost-actuals join helper. New module
-  `ssis_adf_agent/migration_plan/cost_actuals.py` and MCP tool **#29
+  `ssis_modernization_agent/migration_plan/cost_actuals.py` and MCP tool **#29
   `compare_estimates_to_actuals`** join the deployed `lineage.json` (M1) +
   the prediction from `estimate_adf_costs` against an Azure Cost
   Management export (REST response JSON *or* portal CSV). Per-factory
@@ -151,7 +151,7 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
   customers do not mistake the allocation for billed truth. 29 tests with
   captured CM REST + CSV fixtures (zero Azure dependency in the test path).
 - **P4-4** — Encrypted-package automation helper. New module
-  `ssis_adf_agent/deployer/keyvault_uploader.py` and MCP tool **#28
+  `ssis_modernization_agent/deployer/keyvault_uploader.py` and MCP tool **#28
   `upload_encrypted_secrets`** automate Steps 2 + 4 of the ENCRYPTED_PACKAGES.md
   recipe in one command: extract secrets from an unprotected `.dtsx` (the
   customer still runs `dtutil` manually so decrypt remains auditable on

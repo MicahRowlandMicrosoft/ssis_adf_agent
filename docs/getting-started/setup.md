@@ -1,6 +1,6 @@
 # Setup Guide
 
-Step-by-step instructions for getting `ssis-adf-agent` running on a new machine.
+Step-by-step instructions for getting `ssis-modernization-agent` running on a new machine.
 
 ---
 
@@ -27,8 +27,8 @@ Step-by-step instructions for getting `ssis-adf-agent` running on a new machine.
 ## 2. Clone and Install
 
 ```bash
-git clone https://github.com/chsimons_microsoft/ssis_adf_agent.git
-cd ssis_adf_agent
+git clone https://github.com/chsimons_microsoft/ssis_modernization_agent.git
+cd ssis_modernization_agent
 ```
 
 ### Create a virtual environment (recommended)
@@ -62,7 +62,7 @@ pip install -e ".[dev,llm]"
 ### Verify
 
 ```bash
-ssis-adf-agent --help
+ssis-modernization-agent --help
 ```
 
 ---
@@ -79,18 +79,18 @@ If you need to register it in your **user** settings instead (e.g. for use acros
 ```jsonc
 {
   "github.copilot.chat.experimental.mcpServers": {
-    "ssis-adf-agent": {
+    "ssis-modernization-agent": {
       "type": "stdio",
-      "command": "ssis-adf-agent",
+      "command": "ssis-modernization-agent",
       "args": []
     }
   }
 }
 ```
 
-> **Virtual environment note:** If you installed into a venv, replace `"command": "ssis-adf-agent"` with the full path:
-> - Windows: `"C:\\path\\to\\.venv\\Scripts\\ssis-adf-agent.exe"`
-> - macOS/Linux: `"/path/to/.venv/bin/ssis-adf-agent"`
+> **Virtual environment note:** If you installed into a venv, replace `"command": "ssis-modernization-agent"` with the full path:
+> - Windows: `"C:\\path\\to\\.venv\\Scripts\\ssis-modernization-agent.exe"`
+> - macOS/Linux: `"/path/to/.venv/bin/ssis-modernization-agent"`
 
 3. Reload VS Code (`Ctrl+Shift+P` → **Developer: Reload Window**).
 4. Open **Copilot Chat** → switch to **Agent** mode → confirm the server registered and that the 23 SSIS→ADF tools appear (a partial list of the most commonly used ones):
@@ -229,7 +229,7 @@ pytest
 ruff check .
 
 # Type-check
-mypy ssis_adf_agent/
+mypy ssis_modernization_agent/
 
 # Format (auto-fix)
 ruff check --fix .
@@ -243,7 +243,7 @@ The project enforces `ruff` with `line-length = 100` and `mypy --strict`.
 
 | Problem | Solution |
 |---|---|
-| `ssis-adf-agent` command not found | Ensure the venv is activated, or use the full path to the script |
+| `ssis-modernization-agent` command not found | Ensure the venv is activated, or use the full path to the script |
 | Tools don't appear in Copilot Chat | Reload VS Code; confirm `.vscode/mcp.json` exists and Agent mode is selected |
 | ODBC errors when scanning SQL Server | Install [ODBC Driver 17+](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server) and verify with `odbcinst -j` (Linux) or ODBC Data Source Administrator (Windows) |
 | `EncryptAllWithPassword` warnings | The SSIS package has encrypted connection strings. Passwords must be filled in manually in linked service JSON or referenced via Key Vault (`use_key_vault=true`) |

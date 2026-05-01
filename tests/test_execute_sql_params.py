@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import pytest
 
-from ssis_adf_agent.converters.control_flow.execute_sql_converter import (
+from ssis_modernization_agent.converters.control_flow.execute_sql_converter import (
     ExecuteSQLConverter,
     _build_sp_parameters,
     _build_script_parameters,
     _oledb_type_to_adf,
     apply_schema_remap,
 )
-from ssis_adf_agent.parsers.models import ExecuteSQLTask, TaskType
+from ssis_modernization_agent.parsers.models import ExecuteSQLTask, TaskType
 
 
 def _make_task(**overrides) -> ExecuteSQLTask:

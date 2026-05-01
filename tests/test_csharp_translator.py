@@ -5,7 +5,7 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
-from ssis_adf_agent.translators.csharp_to_python import (
+from ssis_modernization_agent.translators.csharp_to_python import (
     CSharpToPythonTranslator,
     TranslationError,
 )
@@ -40,12 +40,12 @@ class TestTranslatorSafetyGuards:
         "AZURE_OPENAI_ENDPOINT": "https://test.openai.azure.com/",
         "AZURE_OPENAI_API_KEY": "fake-key",
     })
-    @patch("ssis_adf_agent.translators.csharp_to_python.AzureOpenAI", create=True)
+    @patch("ssis_modernization_agent.translators.csharp_to_python.AzureOpenAI", create=True)
     def test_empty_choices_raises(self, mock_cls):
         """response.choices == [] should raise TranslationError."""
         # The import inside translate() uses a local `from openai import AzureOpenAI`
         # so we patch the class *after* it's imported in the module.
-        import ssis_adf_agent.translators.csharp_to_python as mod
+        import ssis_modernization_agent.translators.csharp_to_python as mod
 
         client = MagicMock()
         client.chat.completions.create.return_value = self._make_mock_response(choices=[])

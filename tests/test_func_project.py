@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.converters.control_flow.script_task_converter import ScriptTaskConverter
-from ssis_adf_agent.generators.func_project_generator import (
+from ssis_modernization_agent.converters.control_flow.script_task_converter import ScriptTaskConverter
+from ssis_modernization_agent.generators.func_project_generator import (
     generate_func_project,
     _scan_imports,
     _resolve_packages,
 )
-from ssis_adf_agent.parsers.models import ScriptTask
+from ssis_modernization_agent.parsers.models import ScriptTask
 
 
 # ---------------------------------------------------------------------------

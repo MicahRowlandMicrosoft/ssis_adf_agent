@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ssis_adf_agent.translators.csharp_to_python import (
+from ssis_modernization_agent.translators.csharp_to_python import (
     NO_LLM_ENV_VAR,
     CSharpToPythonTranslator,
     TranslationError,
@@ -77,7 +77,7 @@ class TestTranslatorRespectsPolicy:
 
 class TestScriptTaskConverterDegradesCleanly:
     def test_attempt_llm_translation_skips_with_policy_message(self) -> None:
-        from ssis_adf_agent.converters.control_flow.script_task_converter import (
+        from ssis_modernization_agent.converters.control_flow.script_task_converter import (
             _attempt_llm_translation,
         )
 
@@ -105,7 +105,7 @@ class TestMcpToolFlag:
         # added directly.
         import importlib
 
-        mod = importlib.import_module("ssis_adf_agent.mcp_server")
+        mod = importlib.import_module("ssis_modernization_agent.mcp_server")
         # Confirm the schema advertises the new field.
         # Find the convert_ssis_package tool definition by walking _list_tools
         # output is overkill — instead check the source text quickly.
@@ -119,7 +119,7 @@ class TestMcpToolFlag:
         # the MCP module so the override block can fire.
         import importlib
 
-        mod = importlib.import_module("ssis_adf_agent.mcp_server")
+        mod = importlib.import_module("ssis_modernization_agent.mcp_server")
         import inspect
         src = inspect.getsource(mod)
         assert "no_llm_policy_enabled" in src

@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from ssis_adf_agent.analyzers.consolidation_analyzer import (
+from ssis_modernization_agent.analyzers.consolidation_analyzer import (
     analyze_estate_consolidation,
     find_consolidation_candidates,
     find_dedup_candidates,
 )
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.parsers.models import (
     ConnectionManagerType,
     DataFlowComponent,
     DataFlowTask,

@@ -1,4 +1,4 @@
-"""Allow ``python -m ssis_adf_agent ...`` to invoke the headless CLI (M3)."""
+"""Allow ``python -m ssis_modernization_agent ...`` to invoke the headless CLI (M3)."""
 
 from __future__ import annotations
 

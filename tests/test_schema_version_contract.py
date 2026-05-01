@@ -14,15 +14,15 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.generators.lineage_generator import (
+from ssis_modernization_agent.generators.lineage_generator import (
     LINEAGE_SCHEMA_VERSION,
     load_lineage,
 )
-from ssis_adf_agent.migration_plan.models import (
+from ssis_modernization_agent.migration_plan.models import (
     PLAN_SCHEMA_VERSION,
     MigrationPlan,
 )
-from ssis_adf_agent.migration_plan.persistence import load_plan, save_plan
+from ssis_modernization_agent.migration_plan.persistence import load_plan, save_plan
 
 
 def _write_lineage(path: Path, schema_version: str) -> None:

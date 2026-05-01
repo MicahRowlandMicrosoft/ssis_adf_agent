@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ssis_adf_agent.generators.arm_template_generator import export_arm_template
+from ssis_modernization_agent.generators.arm_template_generator import export_arm_template
 
 
 def _seed(out: Path) -> None:

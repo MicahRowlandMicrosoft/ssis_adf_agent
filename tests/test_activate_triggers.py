@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ssis_adf_agent.deployer.adf_deployer import AdfDeployer
+from ssis_modernization_agent.deployer.adf_deployer import AdfDeployer
 
 
 def _make_trigger(name: str, runtime_state: str, type_name: str = "ScheduleTrigger"):
@@ -35,7 +35,7 @@ def _make_trigger(name: str, runtime_state: str, type_name: str = "ScheduleTrigg
 def deployer_with_triggers(monkeypatch):
     """Construct an AdfDeployer with .client patched to return canned triggers."""
     monkeypatch.setattr(
-        "ssis_adf_agent.deployer.adf_deployer.get_credential",
+        "ssis_modernization_agent.deployer.adf_deployer.get_credential",
         lambda: MagicMock(),
     )
     d = AdfDeployer(

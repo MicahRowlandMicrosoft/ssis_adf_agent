@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.parity import (
+from ssis_modernization_agent.parity import (
     CapturedOutputRunner,
     compare_dataflow_output,
     render_diff_markdown,

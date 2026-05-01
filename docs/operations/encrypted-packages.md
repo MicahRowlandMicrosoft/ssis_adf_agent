@@ -62,7 +62,7 @@ connection-manager **DTS:ObjectName** so you can reference it later.
 
 > **Automation available (P4-4).** Steps 2 + 4 below can be run as a single
 > command via the [`upload_encrypted_secrets`](#automation-via-mcp) MCP tool
-> (also importable as `ssis_adf_agent.deployer.keyvault_uploader.process_encrypted_package`).
+> (also importable as `ssis_modernization_agent.deployer.keyvault_uploader.process_encrypted_package`).
 > The manual instructions below are still the source of truth — the
 > automation does the same thing programmatically with `dry_run=True`
 > support so you can preview before applying.
@@ -160,11 +160,11 @@ each one points at the source-of-truth location in the codebase.
 
 | Symptom | What it means | Where it surfaces |
 |---|---|---|
-| Gap entry: *"Package uses ProtectionLevel=EncryptAllWithPassword. Sensitive values may not be readable without the password. Connection strings and credentials were likely not exported."* | The package itself is encrypted. Nothing was decrypted. | [`analyzers/gap_analyzer.py` `analyze_gaps()`](ssis_adf_agent/analyzers/gap_analyzer.py) — emitted at package level when `protection_level` is one of the two password-protected enums. Severity `WARNING`, recommendation: re-export with `DontSaveSensitive` *or* run the recipe above. |
-| Generated linked service has an empty `connectionString` placeholder | Connection-manager `ConnectionString` was a sensitive property and was stripped at export time. | [`generators/linked_service_generator.py`](ssis_adf_agent/generators/linked_service_generator.py) — placeholders need to be filled by Step 4 of the recipe (or by `upload_encrypted_secrets`). |
-| Pipeline parameter declared but `defaultValue` is missing | The parameter was marked `Sensitive="1"` in the .dtsx; the value was stripped. | [`generators/pipeline_generator.py` `_redact_sensitive_default()`](ssis_adf_agent/generators/pipeline_generator.py) — by design, even unencrypted packages strip credential-shaped defaults (B3). For encrypted packages there *is* no value to strip in the first place. |
-| Script Task warning: *"may be encrypted with a package password (EncryptAllWithPassword)"* | The Script Task's binary blob was unreadable. The LLM translator gets `source_code=None` and produces only the comment-stub form. | [`converters/control_flow/script_task_converter.py`](ssis_adf_agent/converters/control_flow/script_task_converter.py) — emitted when `task.source_code` is `None`; lists this as the third of three real causes (the other two: unsupported VSTA layout, pre-2008 binary stub). |
-| Gap entry references a connection that does **not** appear in `linked_services/` at all | The `<DTS:ConnectionManager>` element existed but its `ObjectData` was encrypted; the parser walked the tag but produced no `ConnectionManager` record. | [`parsers/ssis_parser.py`](ssis_adf_agent/parsers/ssis_parser.py) `_parse_connection_manager()` — empty/encrypted ObjectData yields no entry; downstream gap analyzer flags the orphaned task reference. Recovery: run the recipe to decrypt the .dtsx or supply the connection out-of-band. |
+| Gap entry: *"Package uses ProtectionLevel=EncryptAllWithPassword. Sensitive values may not be readable without the password. Connection strings and credentials were likely not exported."* | The package itself is encrypted. Nothing was decrypted. | [`analyzers/gap_analyzer.py` `analyze_gaps()`](ssis_modernization_agent/analyzers/gap_analyzer.py) — emitted at package level when `protection_level` is one of the two password-protected enums. Severity `WARNING`, recommendation: re-export with `DontSaveSensitive` *or* run the recipe above. |
+| Generated linked service has an empty `connectionString` placeholder | Connection-manager `ConnectionString` was a sensitive property and was stripped at export time. | [`generators/linked_service_generator.py`](ssis_modernization_agent/generators/linked_service_generator.py) — placeholders need to be filled by Step 4 of the recipe (or by `upload_encrypted_secrets`). |
+| Pipeline parameter declared but `defaultValue` is missing | The parameter was marked `Sensitive="1"` in the .dtsx; the value was stripped. | [`generators/pipeline_generator.py` `_redact_sensitive_default()`](ssis_modernization_agent/generators/pipeline_generator.py) — by design, even unencrypted packages strip credential-shaped defaults (B3). For encrypted packages there *is* no value to strip in the first place. |
+| Script Task warning: *"may be encrypted with a package password (EncryptAllWithPassword)"* | The Script Task's binary blob was unreadable. The LLM translator gets `source_code=None` and produces only the comment-stub form. | [`converters/control_flow/script_task_converter.py`](ssis_modernization_agent/converters/control_flow/script_task_converter.py) — emitted when `task.source_code` is `None`; lists this as the third of three real causes (the other two: unsupported VSTA layout, pre-2008 binary stub). |
+| Gap entry references a connection that does **not** appear in `linked_services/` at all | The `<DTS:ConnectionManager>` element existed but its `ObjectData` was encrypted; the parser walked the tag but produced no `ConnectionManager` record. | [`parsers/ssis_parser.py`](ssis_modernization_agent/parsers/ssis_parser.py) `_parse_connection_manager()` — empty/encrypted ObjectData yields no entry; downstream gap analyzer flags the orphaned task reference. Recovery: run the recipe to decrypt the .dtsx or supply the connection out-of-band. |
 
 If you see a parser exception (rather than one of the symptoms above)
 when handling an encrypted package, **the encryption is not the
@@ -220,7 +220,7 @@ references updated.
 The same module is importable directly:
 
 ```python
-from ssis_adf_agent.deployer.keyvault_uploader import (
+from ssis_modernization_agent.deployer.keyvault_uploader import (
     process_encrypted_package,
 )
 

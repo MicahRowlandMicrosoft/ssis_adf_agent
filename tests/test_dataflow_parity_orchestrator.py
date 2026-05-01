@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.parity import (
+from ssis_modernization_agent.parity import (
     CapturedOutputRunner,
     compare_dataflow_output,
     render_diff_markdown,
 )
-from ssis_adf_agent.parity.runners import RunnerResult, _read_csv, _write_csv
+from ssis_modernization_agent.parity.runners import RunnerResult, _read_csv, _write_csv
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -200,7 +200,7 @@ def test_orchestrator_writes_report_and_json(
 ) -> None:
     """Drive the MCP-server handler path that writes the report+JSON to disk."""
     import asyncio
-    from ssis_adf_agent.mcp_server import _compare_dataflow_output
+    from ssis_modernization_agent.mcp_server import _compare_dataflow_output
 
     ssis_csv = tmp_path / "ssis.csv"
     adf_csv = tmp_path / "adf.csv"

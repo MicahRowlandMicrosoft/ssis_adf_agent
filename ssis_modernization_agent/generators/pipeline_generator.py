@@ -122,7 +122,7 @@ def _map_param_type(ssis_type: str) -> str:
 
 def _collect_annotations(package: SSISPackage) -> list[str]:
     """Build pipeline annotations from detected patterns."""
-    annotations = ["ssis-adf-agent", f"source-package:{package.name}"]
+    annotations = ["ssis-modernization-agent", f"source-package:{package.name}"]
 
     # Ingestion pattern annotations
     has_delta = False

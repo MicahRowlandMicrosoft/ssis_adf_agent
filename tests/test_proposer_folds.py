@@ -1,11 +1,11 @@
 """Tests for the new fold/drop/replace detectors added to the proposer."""
 from __future__ import annotations
 
-from ssis_adf_agent.migration_plan import (
+from ssis_modernization_agent.migration_plan import (
     SimplificationAction,
     propose_design,
 )
-from ssis_adf_agent.parsers.models import (  # type: ignore[attr-defined]
+from ssis_modernization_agent.parsers.models import (  # type: ignore[attr-defined]
     ConnectionManagerType,
     DataFlowComponent,
     DataFlowTask,

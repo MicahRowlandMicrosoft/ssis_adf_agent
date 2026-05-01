@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from mcp import types as mcp_types
 
-from ssis_adf_agent import cli
+from ssis_modernization_agent import cli
 
 
 def _ok(payload: dict) -> list[mcp_types.TextContent]:

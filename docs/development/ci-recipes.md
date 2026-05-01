@@ -6,14 +6,14 @@ without an MCP host.
 ## Install
 
 ```bash
-pip install -e path/to/ssis_adf_agent
+pip install -e path/to/ssis_modernization_agent
 # Sanity check
-python -m ssis_adf_agent --help
+python -m ssis_modernization_agent --help
 ```
 
-The console-script `ssis-adf-agent` continues to launch the **MCP stdio
+The console-script `ssis-modernization-agent` continues to launch the **MCP stdio
 server** for back-compat. Headless callers should always use
-`python -m ssis_adf_agent <subcommand>` instead.
+`python -m ssis_modernization_agent <subcommand>` instead.
 
 ## Subcommands
 
@@ -50,20 +50,20 @@ jobs:
         with: { python-version: "3.12" }
 
       - name: Install agent
-        run: pip install -e ./tools/ssis_adf_agent
+        run: pip install -e ./tools/ssis_modernization_agent
 
       - name: Convert all packages
         run: |
           mkdir -p out
           for pkg in ssis/*.dtsx; do
-            python -m ssis_adf_agent convert "$pkg" "out/$(basename "${pkg%.dtsx}")" \
+            python -m ssis_modernization_agent convert "$pkg" "out/$(basename "${pkg%.dtsx}")" \
               | tee "out/$(basename "${pkg%.dtsx}").convert.json"
           done
 
       - name: Validate generated ADF JSON
         run: |
           for d in out/*/; do
-            python -m ssis_adf_agent validate "$d"
+            python -m ssis_modernization_agent validate "$d"
           done
 
       - uses: actions/upload-artifact@v4
@@ -98,16 +98,16 @@ steps:
   - task: UsePythonVersion@0
     inputs: { versionSpec: "3.12" }
 
-  - script: pip install -e tools/ssis_adf_agent
+  - script: pip install -e tools/ssis_modernization_agent
     displayName: Install agent
 
   - script: |
-      python -m ssis_adf_agent convert \
+      python -m ssis_modernization_agent convert \
         ssis/MyPackage.dtsx out/MyPackage \
         --auth-type SystemAssignedManagedIdentity
     displayName: Convert
 
-  - script: python -m ssis_adf_agent validate out/MyPackage
+  - script: python -m ssis_modernization_agent validate out/MyPackage
     displayName: Validate
 
   - script: |
@@ -117,7 +117,7 @@ steps:
     displayName: Login to Azure
 
   - script: |
-      python -m ssis_adf_agent deploy out/MyPackage \
+      python -m ssis_modernization_agent deploy out/MyPackage \
         --subscription-id $(AZURE_SUBSCRIPTION_ID) \
         --resource-group  $(ADF_RG) \
         --factory-name    $(ADF_NAME) \
@@ -144,6 +144,6 @@ factory has hand-edited artifacts (see [backlog.md](backlog.md) H8).
 
 ## Where to file CLI feedback
 
-If you find yourself adding a wrapper script around `python -m ssis_adf_agent`
+If you find yourself adding a wrapper script around `python -m ssis_modernization_agent`
 to compensate for a missing flag, file an issue. The CLI is intended to be
 strict-superset of every MCP tool's surface, no more and no less.

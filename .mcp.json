@@ -1,11 +1,11 @@
 {
   "mcpServers": {
-    "ssis-adf-agent": {
+    "ssis-modernization-agent": {
       "type": "stdio",
       "command": "python",
       "args": [
         "-m",
-        "ssis_adf_agent.mcp_server"
+        "ssis_modernization_agent.mcp_server"
       ],
       "cwd": "${workspaceFolder}",
       "env": {},

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ssis-adf-agent"
+name = "ssis-modernization-agent"
 version = "0.1.0"
 description = "MCP server for reading SSIS packages and converting them to ADF pipelines, surfaced as GitHub Copilot tools"
 readme = "README.md"
@@ -42,10 +42,10 @@ pdf = [
 ]
 
 [project.scripts]
-ssis-adf-agent = "ssis_adf_agent.mcp_server:main"
+ssis-modernization-agent = "ssis_modernization_agent.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["ssis_adf_agent"]
+packages = ["ssis_modernization_agent"]
 
 [tool.ruff]
 line-length = 120

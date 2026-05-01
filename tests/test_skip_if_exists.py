@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 from azure.core.exceptions import HttpResponseError
 
-from ssis_adf_agent.deployer.adf_deployer import AdfDeployer
+from ssis_modernization_agent.deployer.adf_deployer import AdfDeployer
 
 
 def _make_404_error() -> HttpResponseError:
@@ -31,7 +31,7 @@ def _make_404_error() -> HttpResponseError:
 @pytest.fixture
 def deployer(monkeypatch):
     monkeypatch.setattr(
-        "ssis_adf_agent.deployer.adf_deployer.get_credential",
+        "ssis_modernization_agent.deployer.adf_deployer.get_credential",
         lambda: MagicMock(),
     )
     d = AdfDeployer(

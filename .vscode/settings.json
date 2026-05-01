@@ -1,6 +1,6 @@
 {
     "chat.mcp.serverSampling": {
-        "ssis_adf_agent/.vscode/mcp.json: ssis-adf-agent": {
+        "ssis_modernization_agent/.vscode/mcp.json: ssis-modernization-agent": {
             "allowedModels": [
                 "copilot/claude-opus-4.6",
                 "copilotcli/claude-sonnet-4.6"

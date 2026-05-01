@@ -207,7 +207,7 @@ def generate_triggers(
         "name": trigger_name,
         "properties": {
             "description": " ".join(description_parts),
-            "annotations": ["ssis-adf-agent"],
+            "annotations": ["ssis-modernization-agent"],
             "type": "ScheduleTrigger",
             "typeProperties": {
                 "recurrence": recurrence,

@@ -8,7 +8,7 @@ ranges in the agent's reports are computed, so a customer can:
 2. Calibrate the formula against their own historical conversion data.
 
 The source of truth for everything below is
-[`ssis_adf_agent/migration_plan/proposer.py`](ssis_adf_agent/migration_plan/proposer.py)
+[`ssis_modernization_agent/migration_plan/proposer.py`](ssis_modernization_agent/migration_plan/proposer.py)
 (`_effort_from_package`).  If this document drifts from the code, the code
 wins and this doc is wrong.
 

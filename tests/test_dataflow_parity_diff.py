@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from ssis_adf_agent.parity.diff import diff_rows
+from ssis_modernization_agent.parity.diff import diff_rows
 
 
 def test_identical_rows_pass() -> None:

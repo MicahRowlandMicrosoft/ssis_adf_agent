@@ -5,10 +5,10 @@ import pytest
 from types import SimpleNamespace
 from typing import Any
 
-from ssis_adf_agent.converters.dispatcher import ConverterDispatcher
-from ssis_adf_agent.converters.control_flow.event_handler_converter import EventHandlerConverter
-from ssis_adf_agent.converters.control_flow.execute_sql_converter import apply_schema_remap
-from ssis_adf_agent.generators.linked_service_generator import (
+from ssis_modernization_agent.converters.dispatcher import ConverterDispatcher
+from ssis_modernization_agent.converters.control_flow.event_handler_converter import EventHandlerConverter
+from ssis_modernization_agent.converters.control_flow.execute_sql_converter import apply_schema_remap
+from ssis_modernization_agent.generators.linked_service_generator import (
     generate_linked_services,
     _resolve_ir_name,
 )
@@ -20,7 +20,7 @@ from ssis_adf_agent.generators.linked_service_generator import (
 
 def _task(task_type: str, name: str = "TestTask", **extra) -> SimpleNamespace:
     """Create a minimal task-like object for the dispatcher."""
-    from ssis_adf_agent.parsers.models import TaskType
+    from ssis_modernization_agent.parsers.models import TaskType
     tt = TaskType(task_type)
     defaults = dict(
         id=f"id_{name}",
@@ -35,7 +35,7 @@ def _task(task_type: str, name: str = "TestTask", **extra) -> SimpleNamespace:
 
 def _cm(name: str = "TestConn", **overrides) -> SimpleNamespace:
     """Minimal ConnectionManager-like object."""
-    from ssis_adf_agent.parsers.models import ConnectionManagerType
+    from ssis_modernization_agent.parsers.models import ConnectionManagerType
     defaults = dict(
         id=name,
         name=name,
@@ -129,7 +129,7 @@ class TestTransferSQLConverter:
 
 class TestForEachSchemaEnumerator:
     def _make_foreach(self, enum_type, config=None):
-        from ssis_adf_agent.parsers.models import ForEachLoopContainer, ForEachEnumeratorType
+        from ssis_modernization_agent.parsers.models import ForEachLoopContainer, ForEachEnumeratorType
         return ForEachLoopContainer(
             id="fe1", name="SchemaLoop",
             enumerator_type=ForEachEnumeratorType(enum_type),
@@ -137,7 +137,7 @@ class TestForEachSchemaEnumerator:
         )
 
     def test_ado_net_schema_emits_lookup(self):
-        from ssis_adf_agent.converters.control_flow.foreach_converter import ForEachConverter
+        from ssis_modernization_agent.converters.control_flow.foreach_converter import ForEachConverter
         conv = ForEachConverter()
         task = self._make_foreach("ForEachADONetSchemaRowsetEnumerator", {"SchemaRowsetName": "Tables"})
         acts = conv.convert(task, [], {})
@@ -149,7 +149,7 @@ class TestForEachSchemaEnumerator:
         assert "INFORMATION_SCHEMA.TABLES" in lookup["typeProperties"]["source"]["sqlReaderQuery"]
 
     def test_ado_net_schema_columns(self):
-        from ssis_adf_agent.converters.control_flow.foreach_converter import ForEachConverter
+        from ssis_modernization_agent.converters.control_flow.foreach_converter import ForEachConverter
         conv = ForEachConverter()
         task = self._make_foreach("ForEachADONetSchemaRowsetEnumerator", {"SchemaRowsetName": "Columns"})
         acts = conv.convert(task, [], {})
@@ -157,7 +157,7 @@ class TestForEachSchemaEnumerator:
         assert "INFORMATION_SCHEMA.COLUMNS" in lookup["typeProperties"]["source"]["sqlReaderQuery"]
 
     def test_nodelist_emits_lookup_with_xpath_comment(self):
-        from ssis_adf_agent.converters.control_flow.foreach_converter import ForEachConverter
+        from ssis_modernization_agent.converters.control_flow.foreach_converter import ForEachConverter
         conv = ForEachConverter()
         task = self._make_foreach("ForEachNodeListEnumerator",
                                    {"OuterXPathString": "//item", "VariableName": "xmlDoc"})
@@ -167,7 +167,7 @@ class TestForEachSchemaEnumerator:
         assert "xmlDoc" in lookup["typeProperties"]["source"]["sqlReaderQuery"]
 
     def test_nodelist_items_expression_references_lookup(self):
-        from ssis_adf_agent.converters.control_flow.foreach_converter import ForEachConverter
+        from ssis_modernization_agent.converters.control_flow.foreach_converter import ForEachConverter
         conv = ForEachConverter()
         task = self._make_foreach("ForEachNodeListEnumerator")
         acts = conv.convert(task, [], {})
@@ -299,7 +299,7 @@ class TestMultiIRSupport:
         assert ir == "MySHIR"
 
     def test_generate_with_ir_mapping(self, tmp_path):
-        from ssis_adf_agent.parsers.models import ConnectionManagerType
+        from ssis_modernization_agent.parsers.models import ConnectionManagerType
         pkg = SimpleNamespace(
             name="TestPackage",
             connection_managers=[

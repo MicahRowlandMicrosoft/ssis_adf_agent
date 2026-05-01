@@ -19,7 +19,7 @@ SQL Agent jobs ───┤      │  Optional configs:     │
                          └──────────┬─────────────┘
                                     ▼
                     ┌─────────────────────────────┐
-                    │      ssis-adf-agent         │  ← MCP stdio server
+                    │      ssis-modernization-agent         │  ← MCP stdio server
                     │                             │
                     │  bulk_analyze → propose →   │
                     │   convert → validate →      │
@@ -79,7 +79,7 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 > to 1.0 and the deprecation-window policy for the `0.9.0 → 1.0.0`
 > transition.
 
-> **Need help?** Open a [GitHub Issue](https://github.com/MicahRowlandMicrosoft/ssis_adf_agent/issues)
+> **Need help?** Open a [GitHub Issue](https://github.com/MicahRowlandMicrosoft/ssis_modernization_agent/issues)
 > for bugs, feature requests, or questions. This is a community-supported
 > open-source project, not an officially supported Microsoft product —
 > see [SUPPORT.md](SUPPORT.md) for the best-effort response model and
@@ -112,8 +112,8 @@ Clone the repository and install in editable mode (recommended for development):
 ```bash
 # Replace <org>/<repo> with the GitHub coordinates of your fork or the
 # upstream repo you cloned this from.
-git clone https://github.com/<org>/<repo>.git ssis_adf_agent
-cd ssis_adf_agent
+git clone https://github.com/<org>/<repo>.git ssis_modernization_agent
+cd ssis_modernization_agent
 pip install -e .
 ```
 
@@ -132,10 +132,10 @@ pip install -e ".[llm]"
 Verify the installation:
 
 ```bash
-ssis-adf-agent --help
+ssis-modernization-agent --help
 ```
 
-> **Note:** When the package is published to PyPI, you can install it with `pip install ssis-adf-agent` without cloning the repository.
+> **Note:** When the package is published to PyPI, you can install it with `pip install ssis-modernization-agent` without cloning the repository.
 
 ---
 
@@ -149,16 +149,16 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
 ```jsonc
 {
   "github.copilot.chat.experimental.mcpServers": {
-    "ssis-adf-agent": {
+    "ssis-modernization-agent": {
       "type": "stdio",
-      "command": "ssis-adf-agent",
+      "command": "ssis-modernization-agent",
       "args": []
     }
   }
 }
 ```
 
-> If you installed into a virtual environment, replace `"command": "ssis-adf-agent"` with the full path to the script, e.g. `"C:\\path\\to\\.venv\\Scripts\\ssis-adf-agent.exe"` (Windows) or `"/path/to/.venv/bin/ssis-adf-agent"` (macOS/Linux).
+> If you installed into a virtual environment, replace `"command": "ssis-modernization-agent"` with the full path to the script, e.g. `"C:\\path\\to\\.venv\\Scripts\\ssis-modernization-agent.exe"` (Windows) or `"/path/to/.venv/bin/ssis-modernization-agent"` (macOS/Linux).
 
 3. Restart VS Code (or reload the window: `Ctrl+Shift+P` → **Developer: Reload Window**).
 4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the 31 tools appear. They group into three tiers:
@@ -206,8 +206,8 @@ The `samples/` directory is intended as a convenient drop zone for `.dtsx` files
 
 2. When using any tool that requires a `package_path` or `path_or_connection`, supply the **absolute path** to the file or directory. For example:
 
-   - **Windows:** `C:\Users\you\ssis_adf_agent\samples\MyETLPackage.dtsx`
-   - **macOS/Linux:** `/home/you/ssis_adf_agent/samples/MyETLPackage.dtsx`
+   - **Windows:** `C:\Users\you\ssis_modernization_agent\samples\MyETLPackage.dtsx`
+   - **macOS/Linux:** `/home/you/ssis_modernization_agent/samples/MyETLPackage.dtsx`
 
 3. For output, create a directory alongside `samples/` (e.g. `adf_output/`) to keep generated artifacts separate from source packages.
 
@@ -748,7 +748,7 @@ When authenticating via Entra ID, the calling identity needs the **Cognitive Ser
 The `openai` SDK is an optional dependency — install it alongside the package:
 
 ```bash
-pip install "ssis-adf-agent[llm]"
+pip install "ssis-modernization-agent[llm]"
 ```
 
 ### Example prompt
@@ -963,7 +963,7 @@ Datasets use separate `schema` and `table` properties per Microsoft's recommenda
 
 Generated pipelines include automatic annotations based on detected patterns:
 
-- `ssis-adf-agent` — identifies the source tool
+- `ssis-modernization-agent` — identifies the source tool
 - `source-package:<name>` — original SSIS package name
 - `ingestion-pattern:delta` or `ingestion-pattern:merge` — when delta/merge patterns detected
 - `has-cross-db-references` — when cross-database or linked server references found
@@ -1017,7 +1017,7 @@ ruff check .
 **Type-check:**
 
 ```bash
-mypy ssis_adf_agent/
+mypy ssis_modernization_agent/
 ```
 
 The project targets Python 3.11+, uses `ruff` with `line-length = 100`, and enforces `mypy --strict`.

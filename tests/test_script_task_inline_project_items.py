@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ssis_adf_agent.parsers.models import ScriptTask
-from ssis_adf_agent.parsers.ssis_parser import SSISParser
+from ssis_modernization_agent.parsers.models import ScriptTask
+from ssis_modernization_agent.parsers.ssis_parser import SSISParser
 
 
 def _build_inline_vb_dtsx() -> str:

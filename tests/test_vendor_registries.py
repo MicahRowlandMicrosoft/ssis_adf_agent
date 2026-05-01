@@ -20,14 +20,14 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from ssis_adf_agent.converters.data_flow.transformation_converter import (
+from ssis_modernization_agent.converters.data_flow.transformation_converter import (
     convert_transformation,
 )
-from ssis_adf_agent.converters.substitution_registry import (
+from ssis_modernization_agent.converters.substitution_registry import (
     SubstitutionRegistry,
     load_registry,
 )
-from ssis_adf_agent.parsers.models import DataFlowComponent
+from ssis_modernization_agent.parsers.models import DataFlowComponent
 
 REGISTRY_DIR = Path(__file__).parent.parent / "registries"
 

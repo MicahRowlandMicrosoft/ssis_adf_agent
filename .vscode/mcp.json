@@ -1,9 +1,9 @@
 {
   "servers": {
-    "ssis-adf-agent": {
+    "ssis-modernization-agent": {
       "type": "stdio",
       "command": "${workspaceFolder}/.venv/Scripts/python.exe",
-      "args": ["-m", "ssis_adf_agent.mcp_server"],
+      "args": ["-m", "ssis_modernization_agent.mcp_server"],
       "cwd": "${workspaceFolder}",
       "env": {},
       "description": "SSIS → ADF conversion and deployment agent"

@@ -15,13 +15,13 @@ import logging
 
 import pytest
 
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.parsers.models import (
     ConversionWarning,
     SSISTask,
     TaskType,
     DataFlowComponent,
 )
-from ssis_adf_agent.warnings_collector import WarningsCollector, warn
+from ssis_modernization_agent.warnings_collector import WarningsCollector, warn
 
 
 # ---------------------------------------------------------------------------
@@ -45,12 +45,12 @@ class TestWarningsCollector:
         assert len(wc2.warnings) == 0
 
     def test_warn_outside_collector_does_not_crash(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="ssis_adf_agent"):
+        with caplog.at_level(logging.WARNING, logger="ssis_modernization_agent"):
             warn(phase="convert", severity="warning", source="test", message="no collector")
         assert "no collector" in caplog.text
 
     def test_warn_logs_regardless_of_collector(self, caplog):
-        with caplog.at_level(logging.WARNING, logger="ssis_adf_agent"):
+        with caplog.at_level(logging.WARNING, logger="ssis_modernization_agent"):
             with WarningsCollector() as wc:
                 warn(phase="convert", severity="warning", source="test", message="logged and collected")
         assert "logged and collected" in caplog.text
@@ -93,7 +93,7 @@ class TestWarningsCollector:
         assert d["message"] == "dump test"
 
     def test_severity_logging_levels(self, caplog):
-        with caplog.at_level(logging.DEBUG, logger="ssis_adf_agent"):
+        with caplog.at_level(logging.DEBUG, logger="ssis_modernization_agent"):
             with WarningsCollector():
                 warn(phase="p", severity="error", source="t", message="err msg")
                 warn(phase="p", severity="warning", source="t", message="warn msg")
@@ -110,7 +110,7 @@ class TestWarningsCollector:
 class TestParserWarnings:
     def test_unknown_task_type_emits_warning(self):
         """When the parser encounters an unknown task type, a warning should be emitted."""
-        from ssis_adf_agent.parsers.ssis_parser import SSISParser
+        from ssis_modernization_agent.parsers.ssis_parser import SSISParser
 
         # Minimal .dtsx with an unknown task type inside <DTS:Executables>
         dtsx = """<?xml version="1.0"?>
@@ -148,7 +148,7 @@ class TestParserWarnings:
 class TestDispatcherWarnings:
     def test_fallback_converter_emits_warning(self):
         """When the dispatcher uses the fallback converter, a warning is emitted."""
-        from ssis_adf_agent.converters.dispatcher import ConverterDispatcher
+        from ssis_modernization_agent.converters.dispatcher import ConverterDispatcher
 
         task = SSISTask(
             id="T1",
@@ -188,7 +188,7 @@ class TestSourceDestinationWarnings:
         )
 
     def test_source_converter_warns_on_missing_connection(self):
-        from ssis_adf_agent.converters.data_flow.source_converter import convert_source
+        from ssis_modernization_agent.converters.data_flow.source_converter import convert_source
 
         comp = self._make_component("OleDbSource")
         with WarningsCollector() as wc:
@@ -200,7 +200,7 @@ class TestSourceDestinationWarnings:
         )
 
     def test_destination_converter_warns_on_missing_connection(self):
-        from ssis_adf_agent.converters.data_flow.destination_converter import convert_destination
+        from ssis_modernization_agent.converters.data_flow.destination_converter import convert_destination
 
         comp = self._make_component("OleDbDestination")
         with WarningsCollector() as wc:
@@ -218,7 +218,7 @@ class TestSourceDestinationWarnings:
 
 class TestTransformationWarnings:
     def test_unsupported_transform_emits_warning(self):
-        from ssis_adf_agent.converters.data_flow.transformation_converter import convert_transformation
+        from ssis_modernization_agent.converters.data_flow.transformation_converter import convert_transformation
 
         comp = DataFlowComponent(
             id="T1",
@@ -241,7 +241,7 @@ class TestTransformationWarnings:
         ), f"Expected unsupported warning, got: {[w.message for w in wc.warnings]}"
 
     def test_script_component_emits_warning(self):
-        from ssis_adf_agent.converters.data_flow.transformation_converter import convert_transformation
+        from ssis_modernization_agent.converters.data_flow.transformation_converter import convert_transformation
 
         comp = DataFlowComponent(
             id="T1",

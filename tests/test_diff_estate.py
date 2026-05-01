@@ -5,8 +5,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from ssis_adf_agent.analyzers.estate_diff import diff_estates
-from ssis_adf_agent.mcp_server import _diff_estate
+from ssis_modernization_agent.analyzers.estate_diff import diff_estates
+from ssis_modernization_agent.mcp_server import _diff_estate
 
 
 def _seed(root: Path, packages: dict[str, dict[str, str]]) -> None:

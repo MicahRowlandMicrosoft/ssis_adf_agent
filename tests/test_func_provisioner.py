@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from ssis_adf_agent.deployer.func_provisioner import (
+from ssis_modernization_agent.deployer.func_provisioner import (
     FuncProvisioner,
     ProvisionResult,
     _derive_storage_name,
@@ -59,7 +59,7 @@ class TestNameDerivation:
 # ===================================================================
 
 class TestStorageNameValidation:
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_invalid_storage_name_rejected(self):
         provisioner = FuncProvisioner.__new__(FuncProvisioner)
         provisioner.subscription_id = "sub-1"
@@ -83,7 +83,7 @@ class TestStorageNameValidation:
 # ===================================================================
 
 class TestDryRun:
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_dry_run_reports_resources(self):
         provisioner = FuncProvisioner.__new__(FuncProvisioner)
         provisioner.subscription_id = "sub-1"
@@ -106,7 +106,7 @@ class TestDryRun:
         assert result.app_service_plan_name == "func-myapp-plan"
         assert result.app_insights_name == "func-myapp-insights"
 
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_dry_run_skip_insights(self):
         provisioner = FuncProvisioner.__new__(FuncProvisioner)
         provisioner.subscription_id = "sub-1"
@@ -127,7 +127,7 @@ class TestDryRun:
         assert result.app_insights_name is None
         assert not any("Insights" in r for r in result.resources_created)
 
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_dry_run_custom_python_version(self):
         provisioner = FuncProvisioner.__new__(FuncProvisioner)
         provisioner.subscription_id = "sub-1"
@@ -185,7 +185,7 @@ class TestProvisionFlow:
 
         return provisioner
 
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_full_provision_success(self):
         provisioner = self._make_provisioner()
         result = provisioner.provision(function_app_name="func-test")
@@ -205,7 +205,7 @@ class TestProvisionFlow:
         # Verify function app was created
         provisioner._web_client.web_apps.begin_create_or_update.assert_called_once()
 
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_provision_skip_insights(self):
         provisioner = self._make_provisioner()
         result = provisioner.provision(
@@ -217,7 +217,7 @@ class TestProvisionFlow:
         assert len(result.resources_created) == 3  # no insights
         provisioner._insights_client.components.create_or_update.assert_not_called()
 
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_provision_custom_storage_name(self):
         provisioner = self._make_provisioner()
         result = provisioner.provision(
@@ -228,7 +228,7 @@ class TestProvisionFlow:
         assert result.success is True
         assert result.storage_account_name == "mycustomstorage"
 
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_provision_creates_storage_with_tls12(self):
         provisioner = self._make_provisioner()
         provisioner.provision(function_app_name="func-test")
@@ -238,7 +238,7 @@ class TestProvisionFlow:
         assert params.minimum_tls_version == "TLS1_2"
         assert params.enable_https_traffic_only is True
 
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_provision_creates_consumption_plan(self):
         provisioner = self._make_provisioner()
         provisioner.provision(function_app_name="func-test")
@@ -249,7 +249,7 @@ class TestProvisionFlow:
         assert plan.sku.tier == "Dynamic"
         assert plan.reserved is True  # Linux
 
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_provision_configures_function_app(self):
         provisioner = self._make_provisioner()
         provisioner.provision(
@@ -278,9 +278,9 @@ class TestProvisionFlow:
 # ===================================================================
 
 class TestErrorHandling:
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_auth_error(self):
-        from ssis_adf_agent.deployer.func_provisioner import ClientAuthenticationError
+        from ssis_modernization_agent.deployer.func_provisioner import ClientAuthenticationError
 
         provisioner = FuncProvisioner.__new__(FuncProvisioner)
         provisioner.subscription_id = "sub-1"
@@ -300,9 +300,9 @@ class TestErrorHandling:
         assert result.success is False
         assert "Authentication failed" in result.error
 
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_api_error(self):
-        from ssis_adf_agent.deployer.func_provisioner import HttpResponseError
+        from ssis_modernization_agent.deployer.func_provisioner import HttpResponseError
 
         provisioner = FuncProvisioner.__new__(FuncProvisioner)
         provisioner.subscription_id = "sub-1"
@@ -322,10 +322,10 @@ class TestErrorHandling:
         assert result.success is False
         assert "Azure API error" in result.error
 
-    @patch("ssis_adf_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
+    @patch("ssis_modernization_agent.deployer.func_provisioner._AZURE_AVAILABLE", True)
     def test_partial_failure_reports_created_resources(self):
         """If Function App creation fails, already-created resources are reported."""
-        from ssis_adf_agent.deployer.func_provisioner import HttpResponseError
+        from ssis_modernization_agent.deployer.func_provisioner import HttpResponseError
 
         provisioner = FuncProvisioner.__new__(FuncProvisioner)
         provisioner.subscription_id = "sub-1"

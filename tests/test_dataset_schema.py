@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from ssis_adf_agent.generators.dataset_generator import (
+from ssis_modernization_agent.generators.dataset_generator import (
     _build_dataset,
     _columns_to_schema,
     generate_datasets,
 )
-from ssis_adf_agent.parsers.models import (
+from ssis_modernization_agent.parsers.models import (
     DataFlowColumn,
     DataFlowComponent,
     DataFlowTask,

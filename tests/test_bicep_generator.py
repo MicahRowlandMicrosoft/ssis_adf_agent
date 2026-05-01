@@ -1,7 +1,7 @@
 """Tests for the Bicep generator (no Azure calls)."""
 from __future__ import annotations
 
-from ssis_adf_agent.migration_plan import (
+from ssis_modernization_agent.migration_plan import (
     AuthMode,
     InfrastructureItem,
     LinkedServiceSpec,

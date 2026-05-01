@@ -651,6 +651,20 @@ async def list_tools() -> list[types.Tool]:
                             "path. Equivalent to calling propose_adf_design then save_migration_plan."
                         ),
                     },
+                    "target": {
+                        "type": "string",
+                        "enum": ["adf", "fabric"],
+                        "default": "adf",
+                        "description": (
+                            "Which Azure platform to target. 'adf' (default) recommends Azure "
+                            "Data Factory pipelines + Mapping Data Flows + linked services. "
+                            "'fabric' tags the plan for Microsoft Fabric Data Pipelines: PySpark "
+                            "notebook stubs replace Mapping Data Flows, Connections replace "
+                            "linked services, and the plan summary calls out the manual "
+                            "PySpark hand-port effort. Use convert_ssis_to_fabric to materialize "
+                            "the artifacts when target='fabric'."
+                        ),
+                    },
                 },
                 "required": ["package_path"],
             },
@@ -953,6 +967,22 @@ async def list_tools() -> list[types.Tool]:
                     "storage_gb": {"type": "number", "default": 100.0},
                     "rates": {"type": "object", "additionalProperties": {"type": "number"}},
                     "output_path": {"type": "string", "description": "Optional JSON output path."},
+                    "target": {
+                        "type": "string",
+                        "enum": ["adf", "fabric"],
+                        "description": (
+                            "Override which platform's cost model to apply. If omitted, "
+                            "inferred from the first plan's `target` field. For 'fabric', "
+                            "the projection uses Capacity Units (CU·s) and recommends an "
+                            "F-SKU instead of computing DIU + v-core hours. Fabric-specific "
+                            "knobs: avg_notebook_minutes, notebook_executors, headroom_pct, "
+                            "onelake_storage_gb (passed via the same `rates`/keyword bag)."
+                        ),
+                    },
+                    "avg_notebook_minutes": {"type": "number", "default": 10.0, "description": "Fabric only."},
+                    "notebook_executors": {"type": "integer", "description": "Fabric only. Default: 4."},
+                    "headroom_pct": {"type": "number", "default": 30.0, "description": "Fabric only."},
+                    "onelake_storage_gb": {"type": "number", "default": 100.0, "description": "Fabric only."},
                 },
                 "required": ["plans_dir"],
             },
@@ -2300,11 +2330,18 @@ async def _validate_parity(args: dict[str, Any]) -> list[types.TextContent]:
 
 async def _propose_design(args: dict[str, Any]) -> list[types.TextContent]:
     from .migration_plan import propose_design, save_plan
+    from .migration_plan.models import MigrationTarget
     from .parsers.readers.local_reader import LocalReader
 
     path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
     package = LocalReader().read(path)
-    plan = propose_design(package)
+    target_str = (args.get("target") or "adf").lower()
+    if target_str not in ("adf", "fabric"):
+        raise ValueError(
+            f"target must be 'adf' or 'fabric'; got {args.get('target')!r}"
+        )
+    target = MigrationTarget(target_str)
+    plan = propose_design(package, target=target)
 
     saved_to: str | None = None
     if args.get("output_path"):
@@ -2764,19 +2801,42 @@ async def _plan_waves(args: dict[str, Any]) -> list[types.TextContent]:
 
 
 async def _estimate_costs(args: dict[str, Any]) -> list[types.TextContent]:
-    from .migration_plan import estimate_adf_costs
+    from .migration_plan.fabric_costs import estimate_costs_dispatch
+    from .migration_plan.models import MigrationTarget
 
     plans = _load_plans_from_dir(args["plans_dir"])
-    estimate = estimate_adf_costs(
-        plans=plans,
-        runs_per_day=int(args.get("runs_per_day", 1)),
-        avg_copy_diu=float(args.get("avg_copy_diu", 4.0)),
-        avg_copy_minutes=float(args.get("avg_copy_minutes", 5.0)),
-        avg_dataflow_minutes=float(args.get("avg_dataflow_minutes", 10.0)),
-        avg_dataflow_vcores=int(args.get("avg_dataflow_vcores", 8)),
-        storage_gb=float(args.get("storage_gb", 100.0)),
-        rates=args.get("rates"),
-    )
+
+    target_arg = args.get("target")
+    target: MigrationTarget | None
+    if target_arg:
+        target_str = target_arg.lower()
+        if target_str not in ("adf", "fabric"):
+            raise ValueError(
+                f"target must be 'adf' or 'fabric'; got {target_arg!r}"
+            )
+        target = MigrationTarget(target_str)
+    else:
+        target = None  # infer from first plan
+
+    # Pass through every cost knob; estimate_costs_dispatch filters by target.
+    cost_kwargs: dict[str, Any] = {
+        "runs_per_day": int(args.get("runs_per_day", 1)),
+        # ADF-specific
+        "avg_copy_diu": float(args.get("avg_copy_diu", 4.0)),
+        "avg_copy_minutes": float(args.get("avg_copy_minutes", 5.0)),
+        "avg_dataflow_minutes": float(args.get("avg_dataflow_minutes", 10.0)),
+        "avg_dataflow_vcores": int(args.get("avg_dataflow_vcores", 8)),
+        "storage_gb": float(args.get("storage_gb", 100.0)),
+        # Fabric-specific
+        "avg_notebook_minutes": float(args.get("avg_notebook_minutes", 10.0)),
+        "headroom_pct": float(args.get("headroom_pct", 30.0)),
+        "onelake_storage_gb": float(args.get("onelake_storage_gb", 100.0)),
+        "rates": args.get("rates"),
+    }
+    if args.get("notebook_executors") is not None:
+        cost_kwargs["notebook_executors"] = int(args["notebook_executors"])
+
+    estimate = estimate_costs_dispatch(plans=plans, target=target, **cost_kwargs)
     if args.get("output_path"):
         out = _safe_resolve(args["output_path"], label="output_path")
         out.parent.mkdir(parents=True, exist_ok=True)

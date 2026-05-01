@@ -35,6 +35,7 @@ from .models import (
     InfrastructureItem,
     LinkedServiceSpec,
     MigrationPlan,
+    MigrationTarget,
     RbacAssignment,
     Risk,
     RiskSeverity,
@@ -816,11 +817,26 @@ def _effort_from_complexity(score: int, n_simplifications: int) -> EffortEstimat
 # Public API
 # ---------------------------------------------------------------------------
 
-def propose_design(package: SSISPackage) -> MigrationPlan:
+def propose_design(
+    package: SSISPackage,
+    *,
+    target: MigrationTarget = MigrationTarget.ADF,
+) -> MigrationPlan:
     """Build a recommended ``MigrationPlan`` for the given package.
 
     Deterministic and side-effect-free. The agent may further refine the plan
     using natural-language reasoning before persisting and acting on it.
+
+    Args:
+        package: The parsed SSIS package.
+        target: Which Azure platform to target — ``MigrationTarget.ADF``
+            (default) or ``MigrationTarget.FABRIC``. When ``FABRIC``, the
+            plan tags ``plan.target = FABRIC`` and the summary calls out
+            Fabric-specific consequences (PySpark notebook hand-port, Fabric
+            Connections instead of linked services, capacity-unit billing
+            instead of DIU/v-core). The simplification rules and effort
+            estimate themselves are unchanged because the underlying SSIS
+            content is the same — Fabric just changes downstream packaging.
     """
     pattern = detect_target_pattern(package)
 
@@ -867,9 +883,41 @@ def propose_design(package: SSISPackage) -> MigrationPlan:
             "the savings._"
         )
 
+    if target == MigrationTarget.FABRIC:
+        n_dataflow = counts.get(TaskType.DATA_FLOW.value, 0)
+        summary += (
+            f"\n\n_**Targeting Microsoft Fabric Data Pipelines.** This package "
+            f"has {n_dataflow} Data Flow Task(s) — Fabric has no Mapping Data "
+            f"Flow equivalent, so each becomes a PySpark notebook stub that "
+            f"requires manual hand-port. Linked services become Fabric "
+            f"Connections (referenced by GUID, not name). Cost projection uses "
+            f"Fabric Capacity Units (CU·hour) instead of DIU + v-core hours._"
+        )
+        if n_dataflow > 0:
+            risks.append(Risk(
+                severity=RiskSeverity.MEDIUM if n_dataflow <= 2 else RiskSeverity.HIGH,
+                message=(
+                    f"Fabric target — {n_dataflow} Data Flow Task(s) need "
+                    "manual PySpark hand-port. Each component (Lookup, "
+                    "Aggregate, Derived Column, etc.) becomes equivalent "
+                    "Spark code; the generated notebook is a scaffold with "
+                    "TODO blocks, not a working transformation."
+                ),
+                mitigation=(
+                    "Budget 4–16 hours per Data Flow Task for PySpark port "
+                    "and validation, depending on transform count and "
+                    "row-count semantics that depended on SSIS buffer mode."
+                ),
+                related_tasks=[
+                    t.name for t in _walk(package.tasks)
+                    if isinstance(t, DataFlowTask)
+                ],
+            ))
+
     return MigrationPlan(
         package_name=package.name,
         package_path=str(package.source_file),
+        target=target,
         target_pattern=pattern,
         summary=summary,
         simplifications=simplifications,
@@ -886,5 +934,6 @@ def propose_design(package: SSISPackage) -> MigrationPlan:
             "parameter_count": len(package.parameters),
             "event_handler_count": len(package.event_handlers),
             "shared_artifacts_recommended": bool(linked_services),
+            "target": target.value,
         },
     )

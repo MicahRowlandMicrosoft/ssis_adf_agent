@@ -46,6 +46,20 @@ class TargetPattern(str, Enum):
     CUSTOM = "custom"                                    # No simplification — SSIS-faithful
 
 
+class MigrationTarget(str, Enum):
+    """Which Azure platform the plan targets.
+
+    ``ADF`` keeps the existing behavior (Azure Data Factory pipelines + Mapping
+    Data Flows + linked services). ``FABRIC`` switches the plan to Microsoft
+    Fabric Data Pipelines: PySpark notebook stubs replace Mapping Data Flows,
+    Connections (GUID-referenced) replace linked services, and cost projection
+    uses Fabric Capacity Units instead of DIU + v-core hours.
+    """
+
+    ADF = "adf"
+    FABRIC = "fabric"
+
+
 class AuthMode(str, Enum):
     MANAGED_IDENTITY = "ManagedIdentity"                 # Default, recommended
     SQL_AUTH = "SqlAuth"                                 # Username/password, secret in KV
@@ -191,6 +205,14 @@ class MigrationPlan(BaseModel):
     schema_version: str = PLAN_SCHEMA_VERSION
     package_name: str
     package_path: str
+    target: MigrationTarget = Field(
+        default=MigrationTarget.ADF,
+        description=(
+            "Which Azure platform the plan targets — Azure Data Factory (default) "
+            "or Microsoft Fabric Data Pipelines. Drives cost projection model, "
+            "simplification weighting, and infrastructure recommendations."
+        ),
+    )
     target_pattern: TargetPattern = TargetPattern.CUSTOM
     summary: str = Field(default="", description="One-paragraph plain-English summary.")
 

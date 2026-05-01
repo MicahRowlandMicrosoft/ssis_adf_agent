@@ -131,6 +131,14 @@ on their own schedule. Deferring it to last is intentional.
 Use these only when you hit the specific need each one addresses. You can
 ship a full migration without touching any of them.
 
+> **Targeting Microsoft Fabric instead of ADF?** Pass `target="fabric"` to
+> `propose_adf_design` and `estimate_adf_costs` — the same step-2 / step-3
+> tools serve both targets. Conversion itself goes through the
+> `ssis_modernization_agent.fabric` Python API rather than `convert_estate`
+> (Fabric estate-scale orchestration is not shipped). See
+> [docs/conversion/fabric.md](../conversion/fabric.md) for the full Fabric
+> path and a worked example.
+
 ### Estate-scale planning (after step 2, before step 3)
 
 | Tool | Reach for it when… |

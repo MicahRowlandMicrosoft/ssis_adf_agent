@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "connections": [
+    {
+      "placeholder_id": "00000000-0000-4000-8000-777fc457c8f0",
+      "ssis_connection_manager_id": "0B15F767-4FE4-49D3-A092-AF91CE312F08",
+      "ssis_connection_manager_name": "Database_Source_Connection_Manager",
+      "fabric_connection_type": "SQL",
+      "server": "LNIsqTumSTGEX.lni.wa.lcl\\INT,49377",
+      "database": "DAILYTRANS",
+      "notes": [
+        "On-prem host detected — Fabric requires an On-Premises Data Gateway. Configure the OPDG before resolving this connection."
+      ]
+    },
+    {
+      "placeholder_id": "00000000-0000-4000-8000-99b106406332",
+      "ssis_connection_manager_id": "C8268CCC-C6DD-412A-9659-DD7B5B223A54",
+      "ssis_connection_manager_name": "Flat File Connection Manager",
+      "fabric_connection_type": "AzureDataLakeStorage"
+    },
+    {
+      "placeholder_id": "00000000-0000-4000-8000-5c509608a690",
+      "ssis_connection_manager_id": "__synthetic__:LS_AzureFunction",
+      "ssis_connection_manager_name": "LS_AzureFunction",
+      "fabric_connection_type": "Web",
+      "notes": [
+        "Synthetic connection for ADF linked service 'LS_AzureFunction' — no SSIS Connection Manager backing this. Provision the Fabric connection (e.g. Web/Function endpoint) before deploy."
+      ]
+    }
+  ]
+}

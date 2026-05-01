@@ -1,0 +1,927 @@
+{
+  "properties": {
+    "activities": [
+      {
+        "name": "Database Access Configuration",
+        "description": "[MANUAL REVIEW REQUIRED] Converted from VisualBasic Script Task. Azure Function stub: __init__.py. Script Task",
+        "type": "AzureFunction",
+        "dependsOn": [],
+        "typeProperties": {
+          "functionName": "Database_Access_Configuration",
+          "method": "POST",
+          "body": {
+            "User::Database": "@variables('Database')",
+            "User::DatabaseServer": "@variables('DatabaseServer')",
+            "User::DBUserID": "@variables('DBUserID')",
+            "User::Environment": "@variables('Environment')",
+            "User::PW_LNI": "@variables('PW_LNI')",
+            "User::PW_WADS": "@variables('PW_WADS')",
+            "User::package_run_time": "@variables('package_run_time')"
+          }
+        },
+        "externalReferences": {
+          "connection": "00000000-0000-4000-8000-5c509608a690"
+        }
+      },
+      {
+        "name": "Job Schedule Message Initialize",
+        "description": "[MANUAL REVIEW REQUIRED] Converted from VisualBasic Script Task. Azure Function stub: __init__.py. Script Task",
+        "type": "AzureFunction",
+        "dependsOn": [
+          {
+            "activity": "Database Access Configuration",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "functionName": "Job_Schedule_Message_Initialize",
+          "method": "POST",
+          "body": {
+            "User::csv_file_template": "@variables('csv_file_template')",
+            "User::Environment": "@variables('Environment')",
+            "User::mail_msg": "@variables('mail_msg')",
+            "User::Package": "@variables('Package')",
+            "User::dest_wrk_path": "@variables('dest_wrk_path')",
+            "User::FileServer": "@variables('FileServer')",
+            "User::FileServerShare": "@variables('FileServerShare')",
+            "User::ReNameFile": "@variables('ReNameFile')",
+            "User::SetAttribute": "@variables('SetAttribute')",
+            "User::src_wrk_path": "@variables('src_wrk_path')"
+          }
+        },
+        "externalReferences": {
+          "connection": "00000000-0000-4000-8000-5c509608a690"
+        }
+      },
+      {
+        "name": "Copy Template",
+        "description": "[CONVERTED FROM FileSystemTask — operation: CopyFile] File System Task",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "Job Schedule Message Initialize",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "method": "POST",
+          "url": "@pipeline().parameters.FileSystemFunctionUrl",
+          "body": {
+            "operation": "CopyFile",
+            "source": "",
+            "destination": "",
+            "overwrite": false
+          },
+          "authentication": {
+            "type": "MSI",
+            "resource": "https://management.azure.com/"
+          }
+        }
+      },
+      {
+        "name": "Set Attributes",
+        "description": "[CONVERTED FROM FileSystemTask — operation: CopyFile] File System Task",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "Copy Template",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "method": "POST",
+          "url": "@pipeline().parameters.FileSystemFunctionUrl",
+          "body": {
+            "operation": "CopyFile",
+            "source": "",
+            "destination": "",
+            "overwrite": false
+          },
+          "authentication": {
+            "type": "MSI",
+            "resource": "https://management.azure.com/"
+          }
+        }
+      },
+      {
+        "name": "Rename File",
+        "description": "[CONVERTED FROM FileSystemTask — operation: CopyFile] File System Task",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "Set Attributes",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "typeProperties": {
+          "method": "POST",
+          "url": "@pipeline().parameters.FileSystemFunctionUrl",
+          "body": {
+            "operation": "CopyFile",
+            "source": "",
+            "destination": "",
+            "overwrite": false
+          },
+          "authentication": {
+            "type": "MSI",
+            "resource": "https://management.azure.com/"
+          }
+        }
+      },
+      {
+        "name": "Data Flow Task",
+        "description": "Data Flow Task",
+        "type": "Copy",
+        "dependsOn": [
+          {
+            "activity": "Rename File",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ],
+        "policy": {
+          "timeout": "01:00:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 60,
+          "secureOutput": false,
+          "secureInput": false
+        },
+        "typeProperties": {
+          "source": {
+            "type": "AzureSqlSource",
+            "queryTimeout": "02:00:00",
+            "isolationLevel": "ReadUncommitted",
+            "sqlReaderQuery": "--MIPS TC\nSELECT \n       [Agency] AS [Agency]\n      ,[SubAgency] AS [SubAgency]\n\t  ,[Biennium] AS [Biennium]\n      --[Posting Fiscal Month]\n\t  ,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '24' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '12' \n\t\tELSE [PostingFiscalMonth]\n\t  END AS [Posting Fiscal Month]\n\t  --[Posting Adjust Month]\n\t,CASE\n\t\tWHEN [PostingFiscalMonth] = '25' THEN '25' \n\t\tWHEN [PostingFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Posting Adjust Month]\n\t  ,CASE\n        WHEN LEN([AfrsDailyTransAddsId]) = 1\n            then replicate('0000000000',1)+cast([AfrsDailyTransAddsId] as varchar)  \n        WHEN LEN([AfrsDailyTransAddsId]) = 2\n            then replicate('000000000',1)+cast([AfrsDailyTransAddsId] as varchar) \n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 3\n            then replicate('00000000',1)+cast([AfrsDailyTransAddsId] as varchar) \n        WHEN LEN([AfrsDailyTransAddsId]) = 4\n            then replicate('0000000',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 5\n            then replicate('000000',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 6\n            then replicate('00000',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 7\n            then replicate('0000',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 8\n            then replicate('000',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 9\n            then replicate('00',1)+cast([AfrsDailyTransAddsId] as varchar)\n\t\tWHEN LEN([AfrsDailyTransAddsId]) = 10\n            then replicate('0',1)+cast([AfrsDailyTransAddsId] as varchar)\n        ELSE\n            CAST([AfrsDailyTransAddsId] AS VARCHAR(1))\n\t  END AS [ADDS Transaction Key]  \n\t  ,[Fund] AS [Account]\n\t  ,'0' AS [Account Detail]\n\t  ,[OrganizationIndex] AS [Organization Index]\n\t  ,[AppropriationIndex] AS [Expenditure Authority Index]\n\t  ,[ProgramIndex] AS [Program Index]\n\t  ,[Project] AS [PrePurge Project]\n\t  ,[SubProject] AS [PrePurge SubProject]\n\t  ,[ProjectPhase] AS [PrePurge Project Phase]\n\t  ,'' AS [PrePurge Project Type]\n\t  ,[TransactionCode] AS [Transaction Code]\n\t  ,[Modifier] AS [Modifier]\n\t  ,[ReverseInd] AS [Reverse Code]\n\t  ,[MasterIndex] AS [Master Index]\n\t  ,[OMWBEType] AS [OMWBE Pay Flag]\n\t  ,0 AS [Master Index Percentage]\n\t  ,[VariableGLAccount] AS [Variable GL Account]\n\t  --[Input Fiscal Month]\n\t  ,CASE\n\t\tWHEN [BatchFiscalMonth] = '25' THEN '24' \n\t\tWHEN [BatchFiscalMonth] = '99' THEN '12' \n\t\tELSE [BatchFiscalMonth]\n\t  END AS [Input Fiscal Month]\n\t  --[Input Adjusting Month]\n\t,CASE\n\t\tWHEN [BatchFiscalMonth] = '25' THEN '25' \n\t\tWHEN [BatchFiscalMonth] = '99' THEN '99' \n\t\tELSE 0\n\t  END AS [Input Adjusting Month]\n\t  ,[MajorSource] AS [Major Source]\n\t  ,[Source] AS [Source]\n\t  ,[SubSource] AS [SubSource]\n\t  ,SUBSTRING([SubObject], 1, 1) AS [Object] \n\t  ,[SubObject] AS [SubObject]\n\t  ,[SubsubObject] AS [SubsubObject]\n\t  ,[VendorNum] AS [Vendor Num]\n\t  ,[VendorNumSuffix] AS [Vendor Num Suffix]\n\t  ,[VendorName] AS [Vendor Name]\n\t  ,[AgreementId] AS [Contract Num]\n\t  ,[IRSBox] AS [IRS Box]\n\t  ,[UseTax] AS [Use Tax]\n\t  ,[AgencyFlag] AS [Agency Flag]\n\t  ,[VendorTrailer] AS [Vendor Trailer]\n\t  ,[CurrentDocumentNum] AS [Current Document Num]\n\t  ,[CurrentDocumentNumSuffix] AS [Current Document Num Suffix]\n\t  ,CONVERT(varchar,[DocumentDate],112) AS [Doc Date]\n\t  ,[ReferenceDocumentNum] AS [Reference Doc Num]\n\t  ,[ReferenceDocumentNumSuffix] AS [Reference Doc Num Suffix]\n\t  ,[InvoiceNum] AS [Invoice Num]\n\t  ,CONVERT(varchar,[InvoiceDate],112) AS [Invoice Date]\n\t  ,[OrderNum] AS [Order Num]\n\t  ,[Workclass] AS [Workclass]\n\t  ,[BudgetUnit] AS [Budget Unit]\n\t  ,[City] AS [City]\n\t  ,[County] AS [County]\n\t  ,IIF([MonthOfService] IS NULL, 0,  [MonthOfService]) AS [Month Of Service]\n\t  ,[AllocationCode] AS [Allocation]\n\t  ,[BatchAgency] AS [Submit Agency]\n\t  ,[BatchSubAgency] AS [Submit Subagency]\n\t  ,CONVERT(varchar,[BatchDate],112) AS [Batch Date]\n\t  ,[BatchType] AS [Batch Type]\n\t  ,[BatchNum] AS [Batch Num]\n\t  ,[BatchSequenceNum] AS [Batch Sequence Num]\n\t  ,[DuplicateRecordInd] AS [Dup Rec Ind]\n\t  ,[WarrantNum] AS [Warrant Num]\n\t  ,IIF([WarrantRegisterNum] = '', 0,  [WarrantRegisterNum]) AS [Warrant Register Num]\n\t  ,'00     0' AS [Prompt Pay Date]\n\t  ,'' AS [Warrant Batch Fiscal Month]\n\t  ,'' AS [Warrant Batch Type]\n\t  ,'' AS [Warrant Batch Num]\n\t  ,CONVERT( char(10), [ProcessDate], 101) + ' ' + CONVERT( char(5), [ProcessDate], 8) AS [Process Date]\n\t  ,'' AS [TAPS Origin]\n\t  ,'' AS [TAPS Status]\n\t  ,'' AS [TAPS Packet Num]\n\t  ,[AccountNum] AS [Account Num]\n\n  FROM [DAILYTRANS].[dbo].[AFRS_DailyTrans_ADDS]\n  WHERE [Agency] = 235\t\t\t\t\t\t\t\t\t--LNI ONLY\n\tAND [PostingFiscalMonth] <> 00\t\t\t\t\t\t--Fiscal Posting Month not equal 00\n\tAND [ProcessDate] >= DateAdd(hh, -24, GETDATE())\t--Transactions Processed in the last 24 hours\n  ORDER BY [AfrsDailyTransAddsId]",
+            "datasetSettings": {
+              "type": "AzureSqlTable",
+              "annotations": [
+                "ssis-modernization-agent"
+              ],
+              "schema": [
+                {
+                  "name": "Biennium",
+                  "type": "string",
+                  "length": 4
+                },
+                {
+                  "name": "Agency",
+                  "type": "string",
+                  "length": 3
+                },
+                {
+                  "name": "SubAgency",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Posting Fiscal Month",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "Posting Adjust Month",
+                  "type": "int32"
+                },
+                {
+                  "name": "ADDS Transaction Key",
+                  "type": "string",
+                  "length": 50
+                },
+                {
+                  "name": "Account",
+                  "type": "string",
+                  "length": 3
+                },
+                {
+                  "name": "Account Detail",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Organization Index",
+                  "type": "string",
+                  "length": 4
+                },
+                {
+                  "name": "Expenditure Authority Index",
+                  "type": "string",
+                  "length": 3
+                },
+                {
+                  "name": "Program Index",
+                  "type": "string",
+                  "length": 5
+                },
+                {
+                  "name": "PrePurge Project",
+                  "type": "string",
+                  "length": 4
+                },
+                {
+                  "name": "PrePurge SubProject",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "PrePurge Project Phase",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "PrePurge Project Type",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Transaction Code",
+                  "type": "string",
+                  "length": 3
+                },
+                {
+                  "name": "Modifier",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Reverse Code",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Master Index",
+                  "type": "string",
+                  "length": 8
+                },
+                {
+                  "name": "Master Index Percentage",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Variable GL Account",
+                  "type": "string",
+                  "length": 4
+                },
+                {
+                  "name": "Input Fiscal Month",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "Input Adjusting Month",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "Major Source",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "Source",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "SubSource",
+                  "type": "string",
+                  "length": 6
+                },
+                {
+                  "name": "Object",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "SubObject",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "SubsubObject",
+                  "type": "string",
+                  "length": 4
+                },
+                {
+                  "name": "Vendor Num",
+                  "type": "string",
+                  "length": 10
+                },
+                {
+                  "name": "Vendor Num Suffix",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "Vendor Name",
+                  "type": "string",
+                  "length": 32
+                },
+                {
+                  "name": "Contract Num",
+                  "type": "string",
+                  "length": 11
+                },
+                {
+                  "name": "IRS Box",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Use Tax",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Agency Flag",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "Vendor Trailer",
+                  "type": "string",
+                  "length": 25
+                },
+                {
+                  "name": "Current Document Num",
+                  "type": "string",
+                  "length": 8
+                },
+                {
+                  "name": "Current Document Num Suffix",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "Doc Date",
+                  "type": "string",
+                  "length": 50
+                },
+                {
+                  "name": "Reference Doc Num",
+                  "type": "string",
+                  "length": 8
+                },
+                {
+                  "name": "Reference Doc Num Suffix",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "Invoice Num",
+                  "type": "string",
+                  "length": 30
+                },
+                {
+                  "name": "Invoice Date",
+                  "type": "string",
+                  "length": 50
+                },
+                {
+                  "name": "Order Num",
+                  "type": "string",
+                  "length": 10
+                },
+                {
+                  "name": "Workclass",
+                  "type": "string",
+                  "length": 3
+                },
+                {
+                  "name": "Budget Unit",
+                  "type": "string",
+                  "length": 3
+                },
+                {
+                  "name": "City",
+                  "type": "string",
+                  "length": 4
+                },
+                {
+                  "name": "County",
+                  "type": "string",
+                  "length": 3
+                },
+                {
+                  "name": "Month Of Service",
+                  "type": "string",
+                  "length": 6
+                },
+                {
+                  "name": "Allocation",
+                  "type": "string",
+                  "length": 4
+                },
+                {
+                  "name": "Submit Agency",
+                  "type": "string",
+                  "length": 3
+                },
+                {
+                  "name": "Submit Subagency",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Batch Date",
+                  "type": "string",
+                  "length": 50
+                },
+                {
+                  "name": "Batch Type",
+                  "type": "string",
+                  "length": 2
+                },
+                {
+                  "name": "Batch Num",
+                  "type": "string",
+                  "length": 3
+                },
+                {
+                  "name": "Batch Sequence Num",
+                  "type": "string",
+                  "length": 5
+                },
+                {
+                  "name": "Dup Rec Ind",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Warrant Num",
+                  "type": "string",
+                  "length": 7
+                },
+                {
+                  "name": "Warrant Register Num",
+                  "type": "string",
+                  "length": 7
+                },
+                {
+                  "name": "Prompt Pay Date",
+                  "type": "string",
+                  "length": 50
+                },
+                {
+                  "name": "Warrant Batch Fiscal Month",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Warrant Batch Type",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Warrant Batch Num",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Process Date",
+                  "type": "string",
+                  "length": 50
+                },
+                {
+                  "name": "TAPS Origin",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "TAPS Status",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "TAPS Packet Num",
+                  "type": "string",
+                  "length": 1
+                },
+                {
+                  "name": "Account Num",
+                  "type": "string",
+                  "length": 30
+                },
+                {
+                  "name": "OMWBE Pay Flag",
+                  "type": "string",
+                  "length": 1
+                }
+              ],
+              "typeProperties": {
+                "schema": "dbo",
+                "table": "activity"
+              },
+              "externalReferences": {
+                "connection": "00000000-0000-4000-8000-777fc457c8f0"
+              }
+            }
+          },
+          "sink": {
+            "type": "DelimitedTextSink",
+            "storeSettings": {
+              "type": "AzureBlobStorageWriteSettings"
+            },
+            "formatSettings": {
+              "type": "DelimitedTextWriteSettings",
+              "quoteAllText": false
+            },
+            "datasetSettings": {
+              "type": "DelimitedText",
+              "annotations": [
+                "ssis-modernization-agent"
+              ],
+              "schema": [
+                {
+                  "name": "Biennium",
+                  "type": "string"
+                },
+                {
+                  "name": "Agency",
+                  "type": "string"
+                },
+                {
+                  "name": "SubAgency",
+                  "type": "string"
+                },
+                {
+                  "name": "Posting Fiscal Month",
+                  "type": "string"
+                },
+                {
+                  "name": "Posting Adjust Month",
+                  "type": "int32"
+                },
+                {
+                  "name": "ADDS Transaction Key",
+                  "type": "string"
+                },
+                {
+                  "name": "Account",
+                  "type": "string"
+                },
+                {
+                  "name": "Account Detail",
+                  "type": "string"
+                },
+                {
+                  "name": "Organization Index",
+                  "type": "string"
+                },
+                {
+                  "name": "Expenditure Authority Index",
+                  "type": "string"
+                },
+                {
+                  "name": "Program Index",
+                  "type": "string"
+                },
+                {
+                  "name": "PrePurge Project",
+                  "type": "string"
+                },
+                {
+                  "name": "PrePurge SubProject",
+                  "type": "string"
+                },
+                {
+                  "name": "PrePurge Project Phase",
+                  "type": "string"
+                },
+                {
+                  "name": "PrePurge Project Type",
+                  "type": "string"
+                },
+                {
+                  "name": "Transaction Code",
+                  "type": "string"
+                },
+                {
+                  "name": "Modifier",
+                  "type": "string"
+                },
+                {
+                  "name": "Reverse Code",
+                  "type": "string"
+                },
+                {
+                  "name": "Master Index",
+                  "type": "string"
+                },
+                {
+                  "name": "OMWBE Pay Flag",
+                  "type": "string"
+                },
+                {
+                  "name": "Master Index Percentage",
+                  "type": "string"
+                },
+                {
+                  "name": "Variable GL Account",
+                  "type": "string"
+                },
+                {
+                  "name": "Input Fiscal Month",
+                  "type": "string"
+                },
+                {
+                  "name": "Input Adjusting Month",
+                  "type": "string"
+                },
+                {
+                  "name": "Major Source",
+                  "type": "string"
+                },
+                {
+                  "name": "Source",
+                  "type": "string"
+                },
+                {
+                  "name": "SubSource",
+                  "type": "string"
+                },
+                {
+                  "name": "SubObject",
+                  "type": "string"
+                },
+                {
+                  "name": "SubsubObject",
+                  "type": "string"
+                },
+                {
+                  "name": "Vendor Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Vendor Num Suffix",
+                  "type": "string"
+                },
+                {
+                  "name": "Vendor Name",
+                  "type": "string"
+                },
+                {
+                  "name": "Object",
+                  "type": "string"
+                },
+                {
+                  "name": "Contract Num",
+                  "type": "string"
+                },
+                {
+                  "name": "IRS Box",
+                  "type": "string"
+                },
+                {
+                  "name": "Use Tax",
+                  "type": "string"
+                },
+                {
+                  "name": "Vendor Trailer",
+                  "type": "string"
+                },
+                {
+                  "name": "Agency Flag",
+                  "type": "string"
+                },
+                {
+                  "name": "Current Document Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Current Document Num Suffix",
+                  "type": "string"
+                },
+                {
+                  "name": "Doc Date",
+                  "type": "string"
+                },
+                {
+                  "name": "Reference Doc Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Reference Doc Num Suffix",
+                  "type": "string"
+                },
+                {
+                  "name": "Invoice Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Invoice Date",
+                  "type": "string"
+                },
+                {
+                  "name": "Order Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Workclass",
+                  "type": "string"
+                },
+                {
+                  "name": "Budget Unit",
+                  "type": "string"
+                },
+                {
+                  "name": "City",
+                  "type": "string"
+                },
+                {
+                  "name": "County",
+                  "type": "string"
+                },
+                {
+                  "name": "Month Of Service",
+                  "type": "string"
+                },
+                {
+                  "name": "Allocation",
+                  "type": "string"
+                },
+                {
+                  "name": "Submit Agency",
+                  "type": "string"
+                },
+                {
+                  "name": "Batch Date",
+                  "type": "string"
+                },
+                {
+                  "name": "Batch Type",
+                  "type": "string"
+                },
+                {
+                  "name": "Batch Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Batch Sequence Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Dup Rec Ind",
+                  "type": "string"
+                },
+                {
+                  "name": "Process Date",
+                  "type": "string"
+                },
+                {
+                  "name": "Prompt Pay Date",
+                  "type": "string"
+                },
+                {
+                  "name": "TAPS Origin",
+                  "type": "string"
+                },
+                {
+                  "name": "TAPS Packet Num",
+                  "type": "string"
+                },
+                {
+                  "name": "TAPS Status",
+                  "type": "string"
+                },
+                {
+                  "name": "Warrant Batch Fiscal Month",
+                  "type": "string"
+                },
+                {
+                  "name": "Warrant Batch Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Warrant Batch Type",
+                  "type": "string"
+                },
+                {
+                  "name": "Warrant Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Warrant Register Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Account Num",
+                  "type": "string"
+                },
+                {
+                  "name": "Submit Subagency",
+                  "type": "string"
+                }
+              ],
+              "typeProperties": {
+                "location": {
+                  "type": "AzureBlobStorageLocation",
+                  "fileName": "temp",
+                  "folderPath": "todo-folder",
+                  "container": "todo-container"
+                },
+                "columnDelimiter": ",",
+                "rowDelimiter": "\n",
+                "firstRowAsHeader": true,
+                "quoteChar": "\""
+              },
+              "externalReferences": {
+                "connection": "00000000-0000-4000-8000-99b106406332"
+              }
+            }
+          },
+          "enableStaging": false,
+          "translator": {
+            "type": "TabularTranslator",
+            "typeConversion": true
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "FileSystemFunctionUrl": {
+        "type": "String",
+        "defaultValue": "https://TODO.azurewebsites.net/api/FileSystemFunction"
+      }
+    },
+    "variables": {
+      "csv_file_template": {
+        "type": "String",
+        "defaultValue": "ADDS - MIPS-TC_Template.txt"
+      },
+      "Database": {
+        "type": "String",
+        "defaultValue": "DailyTrans"
+      },
+      "DatabaseServer": {
+        "type": "String",
+        "description": "[SENSITIVE] defaultValue stripped at generation time (value looks like an account name or on-prem FQDN). Inject at deploy via Key Vault reference, pipeline parameter, or environment-specific override."
+      },
+      "DBUserID": {
+        "type": "String",
+        "description": "[SENSITIVE] defaultValue stripped at generation time (name matches credential pattern; value looks like an account name or on-prem FQDN). Inject at deploy via Key Vault reference, pipeline parameter, or environment-specific override."
+      },
+      "dest_wrk_path": {
+        "type": "String",
+        "defaultValue": "temp"
+      },
+      "Environment": {
+        "type": "String",
+        "defaultValue": "PROD"
+      },
+      "FileServer": {
+        "type": "String",
+        "description": "[SENSITIVE] defaultValue stripped at generation time (value looks like an account name or on-prem FQDN). Inject at deploy via Key Vault reference, pipeline parameter, or environment-specific override."
+      },
+      "FileServerShare": {
+        "type": "String"
+      },
+      "mail_msg": {
+        "type": "String",
+        "defaultValue": "Test Email"
+      },
+      "Package": {
+        "type": "String",
+        "defaultValue": "ADDS - MIPS-TC"
+      },
+      "package_run_time": {
+        "type": "String"
+      },
+      "PW_LNI": {
+        "type": "String",
+        "defaultValue": "x}\"jm<<q`(d86:%f#{Md"
+      },
+      "PW_WADS": {
+        "type": "String",
+        "defaultValue": "x}\"jm<<q`(d86:%f#{Md"
+      },
+      "ReNameFile": {
+        "type": "String",
+        "defaultValue": "temp"
+      },
+      "SetAttribute": {
+        "type": "String",
+        "defaultValue": "temp"
+      },
+      "src_wrk_path": {
+        "type": "String",
+        "defaultValue": "temp"
+      }
+    },
+    "annotations": [
+      "ssis-modernization-agent",
+      "source-package:ADDS-MIPS-TC",
+      "has-cross-db-references",
+      "fabric-target"
+    ]
+  }
+}

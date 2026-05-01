@@ -1,4 +1,4 @@
-# SSIS → ADF Agent
+# SSIS Modernization Agent
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -7,6 +7,17 @@ An MCP (Model Context Protocol) server that turns SSIS migration into an agent-d
 
 The server exposes **35 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, post-deployment smoke testing, bulk trigger activation (H7), ARM-template content export (M2), cross-pipeline regression harness (N1), behavioral data-flow parity (P4-1, see [behavioral-parity.md](docs/conversion/behavioral-parity.md)), encrypted-package secret automation (P4-4, see [encrypted-packages.md](docs/operations/encrypted-packages.md)), and Cost Management actuals reconciliation (P4-5).
 
+> **Two conversion targets — ADF (default) and Microsoft Fabric Data Pipelines.**
+> The agent converts SSIS packages to either Azure Data Factory artifacts
+> (the default) or to Microsoft Fabric Data Pipelines + PySpark Notebook
+> stubs. Pick the target via `target="adf"` (default) or `target="fabric"`
+> on `propose_adf_design` and `estimate_adf_costs`. Fabric conversion goes
+> through the [`ssis_modernization_agent.fabric`](ssis_modernization_agent/fabric/) Python API.
+> See [docs/conversion/fabric.md](docs/conversion/fabric.md) for the full
+> Fabric story (what gets generated, what is hand-port work, deployment via
+> `fab` CLI) and [docs/case-studies/fabric_conversion_adds_mips_tc/](docs/case-studies/fabric_conversion_adds_mips_tc/README.md)
+> for a worked example.
+
 All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
 
 ```
@@ -14,12 +25,12 @@ All generated artifacts follow **Microsoft Recommended patterns** from [learn.mi
                   │      ┌────────────────────────┐
 SQL Agent jobs ───┤      │  Optional configs:     │
                   ├─────>│ • ESI tables JSON      │
-  Config files ───┘      │ • Schema remap JSON    │
-                         │ • Shared artifacts dir │
+                  │      │ • Schema remap JSON    │
+  Config files ───┘      │ • Shared artifacts dir │
                          └──────────┬─────────────┘
                                     ▼
                     ┌─────────────────────────────┐
-                    │      ssis-modernization-agent         │  ← MCP stdio server
+                    │   ssis-modernization-agent  │  ← MCP stdio server
                     │                             │
                     │  bulk_analyze → propose →   │
                     │   convert → validate →      │
@@ -32,11 +43,12 @@ SQL Agent jobs ───┤      │  Optional configs:     │
                     │  • ESI reuse candidates     │
                     └──────────┬──────────────────┘
                                ▼
-                    ADF JSON artifacts
-            (pipeline / linkedService / dataset /
-             dataflow / trigger / stubs)
-                               ▼
-                    Azure Data Factory
+                  ┌────────────┴────────────┐
+                  ▼                         ▼
+       Azure Data Factory       Microsoft Fabric Data Pipelines
+       (pipeline / linkedService /   (pipeline-content.json /
+        dataset / dataflow /          PySpark notebook stubs /
+        trigger / stubs)              connections_required.json)
 ```
 
 ---

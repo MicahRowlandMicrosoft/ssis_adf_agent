@@ -1254,6 +1254,17 @@ async def list_tools() -> list[types.Tool]:
                     },
                     "report_path": {"type": "string", "description": "Optional Markdown report path."},
                     "diff_json_path": {"type": "string", "description": "Optional JSON diff path (full machine-readable result)."},
+                    "target_label": {
+                        "type": "string",
+                        "default": "ADF",
+                        "description": (
+                            "Cosmetic label for the converted side in the rendered "
+                            "Markdown report. Defaults to 'ADF'. Pass 'Fabric' when "
+                            "comparing against a Fabric notebook output. JSON diff "
+                            "keys (adf_row_count, missing_in_adf, etc.) are NOT "
+                            "renamed — keeping them stable protects existing CI."
+                        ),
+                    },
                 },
                 "required": ["package_path", "dataflow_task_name", "adf_dataflow_path", "input_dataset_path", "key_columns"],
             },
@@ -3347,7 +3358,9 @@ async def _compare_dataflow_output(args: dict[str, Any]) -> list[types.TextConte
     )
 
     payload = comparison.to_dict()
-    markdown = render_diff_markdown(payload)
+    target_label = (args.get("target_label") or "ADF").strip() or "ADF"
+    markdown = render_diff_markdown(payload, target_label=target_label)
+    payload["target_label"] = target_label
 
     if args.get("report_path"):
         out = _safe_resolve(args["report_path"], label="report_path")

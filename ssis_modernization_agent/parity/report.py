@@ -4,8 +4,21 @@ from __future__ import annotations
 from typing import Any
 
 
-def render_diff_markdown(comparison: dict[str, Any]) -> str:
-    """Render a :class:`ParityComparison` (as dict) to a Markdown report."""
+def render_diff_markdown(
+    comparison: dict[str, Any],
+    *,
+    target_label: str = "ADF",
+) -> str:
+    """Render a :class:`ParityComparison` (as dict) to a Markdown report.
+
+    :param target_label: Cosmetic label for the converted side. Defaults to
+        ``"ADF"`` so existing reports are unchanged. Pass ``"Fabric"`` (or
+        any other string) when comparing SSIS output against a Fabric
+        notebook output. The underlying JSON keys (``adf_row_count``,
+        ``missing_in_adf``, etc.) are *not* renamed — keeping them stable
+        protects callers that already consume the diff JSON in CI.
+    """
+    target = target_label.strip() or "ADF"
     lines: list[str] = []
     pkg = comparison.get("package_path", "?")
     dft = comparison.get("dataflow_task_name", "?")
@@ -15,7 +28,7 @@ def render_diff_markdown(comparison: dict[str, Any]) -> str:
     ssis_run = comparison.get("ssis_run", {}) or {}
     adf_run = comparison.get("adf_run", {}) or {}
 
-    lines.append(f"# Behavioral Parity Report — `{dft}`")
+    lines.append(f"# Behavioral Parity Report — `{dft}` (SSIS → {target})")
     lines.append("")
     verdict = "✅ PASS" if diff.get("ok") else "❌ FAIL"
     lines.append(f"**Verdict:** {verdict}")
@@ -25,11 +38,11 @@ def render_diff_markdown(comparison: dict[str, Any]) -> str:
     lines.append("")
     lines.append(f"- SSIS package: `{pkg}`")
     lines.append(f"- Data Flow Task: `{dft}`")
-    lines.append(f"- ADF dataflow: `{adf}`")
+    lines.append(f"- {target} artifact: `{adf}`")
     lines.append(f"- Input dataset: `{inp}`")
     lines.append(
         f"- Runners: SSIS=`{comparison.get('ssis_runner_name', '?')}`, "
-        f"ADF=`{comparison.get('adf_runner_name', '?')}`"
+        f"{target}=`{comparison.get('adf_runner_name', '?')}`"
     )
     lines.append("")
 
@@ -38,7 +51,7 @@ def render_diff_markdown(comparison: dict[str, Any]) -> str:
     lines.append("| Side | Rows |")
     lines.append("|---|---:|")
     lines.append(f"| SSIS ({ssis_run.get('runner_name', '?')}) | {diff.get('ssis_row_count', 0)} |")
-    lines.append(f"| ADF ({adf_run.get('runner_name', '?')}) | {diff.get('adf_row_count', 0)} |")
+    lines.append(f"| {target} ({adf_run.get('runner_name', '?')}) | {diff.get('adf_row_count', 0)} |")
     lines.append(f"| Matched | {diff.get('matched_row_count', 0)} |")
     lines.append("")
 
@@ -50,7 +63,7 @@ def render_diff_markdown(comparison: dict[str, Any]) -> str:
         if only_ssis:
             lines.append(f"- Columns only in SSIS: {', '.join(f'`{c}`' for c in only_ssis)}")
         if only_adf:
-            lines.append(f"- Columns only in ADF: {', '.join(f'`{c}`' for c in only_adf)}")
+            lines.append(f"- Columns only in {target}: {', '.join(f'`{c}`' for c in only_adf)}")
         lines.append("")
 
     summary = diff.get("summary") or {}
@@ -73,7 +86,7 @@ def render_diff_markdown(comparison: dict[str, Any]) -> str:
     if diffs:
         lines.append("## First diffs")
         lines.append("")
-        lines.append("| Kind | Key | Column | SSIS value | ADF value |")
+        lines.append(f"| Kind | Key | Column | SSIS value | {target} value |")
         lines.append("|---|---|---|---|---|")
         for d in diffs[:50]:
             key = ",".join(str(v) for v in (d.get("key") or []))
@@ -89,8 +102,8 @@ def render_diff_markdown(comparison: dict[str, Any]) -> str:
     lines.append("## What this proves")
     lines.append("")
     lines.append(
-        "- ✅ matches mean *for the supplied input* the converted Mapping Data "
-        "Flow produced the same output as the source SSIS Data Flow."
+        f"- ✅ matches mean *for the supplied input* the converted {target} "
+        f"artifact produced the same output as the source SSIS Data Flow."
     )
     lines.append(
         "- It does **not** prove the conversion is correct on inputs you did "

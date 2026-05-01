@@ -10,6 +10,77 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **Microsoft Fabric Data Pipelines target.** The agent can now convert SSIS
+  packages to Microsoft Fabric Data Pipelines + PySpark Notebook stubs in
+  addition to Azure Data Factory. Shipped across four phases on the
+  `fabric` branch:
+  - **Phase 0 — project rename.** `ssis-adf-agent` → `ssis-modernization-agent`
+    so the package name reflects multi-target support. CLI entry point and
+    MCP server name updated; module path is now
+    `ssis_modernization_agent`. No tool surface changes.
+  - **Phase 1 — Fabric MVP converter.** New
+    [`ssis_modernization_agent.fabric`](ssis_modernization_agent/fabric/)
+    package: `ConnectionResolver` (deterministic GUID placeholders for
+    SSIS Connection Managers + on-prem detection note), `pipeline_translator`
+    (translates ADF activity dicts to Fabric pipeline-content shape, inlines
+    Copy datasets, replaces `ExecuteDataFlow` with `TridentNotebook`,
+    recurses into ForEach / IfCondition / Switch),
+    `notebook_stub_generator` (writes `notebook-content.py` + `.platform`
+    sidecar with TODO blocks for sources / transforms / destinations),
+    `fabric_converter.convert_package_to_fabric` (one-call API), and
+    `validator.validate_fabric_artifacts` (structural validation of the
+    generated Fabric layout). Implementation reuses the proven ADF
+    dispatcher in-memory rather than duplicating per-task converters.
+    23 new tests in `tests/test_fabric_phase1.py` including end-to-end on
+    the LNI ADDS-MIPS-TC sample.
+  - **Phase 2 — Fabric deployer.** New
+    [`deployer/fabric_deployer.py`](ssis_modernization_agent/deployer/fabric_deployer.py)
+    that shells out to the Microsoft `fabric-cli` (`fab`) via a `FabRunner`
+    Protocol so tests substitute a fake. Refuses to provision a workspace
+    without an explicit `capacity_id` (no silent capacity allocation).
+    `discover_notebook_ids` resolves the placeholders from
+    `notebook_placeholders.json` against the deployed workspace.
+    `apply_substitutions_in_place` rewrites both Connection placeholders
+    (`externalReferences.connection`) and notebook placeholders
+    (`TridentNotebook.typeProperties.notebookId`) before the Fabric API
+    sees the JSON. 17 new tests in `tests/test_fabric_phase2.py`.
+  - **Phase 3 — Fabric-aware migration plan + cost projection.** New
+    `MigrationTarget` enum (`ADF | FABRIC`) on `MigrationPlan`. The
+    `propose_adf_design` MCP tool gained a `target` parameter — when
+    `target="fabric"` the plan summary calls out the PySpark hand-port
+    consequence and per-Data-Flow-Task Risks (`MEDIUM` if ≤ 2,
+    `HIGH` if more) are added. New `migration_plan/fabric_costs.py` with
+    `estimate_fabric_costs` (CU-second projection → smallest F-SKU at
+    configurable headroom, F2..F2048 list-price table documented inline)
+    and `estimate_costs_dispatch` (single entry point that filters
+    kwargs per platform). `estimate_adf_costs` MCP tool gained `target`
+    and Fabric-specific knobs (`avg_notebook_minutes`,
+    `notebook_executors`, `headroom_pct`, `onelake_storage_gb`). 15 new
+    tests in `tests/test_fabric_phase3.py`.
+  - **Phase 4 — behavioral parity label + worked case study.**
+    `compare_dataflow_output` MCP tool and `render_diff_markdown` gained an
+    optional `target_label` parameter ("ADF" by default, pass "Fabric" to
+    relabel the report headers and table columns). The underlying JSON diff
+    keys (`adf_row_count`, `missing_in_adf`, etc.) are deliberately not
+    renamed so existing CI assertions keep working. New
+    [docs/conversion/fabric.md](docs/conversion/fabric.md) end-to-end
+    Fabric conversion guide. New
+    [docs/case-studies/fabric_conversion_adds_mips_tc/](docs/case-studies/fabric_conversion_adds_mips_tc/README.md)
+    worked example with the actual generated artifacts checked in
+    (1 pipeline, 1 PySpark notebook stub, 3 connection placeholders,
+    2 Function stubs) — pinned by
+    `tests/test_fabric_phase4.py::test_case_study_lni_fabric_conversion_artifact_counts`
+    so the doc cannot drift.
+
+  > **Honest scope of the Fabric path today.** SSIS → Fabric *structural
+  > parity validation* (the equivalent of `validate_conversion_parity`)
+  > is **not** shipped — only `validate_fabric_artifacts` (JSON shape only)
+  > and the `compare_dataflow_output` behavioral harness. Estate-scale
+  > orchestration tooling (`convert_estate`, `bulk_analyze`,
+  > `validate_conversion_parity`) remains ADF-only. T-SQL Notebook stubs
+  > for pure-SQL DFTs are tracked as P6-1 in
+  > [backlog.md](docs/development/backlog.md).
+
 - **P5-19** — [encrypted-packages.md](docs/operations/encrypted-packages.md) gained
   a "🧯 Real failure walkthrough" callout at the top linking to
   [docs/case-studies/first_deploy_keyvault_recovery/](docs/case-studies/first_deploy_keyvault_recovery/README.md),

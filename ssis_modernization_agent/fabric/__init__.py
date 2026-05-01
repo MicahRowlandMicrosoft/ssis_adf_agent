@@ -19,10 +19,16 @@ Public surface:
 """
 from .connection_resolver import ConnectionResolver
 from .fabric_converter import convert_package_to_fabric
+from .parity_validator import (
+    render_fabric_parity_markdown,
+    validate_fabric_conversion_parity,
+)
 from .validator import validate_fabric_artifacts
 
 __all__ = [
     "ConnectionResolver",
     "convert_package_to_fabric",
+    "render_fabric_parity_markdown",
     "validate_fabric_artifacts",
+    "validate_fabric_conversion_parity",
 ]

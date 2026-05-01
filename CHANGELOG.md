@@ -71,15 +71,33 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
     2 Function stubs) — pinned by
     `tests/test_fabric_phase4.py::test_case_study_lni_fabric_conversion_artifact_counts`
     so the doc cannot drift.
-
-  > **Honest scope of the Fabric path today.** SSIS → Fabric *structural
-  > parity validation* (the equivalent of `validate_conversion_parity`)
-  > is **not** shipped — only `validate_fabric_artifacts` (JSON shape only)
-  > and the `compare_dataflow_output` behavioral harness. Estate-scale
-  > orchestration tooling (`convert_estate`, `bulk_analyze`,
-  > `validate_conversion_parity`) remains ADF-only. T-SQL Notebook stubs
-  > for pure-SQL DFTs are tracked as P6-1 in
-  > [backlog.md](docs/development/backlog.md).
+  - **Phase 5 — SSIS↔Fabric structural parity + estate-scale orchestration.**
+    Closes the two acknowledged Phase 4 gaps. Two new MCP tools (count
+    35 → 37):
+      - **`validate_fabric_conversion_parity`** — Fabric counterpart to
+        `validate_conversion_parity`. Compares an SSIS package to its
+        converted Fabric artifacts (pipeline-content.json, notebook stubs,
+        `connections_required.json`, function stubs) and reports task
+        coverage, connection coverage, notebook stub coverage, function
+        stub coverage, and event handler coverage. Returns the same
+        top-level shape as the ADF parity validator (`ok` / `summary` /
+        `matches` / `issues` / `artifact_dryrun`) plus `target="fabric"`
+        so CI can route on a single field. Optional Markdown report.
+        Deterministic and offline.
+      - **`convert_estate_to_fabric`** — Fabric counterpart to
+        `convert_estate`. Converts every `.dtsx` under a directory with
+        per-package failure isolation, optional per-package parity report,
+        optional Fabric cost projection, and **estate-wide connection
+        deduplication** — a SQL Server shared by N packages collapses to
+        one Fabric Connection placeholder, not N, with each entry
+        recording `used_by_packages`.
+    `MigrationTarget` and `estimate_costs_dispatch` are now exported from
+    `ssis_modernization_agent.migration_plan`. 12 new tests in
+    `tests/test_fabric_phase5.py` covering parity happy/sad paths
+    (missing activities, missing notebook stub, on-prem CM, missing
+    manifest), Markdown rendering, estate orchestration (multi-package,
+    dedup, per-package failure routing, parity sidecar emission), and the
+    MCP tool listing wire-up.
 
 - **P5-19** — [encrypted-packages.md](docs/operations/encrypted-packages.md) gained
   a "🧯 Real failure walkthrough" callout at the top linking to

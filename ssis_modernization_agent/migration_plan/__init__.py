@@ -22,6 +22,7 @@ from .estate_tools import (
     estimate_adf_costs,
     plan_migration_waves,
 )
+from .fabric_costs import estimate_costs_dispatch, estimate_fabric_costs
 from .models import (
     PLAN_SCHEMA_VERSION,
     AuthMode,
@@ -29,6 +30,7 @@ from .models import (
     InfrastructureItem,
     LinkedServiceSpec,
     MigrationPlan,
+    MigrationTarget,
     RbacAssignment,
     Risk,
     RiskSeverity,
@@ -51,6 +53,7 @@ __all__ = [
     "InfrastructureItem",
     "LinkedServiceSpec",
     "MigrationPlan",
+    "MigrationTarget",
     "PlanApplication",
     "PlanEditError",
     "RbacAssignment",
@@ -67,6 +70,8 @@ __all__ = [
     "detect_target_pattern",
     "edit_migration_plan",
     "estimate_adf_costs",
+    "estimate_costs_dispatch",
+    "estimate_fabric_costs",
     "generate_bicep",
     "load_actuals",
     "load_plan",

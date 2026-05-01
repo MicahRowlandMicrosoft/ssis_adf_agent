@@ -1465,6 +1465,57 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="validate_fabric_conversion_parity",
+            description=(
+                "SSIS↔Fabric structural parity gate. Compares an SSIS .dtsx package to "
+                "its converted Fabric artifacts (pipeline-content.json, notebook stubs, "
+                "connections_required.json, function stubs) and reports whether the "
+                "conversion preserved the package's tasks, connections, and event "
+                "handlers. Fabric counterpart of validate_conversion_parity. "
+                "Deterministic and offline — no fab CLI or Azure calls. Returns the "
+                "same shape as the ADF parity validator (ok / summary / matches / "
+                "issues / artifact_dryrun) plus target='fabric'. Optionally writes a "
+                "Markdown report to report_path."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "package_path": {"type": "string", "description": "Path to the SSIS .dtsx file."},
+                    "artifacts_dir": {"type": "string", "description": "Directory of converted Fabric artifacts (output of convert_ssis_to_fabric)."},
+                    "report_path": {"type": "string", "description": "Optional path to write a Markdown parity report."},
+                },
+                "required": ["package_path", "artifacts_dir"],
+            },
+        ),
+        types.Tool(
+            name="convert_estate_to_fabric",
+            description=(
+                "Convert every .dtsx package under a directory to Fabric Data "
+                "Pipelines artifacts. Fabric counterpart of convert_estate. Each "
+                "package is converted in isolation (per-package failure does not "
+                "abort the estate). When dedup_connections=true (default), an "
+                "estate-wide connections_required.json is written aggregating "
+                "placeholders across all packages — identical SSIS Connection "
+                "Managers (same DTSID) collapse to a single placeholder GUID, so "
+                "shared SQL Servers / file shares get one Fabric Connection per "
+                "estate, not one per package. Optional Fabric cost projection."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_path": {"type": "string", "description": "Directory containing .dtsx files (or a single .dtsx file)."},
+                    "output_dir": {"type": "string", "description": "Estate output directory. One subdirectory per package."},
+                    "recursive": {"type": "boolean", "default": True},
+                    "dedup_connections": {"type": "boolean", "default": True, "description": "Write an estate-wide connections_required.json aggregating placeholders across packages."},
+                    "with_parity": {"type": "boolean", "default": False, "description": "Run validate_fabric_conversion_parity per package and include the summary in the per-package result."},
+                    "with_cost_projection": {"type": "boolean", "default": False, "description": "Write cost_projection.json under output_dir using estimate_costs_dispatch(target='fabric')."},
+                    "pipeline_prefix": {"type": "string", "default": "PL_"},
+                    "on_prem_ir_name": {"type": "string", "default": "OnPremSHIR"},
+                },
+                "required": ["source_path", "output_dir"],
+            },
+        ),
+        types.Tool(
             name="deploy_to_fabric",
             description=(
                 "Deploy Fabric pipeline + notebook artifacts produced by "
@@ -1584,6 +1635,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _convert_ssis_to_fabric(arguments)
         elif name == "validate_fabric_artifacts":
             return await _validate_fabric_artifacts(arguments)
+        elif name == "validate_fabric_conversion_parity":
+            return await _validate_fabric_conversion_parity(arguments)
+        elif name == "convert_estate_to_fabric":
+            return await _convert_estate_to_fabric(arguments)
         elif name == "provision_fabric_workspace":
             return await _provision_fabric_workspace(arguments)
         elif name == "deploy_to_fabric":
@@ -3055,6 +3110,193 @@ async def _validate_fabric_artifacts(args: dict[str, Any]) -> list[types.TextCon
     artifacts_dir = _safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir")
     result = validate_fabric_artifacts(artifacts_dir)
     return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+
+async def _validate_fabric_conversion_parity(args: dict[str, Any]) -> list[types.TextContent]:
+    """SSIS↔Fabric structural parity gate."""
+    from .fabric import render_fabric_parity_markdown, validate_fabric_conversion_parity
+    from .parsers.readers.local_reader import LocalReader
+
+    package_path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
+    artifacts_dir = _safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir")
+
+    package = LocalReader().read(package_path)
+    result = validate_fabric_conversion_parity(package, artifacts_dir)
+
+    report_path = args.get("report_path")
+    if report_path:
+        out = _safe_resolve(report_path, label="report_path")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(render_fabric_parity_markdown(result), encoding="utf-8")
+        result["report_path"] = str(out)
+
+    return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+
+async def _convert_estate_to_fabric(args: dict[str, Any]) -> list[types.TextContent]:
+    """Estate-scale Fabric conversion. Mirrors _convert_estate but for Fabric."""
+    from .fabric import (
+        convert_package_to_fabric,
+        render_fabric_parity_markdown,
+        validate_fabric_conversion_parity,
+    )
+    from .parsers.readers.local_reader import LocalReader
+
+    source_path = _safe_resolve(args["source_path"], must_exist=True, label="source_path")
+    output_dir = _safe_resolve(args["output_dir"], label="output_dir")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    recursive = args.get("recursive", True)
+    dedup_connections = args.get("dedup_connections", True)
+    with_parity = args.get("with_parity", False)
+
+    if source_path.is_file():
+        files = [source_path] if source_path.suffix.lower() == ".dtsx" else []
+    else:
+        pattern = "**/*.dtsx" if recursive else "*.dtsx"
+        files = sorted(source_path.glob(pattern))
+
+    reader = LocalReader()
+    results: list[dict[str, Any]] = []
+    estate_connections: dict[str, dict[str, Any]] = {}
+
+    for f in files:
+        pkg_dir_name = f.stem.replace(" ", "_")
+        pkg_output = output_dir / pkg_dir_name
+        try:
+            with WarningsCollector() as wc:
+                pkg = reader.read(f)
+                convert_summary = convert_package_to_fabric(
+                    pkg, pkg_output,
+                    pipeline_prefix=args.get("pipeline_prefix", "PL_"),
+                    on_prem_ir_name=args.get("on_prem_ir_name", "OnPremSHIR"),
+                )
+                convert_summary["warnings"] = [w.model_dump() for w in wc.warnings]
+
+            entry: dict[str, Any] = {
+                "package_name": pkg.name,
+                "source_path": str(f),
+                "output_dir": str(pkg_output),
+                "status": "succeeded",
+                "convert_summary": convert_summary.get("artifacts_generated", {}),
+            }
+
+            # Optional parity check.
+            if with_parity:
+                try:
+                    parity = validate_fabric_conversion_parity(pkg, pkg_output)
+                    entry["parity"] = {
+                        "ok": parity.get("ok"),
+                        "issue_counts": {
+                            sev: sum(
+                                1 for i in parity.get("issues") or []
+                                if i.get("severity") == sev
+                            )
+                            for sev in ("error", "warning", "info")
+                        },
+                    }
+                    # Write per-package parity report alongside artifacts.
+                    (pkg_output / "parity_report.md").write_text(
+                        render_fabric_parity_markdown(parity), encoding="utf-8",
+                    )
+                    (pkg_output / "parity_report.json").write_text(
+                        json.dumps(parity, indent=2, default=str), encoding="utf-8",
+                    )
+                except Exception as exc:  # pragma: no cover - defensive
+                    entry["parity"] = {"ok": False, "error": str(exc)}
+
+            # Aggregate connections for estate-level dedup.
+            if dedup_connections:
+                manifest_path = pkg_output / "connections_required.json"
+                if manifest_path.is_file():
+                    try:
+                        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                        for conn in manifest.get("connections") or []:
+                            pid = conn.get("placeholder_id")
+                            if not pid:
+                                continue
+                            if pid not in estate_connections:
+                                estate_connections[pid] = {**conn, "used_by_packages": [pkg.name]}
+                            else:
+                                used = estate_connections[pid].setdefault("used_by_packages", [])
+                                if pkg.name not in used:
+                                    used.append(pkg.name)
+                    except json.JSONDecodeError:
+                        pass
+
+            results.append(entry)
+        except Exception as exc:
+            logger.exception("convert_estate_to_fabric failed for %s", f)
+            results.append({
+                "package_name": f.stem,
+                "source_path": str(f),
+                "output_dir": str(pkg_output),
+                "status": "failed",
+                "error": str(exc),
+            })
+
+    succeeded = sum(1 for r in results if r["status"] == "succeeded")
+    summary: dict[str, Any] = {
+        "scanned_path": str(source_path),
+        "output_dir": str(output_dir),
+        "package_count": len(results),
+        "succeeded_count": succeeded,
+        "failed_count": len(results) - succeeded,
+        "packages": results,
+        "target": "fabric",
+    }
+
+    if dedup_connections:
+        estate_manifest_path = output_dir / "connections_required.json"
+        estate_manifest = {
+            "schema_version": "1.0",
+            "scope": "estate",
+            "connections": list(estate_connections.values()),
+        }
+        estate_manifest_path.write_text(
+            json.dumps(estate_manifest, indent=2), encoding="utf-8",
+        )
+        summary["estate_connections_manifest"] = str(estate_manifest_path)
+        summary["estate_unique_connections"] = len(estate_connections)
+        summary["estate_shared_connections"] = sum(
+            1 for c in estate_connections.values()
+            if len(c.get("used_by_packages", [])) > 1
+        )
+
+    if args.get("with_cost_projection"):
+        try:
+            from .migration_plan import MigrationTarget, propose_design
+            from .migration_plan.fabric_costs import estimate_costs_dispatch
+            plans = []
+            for r in results:
+                if r["status"] != "succeeded":
+                    continue
+                try:
+                    pkg = reader.read(Path(r["source_path"]))
+                    plans.append(propose_design(pkg, target=MigrationTarget.FABRIC))
+                except Exception:
+                    continue
+            if plans:
+                cost_path = output_dir / "cost_projection.json"
+                estimate = estimate_costs_dispatch(plans=plans, target=MigrationTarget.FABRIC)
+                cost_path.write_text(
+                    json.dumps(estimate, indent=2, default=str), encoding="utf-8",
+                )
+                summary["cost_projection"] = {
+                    "status": "written",
+                    "path": str(cost_path),
+                    "monthly_total_usd": estimate.get("monthly_total_usd"),
+                    "recommended_sku": estimate.get("recommended_sku"),
+                }
+            else:
+                summary["cost_projection"] = {
+                    "status": "skipped",
+                    "reason": "no successfully-converted packages",
+                }
+        except Exception as exc:
+            logger.exception("convert_estate_to_fabric cost projection failed")
+            summary["cost_projection"] = {"status": "failed", "error": str(exc)}
+
+    return [types.TextContent(type="text", text=json.dumps(summary, indent=2, default=str))]
 
 
 async def _provision_fabric_workspace(args: dict[str, Any]) -> list[types.TextContent]:

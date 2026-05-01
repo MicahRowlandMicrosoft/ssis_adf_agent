@@ -37,11 +37,10 @@ The target is set explicitly when you ask the agent to design or estimate:
   for bursty workloads. F-SKU monthly list prices for F2 through F2048 are
   documented inline in `migration_plan/fabric_costs.py`.
 * **`convert_ssis_package`** does not currently take a `target` parameter
-  for ADF vs. Fabric — Fabric conversion goes through the `fabric` package
-  surface (`convert_package_to_fabric`) directly. This is intentional: the
-  full estate-scale orchestration tooling (`convert_estate`, `validate_*`)
-  is currently ADF-only and the Fabric path is exercised through the
-  Python API + the per-package case study below.
+  for ADF vs. Fabric — Fabric conversion goes through dedicated tools
+  (`convert_ssis_to_fabric` per package, `convert_estate_to_fabric` for
+  estate-scale runs). The Fabric path is exercised through these tools and
+  the per-package case study below.
 
 ---
 
@@ -122,12 +121,65 @@ The Fabric deployer (`deployer/fabric_deployer.py`) shells out to the
    (`TridentNotebook.typeProperties.notebookId`) before the Fabric API ever
    sees the JSON.
 
-> **There is no `validate_conversion_parity` for Fabric yet.** Structural
-> validation of the generated Fabric JSON is provided by
-> `validate_fabric_artifacts` (in the `fabric` package), but the SSIS↔Fabric
-> structural diff (the equivalent of `validate_conversion_parity`) is not
-> shipped. Use the **behavioral parity harness** below to validate
-> end-to-end correctness once a Data Flow has been ported to PySpark.
+## SSIS↔Fabric structural parity
+
+`validate_fabric_conversion_parity` is the Fabric counterpart to
+`validate_conversion_parity`. It compares the source SSIS package to the
+generated Fabric artifacts and reports whether the conversion preserved
+the package's tasks, connections, and event handlers.
+
+Checks performed:
+
+| Check | What it asserts |
+|---|---|
+| **Task coverage** | Every SSIS task type appears in the Fabric pipeline as an activity of an expected type (`DATA_FLOW` → `Copy` / `TridentNotebook`; `SCRIPT` → `AzureFunction`; `EXECUTE_SQL` → `Lookup` / `Script` / `SqlServerStoredProcedure`; etc.). Counts must match. |
+| **Connection coverage** | Every SSIS Connection Manager has a placeholder entry in `connections_required.json`. Synthetic entries (e.g. the implicit Function-host connection) are allowed. On-prem connections raise an OPDG-required warning. |
+| **Notebook coverage** | Every `TridentNotebook` activity in the pipeline JSON resolves to a `notebook-content.py` on disk under `notebook/<DisplayName>.Notebook/`. Missing stubs are errors. |
+| **Script-task stubs** | Every SSIS Script Task produces a Function stub under `stubs/<FunctionName>/__init__.py`. Always raises a manual-port warning. |
+| **Event handlers** | Every SSIS event handler is recorded as a warning for manual review. |
+| **Artifact JSON shape** | Delegates to `validate_fabric_artifacts` for pipeline-content + manifest well-formedness. |
+
+The result has the **same top-level shape** as the ADF parity validator
+(`ok` / `summary` / `matches` / `issues` / `artifact_dryrun`) plus
+`target="fabric"`, so CI pipelines that already consume parity JSON can
+route on a single field.
+
+Deterministic and offline — no `fab` calls, no Azure calls.
+
+---
+
+## Estate-scale Fabric conversion
+
+`convert_estate_to_fabric` is the Fabric counterpart to `convert_estate`.
+It walks a directory of `.dtsx` files, converts each via
+`convert_ssis_to_fabric`, and aggregates the per-package results.
+
+Key properties:
+
+* **Per-package failure isolation.** A package that fails to convert is
+  reported as `status: "failed"` with the exception message; the rest of
+  the estate continues.
+* **Estate-wide connection deduplication.** With `dedup_connections=true`
+  (the default), an estate-level `connections_required.json` is written at
+  `output_dir/connections_required.json` aggregating placeholders across
+  every package. Identical SSIS Connection Managers (same DTSID) collapse
+  to a single placeholder GUID — so a SQL Server shared by N packages
+  yields one Fabric Connection placeholder, not N. Each entry records the
+  list of packages that reference it under `used_by_packages`.
+* **Optional per-package parity.** With `with_parity=true`,
+  `validate_fabric_conversion_parity` runs against each successfully-
+  converted package and writes `parity_report.md` + `parity_report.json`
+  alongside the artifacts.
+* **Optional Fabric cost projection.** With `with_cost_projection=true`,
+  proposes a Fabric `MigrationPlan` per package via `propose_design`,
+  feeds them through `estimate_costs_dispatch(target="fabric")`, and
+  writes `cost_projection.json` at the estate root.
+
+---
+
+> **Behavioral parity** — once a Data Flow has been hand-ported to PySpark
+> and run against a captured input set, use `compare_dataflow_output`
+> with `target_label="Fabric"` for end-to-end row-level diff. See below.
 
 ---
 
@@ -184,8 +236,5 @@ cannot drift from reality.
   with `target="fabric"` returns the F-SKU list price, but reserved-capacity
   vs. PAYG vs. consolidating with an existing Fabric tenant is a customer
   decision.
-* Not a replacement for the structural parity validator on the ADF side.
-  Fabric structural parity (SSIS task → Fabric activity coverage) is not
-  shipped and is tracked separately.
 * Not officially-supported by Microsoft as a product. See
   [SUPPORT.md](../../SUPPORT.md) for the support model.

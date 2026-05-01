@@ -228,6 +228,23 @@ def convert_package_to_fabric(
         encoding="utf-8",
     )
 
+    # 6b. Write notebook placeholder map (placeholder_id -> Fabric item dir name).
+    # The deployer reads this to query fab for each notebook's real GUID after
+    # import, so it can substitute into the pipeline's TridentNotebook activities.
+    notebook_placeholder_map = {
+        _make_notebook_placeholder_id(notebook_display_name(t, package.name)):
+            f"{notebook_display_name(t, package.name)}.Notebook"
+        for t in package.tasks if isinstance(t, DataFlowTask)
+    }
+    if notebook_placeholder_map:
+        (output_dir / "notebook_placeholders.json").write_text(
+            json.dumps(
+                {"schema_version": "1.0", "placeholders": notebook_placeholder_map},
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
     # 7. Stub files (from Script Tasks — ADF generator already wrote them)
     stub_files = list(stubs_dir.rglob("*.py")) if stubs_dir.exists() else []
 

@@ -1404,6 +1404,57 @@ async def list_tools() -> list[types.Tool]:
                 "required": ["artifacts_dir"],
             },
         ),
+        types.Tool(
+            name="provision_fabric_workspace",
+            description=(
+                "Ensure a Microsoft Fabric workspace exists, creating it on the supplied "
+                "Fabric capacity if it does not. Idempotent. Requires the fab CLI "
+                "(fabric-cli) installed on PATH and authenticated (`fab auth login`). "
+                "Pass capacity_id (use `fab ls /capacities/` to discover) only when "
+                "creating a new workspace."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "workspace": {"type": "string", "description": "Fabric workspace display name."},
+                    "capacity_id": {"type": "string", "description": "Fabric capacity GUID. Required only when creating."},
+                    "dry_run": {"type": "boolean", "default": False, "description": "Log fab commands but don't execute mutating ones."},
+                },
+                "required": ["workspace"],
+            },
+        ),
+        types.Tool(
+            name="deploy_to_fabric",
+            description=(
+                "Deploy Fabric pipeline + notebook artifacts produced by "
+                "convert_ssis_to_fabric to a target Fabric workspace via the fab CLI. "
+                "Steps: (1) push every <name>.Notebook directory; (2) query fab for the "
+                "real notebook GUIDs; (3) substitute placeholder Connection and Notebook "
+                "GUIDs in pipeline-content.json using the supplied "
+                "connection_name_to_guid map; (4) push every <name>.DataPipeline "
+                "directory. Requires fab CLI installed and authenticated. Workspaces "
+                "must exist (use provision_fabric_workspace first)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "workspace": {"type": "string", "description": "Target Fabric workspace name."},
+                    "artifacts_dir": {"type": "string", "description": "Output dir from convert_ssis_to_fabric."},
+                    "connection_name_to_guid": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "description": (
+                            "Map from SSIS connection-manager name (or synthetic LS name "
+                            "like 'LS_AzureFunction') to a real Fabric Connection GUID. "
+                            "Names not present here will be reported as unresolved and "
+                            "the corresponding placeholder will remain in the pipeline."
+                        ),
+                    },
+                    "dry_run": {"type": "boolean", "default": False, "description": "Log fab commands but don't execute them."},
+                },
+                "required": ["workspace", "artifacts_dir"],
+            },
+        ),
     ]
 
 
@@ -1492,6 +1543,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             return await _convert_ssis_to_fabric(arguments)
         elif name == "validate_fabric_artifacts":
             return await _validate_fabric_artifacts(arguments)
+        elif name == "provision_fabric_workspace":
+            return await _provision_fabric_workspace(arguments)
+        elif name == "deploy_to_fabric":
+            return await _deploy_to_fabric(arguments)
         else:
             return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as exc:
@@ -2929,6 +2984,42 @@ async def _validate_fabric_artifacts(args: dict[str, Any]) -> list[types.TextCon
     artifacts_dir = _safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir")
     result = validate_fabric_artifacts(artifacts_dir)
     return [types.TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+
+
+async def _provision_fabric_workspace(args: dict[str, Any]) -> list[types.TextContent]:
+    """Ensure a Fabric workspace exists, creating it on the supplied capacity if needed."""
+    from .deployer.fabric_deployer import provision_workspace
+
+    workspace = args["workspace"]
+    if not isinstance(workspace, str) or not workspace.strip():
+        raise ValueError("workspace must be a non-empty string")
+
+    result = provision_workspace(
+        workspace=workspace,
+        capacity_id=args.get("capacity_id"),
+        dry_run=args.get("dry_run", False),
+    )
+    return [types.TextContent(type="text", text=json.dumps(result.to_dict(), indent=2))]
+
+
+async def _deploy_to_fabric(args: dict[str, Any]) -> list[types.TextContent]:
+    """Deploy Fabric pipeline + notebook artifacts to a workspace via fab CLI."""
+    from .deployer.fabric_deployer import FabricDeployer
+
+    workspace = args["workspace"]
+    if not isinstance(workspace, str) or not workspace.strip():
+        raise ValueError("workspace must be a non-empty string")
+    artifacts_dir = _safe_resolve(args["artifacts_dir"], must_exist=True, label="artifacts_dir")
+    name_to_guid = args.get("connection_name_to_guid") or {}
+    if not isinstance(name_to_guid, dict):
+        raise ValueError("connection_name_to_guid must be an object mapping names to GUIDs")
+
+    deployer = FabricDeployer(workspace=workspace, dry_run=args.get("dry_run", False))
+    summary = deployer.deploy(
+        artifacts_dir=artifacts_dir,
+        connection_name_to_guid=name_to_guid,
+    )
+    return [types.TextContent(type="text", text=json.dumps(summary.to_dict(), indent=2))]
 
 
 # ---------------------------------------------------------------------------

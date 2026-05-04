@@ -45,6 +45,7 @@ Or via the installed script::
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import tempfile
@@ -276,6 +277,26 @@ async def list_tools() -> list[types.Tool]:
                             "FileSystemTasks and rewiring precedence constraints to preserve order. "
                             "Non-DROP simplifications are recorded in the response as deferred TODOs."
                         ),
+                    },
+                    "derived_column_mode": {
+                        "type": "string",
+                        "description": (
+                            "Controls how DerivedColumn output columns left at the SSDT default name "
+                            "pattern ('Derived Column 1', 'Derived Column 2', ...) are emitted. SSIS "
+                            "authors frequently forget to rename these in the designer, leaving the ADF "
+                            "data flow with meaningless placeholder column names that almost always "
+                            "duplicate a source column.\n"
+                            "  'preserve' (default) \u2014 keep the original names; emit a warning so the "
+                            "user knows the choice exists.\n"
+                            "  'rename_to_expression' \u2014 when the expression is a single bare source "
+                            "column reference (e.g. FriendlyExpression='Biennium'), rename the output "
+                            "column to that source column. Falls back to preserving on name collision.\n"
+                            "  'drop_passthrough' \u2014 omit pure pass-through columns entirely; ADF "
+                            "allowSchemaDrift carries the underlying source columns through unchanged. "
+                            "Most aggressive; cleanest output."
+                        ),
+                        "enum": ["preserve", "rename_to_expression", "drop_passthrough"],
+                        "default": "preserve",
                     },
                 },
                 "required": ["package_path", "output_dir"],
@@ -852,6 +873,16 @@ async def list_tools() -> list[types.Tool]:
                         ),
                         "default": False,
                     },
+                    "derived_column_mode": {
+                        "type": "string",
+                        "description": (
+                            "Forwarded to convert_ssis_package for every package. See that "
+                            "tool's schema for full details. Use to bulk-clean default-named "
+                            "DerivedColumn outputs across the estate."
+                        ),
+                        "enum": ["preserve", "rename_to_expression", "drop_passthrough"],
+                        "default": "preserve",
+                    },
                 },
                 "required": ["source_path", "output_dir"],
             },
@@ -1006,11 +1037,16 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="build_predeployment_report",
             description=(
-                "Generate a comprehensive pre-deployment Markdown report for an SSIS migration estate. "
+                "Generate a comprehensive pre-deployment report for an SSIS migration estate. "
                 "For each package: SSIS summary, Mermaid control-flow and data-flow diagrams, "
                 "component descriptions, ADF solution overview with pipeline activity graphs, "
                 "and detailed pre- and post-deployment checklists of manual tasks. "
-                "Targets the engineer/admin persona. Requires converted ADF artifacts on disk."
+                "Targets the engineer/admin persona. Requires converted ADF artifacts on disk. "
+                "Outputs Markdown by default; pass output_pdf to also emit a PDF with all Mermaid "
+                "diagrams rendered as embedded images (requires npx + @mermaid-js/mermaid-cli on "
+                "PATH for diagram rendering — falls back to inline source on failure). "
+                "RECOMMENDED: always generate the PDF before deploy_to_adf so engineers have a "
+                "stakeholder-ready handoff document."
             ),
             inputSchema={
                 "type": "object",
@@ -1036,6 +1072,15 @@ async def list_tools() -> list[types.Tool]:
                     "output_path": {
                         "type": "string",
                         "description": "Absolute path to write the Markdown report. If omitted, the report is returned inline.",
+                    },
+                    "output_pdf": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to write a PDF version of the report with all Mermaid "
+                            "diagrams rendered as embedded images. Recommended for stakeholder "
+                            "handoffs. Requires npx + @mermaid-js/mermaid-cli on PATH; without "
+                            "them the diagrams are embedded as code blocks instead of images."
+                        ),
                     },
                     "title": {
                         "type": "string",
@@ -1671,6 +1716,17 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         safe_reg = _safe_resolve(sub_reg_path, must_exist=True, label="substitution_registry_path")
         substitution_registry = load_registry(safe_reg)
 
+    # DerivedColumn handling — see tool inputSchema for description.
+    derived_column_mode = args.get("derived_column_mode", "preserve")
+    if derived_column_mode not in {"preserve", "rename_to_expression", "drop_passthrough"}:
+        return [types.TextContent(
+            type="text",
+            text=(
+                f"Error: derived_column_mode={derived_column_mode!r} is not one of "
+                "'preserve', 'rename_to_expression', 'drop_passthrough'."
+            ),
+        )]
+
     with WarningsCollector() as wc:
         reader = LocalReader()
         package = reader.read(path)
@@ -1722,6 +1778,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
             ls_name_map=ls_name_map,
             name_overrides=name_overrides,
             substitution_registry=substitution_registry,
+            derived_column_mode=derived_column_mode,
         )
         pipeline = generate_pipeline(
             package, output_dir,
@@ -2289,7 +2346,7 @@ async def _provision_adf_env(args: dict[str, Any]) -> list[types.TextContent]:
         else:
             tmp_bicep = Path(bicep_saved_to)
         try:
-            _compile_bicep(tmp_bicep)
+            await asyncio.to_thread(_compile_bicep, tmp_bicep)
             payload["status"] = "bicep_compiled"
             payload["mode"] = "offline_dry_run"
         except RuntimeError as exc:
@@ -2299,7 +2356,8 @@ async def _provision_adf_env(args: dict[str, Any]) -> list[types.TextContent]:
         return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
 
     # Online path (live deploy or dry_run with credentials).
-    result = deploy_bicep(
+    result = await asyncio.to_thread(
+        deploy_bicep,
         bicep_source=bicep,
         subscription_id=subscription_id,
         resource_group=resource_group,
@@ -2501,6 +2559,7 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
     save_plans = args.get("save_plans", True)
     generate_trigger = args.get("generate_trigger", True)
     shared_artifacts_dir = args.get("shared_artifacts_dir")
+    derived_column_mode = args.get("derived_column_mode", "preserve")
 
     if source_path.is_file():
         files = [source_path] if source_path.suffix.lower() == ".dtsx" else []
@@ -2525,6 +2584,7 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
                 "package_path": str(f),
                 "output_dir": str(pkg_output),
                 "generate_trigger": generate_trigger,
+                "derived_column_mode": derived_column_mode,
             }
             if shared_artifacts_dir:
                 convert_args["shared_artifacts_dir"] = shared_artifacts_dir
@@ -2847,8 +2907,6 @@ async def _diff_estate(args: dict[str, Any]) -> list[types.TextContent]:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    import asyncio
-
     async def _run() -> None:
         async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
             await server.run(
@@ -2889,6 +2947,21 @@ async def _build_predeployment_report(args: dict[str, Any]) -> list[types.TextCo
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(report, encoding="utf-8")
         result["saved_to"] = str(out)
+
+    if args.get("output_pdf"):
+        from .documentation.markdown_to_pdf import markdown_to_pdf
+        pdf_out = _safe_resolve(args["output_pdf"], label="output_pdf")
+        try:
+            pdf_summary = await asyncio.to_thread(
+                markdown_to_pdf,
+                report,
+                pdf_out,
+                title=args.get("title") or "SSIS \u2192 ADF Pre-Deployment Report",
+            )
+            result["pdf"] = pdf_summary
+        except Exception as exc:
+            logger.exception("PDF generation failed")
+            result["pdf"] = {"status": "failed", "error": str(exc)}
 
     result["report_lines"] = len(report.splitlines())
 

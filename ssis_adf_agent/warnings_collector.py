@@ -68,11 +68,16 @@ def warn(
     task_name: str = "",
     task_id: str = "",
     detail: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """Emit a conversion warning.
 
     If a ``WarningsCollector`` context is active, the warning is collected.
     The warning is always logged via the ``ssis_adf_agent`` logger regardless.
+
+    ``metadata`` is an optional structured payload (e.g. counts, lists of
+    affected names) that downstream tooling and agents can consume without
+    having to parse the human-readable ``message`` / ``detail`` strings.
     """
     w = ConversionWarning(
         phase=phase,
@@ -82,6 +87,7 @@ def warn(
         task_name=task_name,
         task_id=task_id,
         detail=detail,
+        metadata=metadata or {},
     )
 
     # Always log

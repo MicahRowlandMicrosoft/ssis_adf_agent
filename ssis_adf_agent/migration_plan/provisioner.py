@@ -16,9 +16,23 @@ import json
 import logging
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+
+# Timeouts (seconds). Conservative defaults — `az bicep build` triggers a
+# one-time CLI download on Windows that can take ~60s on a cold cache; ARM
+# validate / deploy pollers have their own service-side limits but we cap
+# them so a network stall surfaces as a clear error instead of a silent hang.
+_BICEP_BUILD_TIMEOUT_S = 180
+_VALIDATE_TIMEOUT_S = 300
+_DEPLOY_TIMEOUT_S = 1800
+
+
+def _progress(msg: str) -> None:
+    """Emit a progress marker to stderr so MCP clients see liveness."""
+    print(f"[provisioner] {msg}", file=sys.stderr, flush=True)
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +52,32 @@ def _compile_bicep(bicep_path: Path) -> Path:
     json_path = bicep_path.with_suffix(".json")
     cmd = [az, "bicep", "build", "--file", str(bicep_path), "--outfile", str(json_path)]
     logger.info("Compiling Bicep: %s", " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False, shell=False)
+    _progress(f"compiling bicep ({bicep_path.name})...")
+    # On Windows `az` resolves to `az.cmd`, which can deadlock under
+    # `subprocess.run(capture_output=True)` if stdin is left as the parent's
+    # tty (cmd.exe blocks waiting for input). Force stdin closed.
+    try:
+        result = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            shell=False,
+            timeout=_BICEP_BUILD_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Bicep compilation timed out after {_BICEP_BUILD_TIMEOUT_S}s. "
+            f"This usually means 'az bicep build' is downloading the Bicep CLI "
+            f"on a slow/blocked network. Try running '{' '.join(cmd)}' manually."
+        ) from exc
     if result.returncode != 0:
         raise RuntimeError(
             f"Bicep compilation failed (exit {result.returncode}):\n"
             f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
+    _progress("bicep compiled")
     return json_path
 
 
@@ -110,12 +144,14 @@ def deploy_bicep(
 
         if dry_run:
             logger.info("Validating deployment '%s' in %s/%s", deployment_name, subscription_id, resource_group)
+            _progress(f"validating deployment '{deployment_name}' in {resource_group}...")
             poller = client.deployments.begin_validate(
                 resource_group_name=resource_group,
                 deployment_name=deployment_name,
                 parameters=deployment,
             )
-            result = poller.result()
+            result = poller.result(timeout=_VALIDATE_TIMEOUT_S)
+            _progress("validation complete")
             err = getattr(result, "error", None)
             if err is not None:
                 return {
@@ -132,12 +168,14 @@ def deploy_bicep(
             }
 
         logger.info("Deploying '%s' to %s/%s", deployment_name, subscription_id, resource_group)
+        _progress(f"deploying '{deployment_name}' to {resource_group}...")
         poller = client.deployments.begin_create_or_update(
             resource_group_name=resource_group,
             deployment_name=deployment_name,
             parameters=deployment,
         )
-        result = poller.result()
+        result = poller.result(timeout=_DEPLOY_TIMEOUT_S)
+        _progress("deployment complete")
         outputs_raw = (result.properties.outputs or {}) if result.properties else {}
         outputs = {k: v.get("value") if isinstance(v, dict) else v for k, v in outputs_raw.items()}
         return {

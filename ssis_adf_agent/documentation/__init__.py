@@ -1,5 +1,6 @@
 """Documentation, explanation, and parity-validation utilities."""
 from .adf_explainer import build_adf_outline, render_adf_markdown
+from .markdown_to_pdf import markdown_to_pdf
 from .parity_validator import validate_parity
 from .pdf_report import build_pre_migration_pdf
 from .predeployment_report import build_predeployment_report
@@ -13,4 +14,5 @@ __all__ = [
     "validate_parity",
     "build_pre_migration_pdf",
     "build_predeployment_report",
+    "markdown_to_pdf",
 ]

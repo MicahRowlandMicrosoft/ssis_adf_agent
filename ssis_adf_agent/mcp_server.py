@@ -172,13 +172,36 @@ async def list_tools() -> list[types.Tool]:
                     "llm_translate": {
                         "type": "boolean",
                         "description": (
-                            "If true, call Azure OpenAI to translate C# Script Task source code to Python "
-                            "in the generated Azure Function stubs. Requires AZURE_OPENAI_ENDPOINT and "
-                            "AZURE_OPENAI_API_KEY environment variables. Falls back gracefully if unavailable. "
-                            "Default: false. Forced to false when SSIS_ADF_NO_LLM env var is set, or when "
-                            "the no_llm parameter is true."
+                            "[LEGACY — prefer translation_mode='aoai'] If true, call Azure OpenAI "
+                            "to translate C# Script Task source code to Python in the generated "
+                            "Azure Function stubs. Requires AZURE_OPENAI_ENDPOINT and "
+                            "AZURE_OPENAI_API_KEY environment variables. Falls back gracefully if "
+                            "unavailable. Default: false. Forced to false when SSIS_ADF_NO_LLM env "
+                            "var is set, or when the no_llm parameter is true."
                         ),
                         "default": False,
+                    },
+                    "translation_mode": {
+                        "type": "string",
+                        "enum": ["none", "host", "aoai"],
+                        "description": (
+                            "Controls C# Script Task → Python translation:\n"
+                            "  'none' (default) — emit deterministic TODO stubs only; no AI calls. "
+                            "Same as legacy llm_translate=false.\n"
+                            "  'host' — emit deterministic stubs + a translation_manifest.json so "
+                            "the calling agent (Copilot/Claude) can translate each task in-session "
+                            "by editing the marked region of each stub. No external AOAI call. "
+                            "Recommended for interactive workflows.\n"
+                            "  'aoai' — call Azure OpenAI in-process to inline a Python translation "
+                            "into each stub. Requires AZURE_OPENAI_* env vars. Recommended for "
+                            "headless / CI / regulated-tenant workflows where translation must "
+                            "happen inside the customer's tenant.\n"
+                            "Wins over the legacy llm_translate flag when supplied. The no_llm arg "
+                            "and SSIS_ADF_NO_LLM env var force 'none' regardless. Note that 'host' "
+                            "mode is still AI-assisted source-code translation — just by the "
+                            "calling agent rather than AOAI."
+                        ),
+                        "default": "none",
                     },
                     "no_llm": {
                         "type": "boolean",
@@ -882,6 +905,18 @@ async def list_tools() -> list[types.Tool]:
                         ),
                         "enum": ["preserve", "rename_to_expression", "drop_passthrough"],
                         "default": "preserve",
+                    },
+                    "translation_mode": {
+                        "type": "string",
+                        "description": (
+                            "Forwarded to convert_ssis_package for every package. See that "
+                            "tool's schema for full details. When 'host' or 'aoai', a top-level "
+                            "<output_dir>/translation_index.json is also written aggregating "
+                            "every per-package manifest so the host agent can discover them "
+                            "without globbing."
+                        ),
+                        "enum": ["none", "host", "aoai"],
+                        "default": "none",
                     },
                 },
                 "required": ["source_path", "output_dir"],
@@ -1643,28 +1678,30 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
     output_dir = _safe_resolve(args["output_dir"], label="output_dir")
     gen_trigger = args.get("generate_trigger", True)
-    llm_translate = args.get("llm_translate", False)
+    legacy_llm_translate = args.get("llm_translate", False)
+    requested_translation_mode = args.get("translation_mode")
 
-    # P4-8 — per-call no-LLM switch.  Honour both the per-call arg and the
-    # environment-level policy switch; either one wins.
+    # Resolve effective translation mode against the documented precedence
+    # (no_llm / SSIS_ADF_NO_LLM > translation_mode > legacy llm_translate).
     from .translators.csharp_to_python import no_llm_policy_enabled
+    from .translators.translation_manifest import (
+        TranslationManifest,
+        resolve_translation_mode,
+    )
     no_llm_arg = bool(args.get("no_llm", False))
-    if no_llm_arg or no_llm_policy_enabled():
-        if llm_translate:
-            # Caller asked for LLM but policy / arg forbids it — surface a
-            # warning so the response makes the degraded behaviour explicit.
-            import warnings as _warnings
-            reason = (
-                "no_llm=true argument" if no_llm_arg
-                else "SSIS_ADF_NO_LLM environment variable"
-            )
-            _warnings.warn(
-                f"[P4-8] llm_translate=true was requested but is overridden "
-                f"by {reason}. Script Task stubs will use deterministic "
-                "TODO scaffolding only.",
-                stacklevel=2,
-            )
-        llm_translate = False
+    effective_mode, mode_notes = resolve_translation_mode(
+        translation_mode=requested_translation_mode,
+        legacy_llm_translate=bool(legacy_llm_translate),
+        no_llm_arg=no_llm_arg,
+        no_llm_env=no_llm_policy_enabled(),
+    )
+    if mode_notes:
+        import warnings as _warnings
+        for _n in mode_notes:
+            _warnings.warn(f"[translation_mode] {_n}", stacklevel=2)
+    # Legacy llm_translate flag flowed into the dispatcher; preserve back-compat
+    # by re-deriving it from the effective mode.
+    llm_translate = effective_mode == "aoai"
 
     # New parameters
     on_prem_ir_name = args.get("on_prem_ir_name", "SelfHostedIR")
@@ -1742,6 +1779,16 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
 
         stubs_dir = output_dir / "stubs"
 
+        # Translation manifest — collected during pipeline generation, written
+        # below if the effective mode is anything other than "none".
+        translation_manifest: TranslationManifest | None = None
+        if effective_mode != "none":
+            translation_manifest = TranslationManifest(
+                package_name=package.name,
+                package_path=str(path),
+                translation_mode=effective_mode,
+            )
+
         # Extract name overrides from plan, if present
         name_overrides: dict[str, str] | None = None
         if plan_application and plan_application.name_overrides:
@@ -1790,6 +1837,8 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
             schema_remap=schema_remap,
             ls_name_map=ls_name_map,
             name_overrides=name_overrides,
+            translation_mode=effective_mode,
+            translation_manifest=translation_manifest,
         )
         triggers = generate_triggers(
             package, output_dir,
@@ -1824,6 +1873,45 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
 
         # Find stub files
         stub_files = list(stubs_dir.rglob("*.py")) if stubs_dir.exists() else []
+
+        # Write the translation manifest (if any tasks were collected) and
+        # build a per-call translation summary surfaced in the tool response.
+        translation_summary: dict[str, Any] = {
+            "requested_translation_mode": requested_translation_mode,
+            "effective_translation_mode": effective_mode,
+            "manifest_path": None,
+            "entry_count": 0,
+            "status_counts": {},
+            "translation_performed": effective_mode == "aoai",
+            "notes": mode_notes,
+            "next_steps": [],
+        }
+        if translation_manifest is not None and translation_manifest.has_entries:
+            manifest_path = stubs_dir / "translation_manifest.json"
+            translation_manifest.write(manifest_path)
+            translation_summary["manifest_path"] = str(manifest_path)
+            translation_summary["entry_count"] = len(translation_manifest.entries)
+            translation_summary["status_counts"] = translation_manifest.status_counts()
+            if effective_mode == "host":
+                translation_summary["next_steps"] = [
+                    f"Read {manifest_path} and translate each entry whose status "
+                    "is 'pending_host_translation'.",
+                    "For each entry, edit ONLY the bytes between the "
+                    "'# BEGIN SSIS_SCRIPT_TRANSLATION' and "
+                    "'# END SSIS_SCRIPT_TRANSLATION' marker lines in the stub file.",
+                    "Do not modify the request parsing, response shape, or marker "
+                    "lines themselves — downstream tooling depends on them.",
+                ]
+            elif effective_mode == "aoai":
+                failed = translation_summary["status_counts"].get(
+                    "aoai_failed_pending_manual", 0
+                )
+                if failed:
+                    translation_summary["next_steps"] = [
+                        f"{failed} task(s) failed AOAI translation. Open the "
+                        "manifest, find entries with status 'aoai_failed_pending_manual', "
+                        "and translate them manually within the marked region.",
+                    ]
 
         # Generate Azure Functions project files around the stubs
         func_project_files: dict[str, str] = {}
@@ -1895,6 +1983,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         }
         if plan_application is not None:
             summary["migration_plan_applied"] = plan_application.model_dump()
+        summary["translation"] = translation_summary
 
     return [types.TextContent(type="text", text=json.dumps(summary, indent=2))]
 
@@ -2560,6 +2649,7 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
     generate_trigger = args.get("generate_trigger", True)
     shared_artifacts_dir = args.get("shared_artifacts_dir")
     derived_column_mode = args.get("derived_column_mode", "preserve")
+    translation_mode = args.get("translation_mode", "none")
 
     if source_path.is_file():
         files = [source_path] if source_path.suffix.lower() == ".dtsx" else []
@@ -2585,6 +2675,7 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
                 "output_dir": str(pkg_output),
                 "generate_trigger": generate_trigger,
                 "derived_column_mode": derived_column_mode,
+                "translation_mode": translation_mode,
             }
             if shared_artifacts_dir:
                 convert_args["shared_artifacts_dir"] = shared_artifacts_dir
@@ -2604,6 +2695,7 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
                     for k in ("pipeline", "linked_services", "datasets", "data_flows", "triggers", "stubs")
                     if k in convert_payload
                 },
+                "translation": convert_payload.get("translation"),
             })
         except Exception as exc:
             logger.exception("convert_estate failed for %s", f)
@@ -2624,6 +2716,36 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
         "failed_count": len(results) - succeeded,
         "packages": results,
     }
+
+    # Estate-level translation index — aggregates per-package manifests so the
+    # host agent can find pending Script Tasks without globbing nested dirs.
+    if translation_mode != "none":
+        from .translators.translation_manifest import write_estate_index
+        manifests_summary: list[dict[str, Any]] = []
+        for r in results:
+            t = r.get("translation") or {}
+            mp = t.get("manifest_path")
+            if not mp:
+                continue
+            counts = t.get("status_counts") or {}
+            manifests_summary.append({
+                "package_name": r["package_name"],
+                "manifest_path": mp,
+                "total_entries": t.get("entry_count", 0),
+                "pending_count": counts.get("pending_host_translation", 0),
+                "failed_aoai_count": counts.get("aoai_failed_pending_manual", 0),
+                "skipped_no_source_count": counts.get("skipped_no_source", 0),
+            })
+        if manifests_summary:
+            index_path = output_dir / "translation_index.json"
+            write_estate_index(manifests_summary, index_path)
+            summary["translation_index"] = {
+                "path": str(index_path),
+                "translation_mode": translation_mode,
+                "manifest_count": len(manifests_summary),
+                "total_pending": sum(m["pending_count"] for m in manifests_summary),
+                "total_aoai_failed": sum(m["failed_aoai_count"] for m in manifests_summary),
+            }
 
     # P5-14: optional per-estate cost projection emitted alongside lineage.
     if args.get("with_cost_projection"):

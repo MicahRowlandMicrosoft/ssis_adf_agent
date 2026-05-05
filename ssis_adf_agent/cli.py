@@ -80,7 +80,16 @@ def _add_legacy_aliases(sub: argparse._SubParsersAction) -> None:
     c.add_argument("--no-trigger", action="store_true",
                    help="Skip ScheduleTrigger generation.")
     c.add_argument("--llm-translate", action="store_true",
-                   help="Use the optional LLM expression translator.")
+                   help="[LEGACY — prefer --translation-mode aoai] Inline AOAI Script Task translation.")
+    c.add_argument("--translation-mode",
+                   choices=["none", "host", "aoai"],
+                   default=None,
+                   help=(
+                       "Script Task translation strategy. 'none' (default) emits TODO stubs only. "
+                       "'host' adds a translation_manifest.json so the calling agent translates in-session. "
+                       "'aoai' calls Azure OpenAI in-process (requires AZURE_OPENAI_* env vars). "
+                       "Wins over --llm-translate when supplied."
+                   ))
     c.add_argument("--auth-type", default="SystemAssignedManagedIdentity")
     c.add_argument("--use-key-vault", action="store_true")
     c.add_argument("--kv-url", default=None,
@@ -133,6 +142,8 @@ def _args_for(ns: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             "auth_type": ns.auth_type,
             "use_key_vault": ns.use_key_vault,
         }
+        if ns.translation_mode:
+            out["translation_mode"] = ns.translation_mode
         if ns.kv_url:
             out["kv_url"] = ns.kv_url
         if ns.design_path:

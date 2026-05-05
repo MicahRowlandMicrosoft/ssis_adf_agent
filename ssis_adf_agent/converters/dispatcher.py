@@ -36,11 +36,17 @@ class ConverterDispatcher:
         pipeline_prefix: str = "PL_",
         ls_name_map: dict[str, str] | None = None,
         package_name: str = "",
+        *,
+        translation_mode: str | None = None,
+        translation_manifest: Any | None = None,
     ) -> None:
         self._ls_name_map = ls_name_map
         self._package_name = package_name
         script_converter = ScriptTaskConverter(
-            stubs_output_dir=stubs_dir, llm_translate=llm_translate,
+            stubs_output_dir=stubs_dir,
+            llm_translate=llm_translate,
+            translation_mode=translation_mode,  # type: ignore[arg-type]
+            manifest=translation_manifest,
         )
 
         # Pass self to loop converters so they can recursively convert inner tasks

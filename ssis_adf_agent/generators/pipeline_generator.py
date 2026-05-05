@@ -165,6 +165,8 @@ def generate_pipeline(
     schema_remap: dict[str, str] | None = None,
     ls_name_map: dict[str, str] | None = None,
     name_overrides: dict[str, str] | None = None,
+    translation_mode: str | None = None,
+    translation_manifest: Any | None = None,
 ) -> dict[str, Any]:
     """
     Convert an SSISPackage to a full ADF pipeline JSON and write it to *output_dir*.
@@ -176,6 +178,12 @@ def generate_pipeline(
         schema_remap: Schema remap config for database consolidation.
         ls_name_map: Mapping from CM ID to linked service name.
         name_overrides: Optional artifact name overrides from the migration plan.
+        translation_mode: One of ``"none"``, ``"host"``, ``"aoai"``. When supplied,
+            takes precedence over the legacy ``llm_translate`` flag. See
+            ``translators.translation_manifest`` for semantics.
+        translation_manifest: Optional ``TranslationManifest`` collector. When
+            supplied, the script-task converter appends one entry per
+            function-backed Script Task.
 
     Returns the pipeline dict.
     """
@@ -185,6 +193,8 @@ def generate_pipeline(
         pipeline_prefix=pipeline_prefix,
         ls_name_map=ls_name_map,
         package_name=package.name,
+        translation_mode=translation_mode,
+        translation_manifest=translation_manifest,
     )
     pipeline_name = _pl_name(package.name, pipeline_prefix, name_overrides=name_overrides)
 

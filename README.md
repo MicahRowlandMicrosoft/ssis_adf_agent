@@ -726,9 +726,17 @@ If no SQL Agent schedule is available, the trigger falls back to a placeholder d
 
 ## LLM-Powered Script Task Translation
 
-SSIS Script Tasks contain C# (or VB.NET) code that cannot be rule-based converted. By default the converter generates a Python Azure Function stub with `TODO` comments and the original source embedded as comments. When `llm_translate=true` is passed to `convert_ssis_package`, the agent extracts the embedded C# source from the DTSX binary blob and calls **Azure OpenAI** to produce a working Python implementation body.
+SSIS Script Tasks contain C# (or VB.NET) code that cannot be rule-based converted. The converter offers **three translation modes** via the `translation_mode` argument — see [docs/conversion/script-task-translation.md](docs/conversion/script-task-translation.md) for the full contract, including region markers and manifest schema.
 
-### How it works
+| Mode | Translator | Use when |
+|---|---|---|
+| `none` *(default)* | Nobody — deterministic stub | Air-gapped / regulated tenants, CI, review-only conversions |
+| `host` | The calling agent (Copilot CLI/Chat, Claude Code, …) translates in-session via the manifest + region markers | You're already in an AI-agent session and don't want a duplicative AOAI call |
+| `aoai` | In-process Azure OpenAI call from the converter | Headless pipelines where no host agent is present and AOAI is provisioned |
+
+The legacy `llm_translate=true` argument still works and is silently promoted to `translation_mode="aoai"`. `SSIS_ADF_NO_LLM=1` (env) and `no_llm=true` (arg) remain a hard off-switch.
+
+### `aoai` mode — how it works
 
 1. **Extraction** — The parser decodes the base64-encoded ZIP blob inside `DTS:ObjectData/ScriptProject/BinaryData`, unzips it, and reads all `.cs` / `.vb` source files (excluding `AssemblyInfo` and designer files).
 2. **Translation** — `CSharpToPythonTranslator` sends the source to Azure OpenAI Chat Completions with a structured prompt that preserves business logic and replaces unsupported patterns (SQL calls, file I/O, SMTP) with `# TODO` comments pointing to Azure equivalents.

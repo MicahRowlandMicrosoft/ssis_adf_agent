@@ -38,8 +38,8 @@ worked examples, see [howto.md](getting-started/howto.md).
 
 | Tool | Purpose | Deep dive |
 |---|---|---|
-| `convert_ssis_package` | Single-package conversion → pipeline / linked-service / dataset / data-flow / trigger / Function-stub JSON. | [workflow.md](getting-started/workflow.md), [SUBSTITUTION_REGISTRY.md](SUBSTITUTION_REGISTRY.md) |
-| `convert_estate` | Bulk conversion of every `.dtsx` in a directory; per-package status summary. | [workflow.md](getting-started/workflow.md), [coverage.md](conversion/coverage.md) |
+| `convert_ssis_package` | Single-package conversion → pipeline / linked-service / dataset / data-flow / trigger / Function-stub JSON. Supports `translation_mode` (`none` / `host` / `aoai`) for Script Task translation. | [workflow.md](getting-started/workflow.md), [script-task-translation.md](conversion/script-task-translation.md), [SUBSTITUTION_REGISTRY.md](SUBSTITUTION_REGISTRY.md) |
+| `convert_estate` | Bulk conversion of every `.dtsx` in a directory; per-package status summary. Aggregates Script Task translation manifests into `translation_index.json`. | [workflow.md](getting-started/workflow.md), [script-task-translation.md](conversion/script-task-translation.md), [coverage.md](conversion/coverage.md) |
 | `consolidate_packages` | Detect structurally identical packages and emit a single parameterized child + ForEach parent pipeline. | [workflow.md](getting-started/workflow.md) |
 | `explain_adf_artifacts` | Structured explanation + Mermaid activity-graph of generated ADF artifacts. | [workflow.md](getting-started/workflow.md) |
 | `diff_estate` | Compare two `convert_estate` output directories; per-package byte-identical / changed / added / removed + unified diffs. | [workflow.md](getting-started/workflow.md) |

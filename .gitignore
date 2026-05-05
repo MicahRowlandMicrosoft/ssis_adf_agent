@@ -9,6 +9,8 @@ build/
 *.egg
 infra/
 ssis_adf_agent.code-workspace
+ssis_modernization_agent.code-workspace
+*.code-workspace
 .scratch/
 .github/agents/
 

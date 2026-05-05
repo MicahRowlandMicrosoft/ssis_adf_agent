@@ -5,7 +5,9 @@
 
 An MCP (Model Context Protocol) server that turns SSIS migration into an agent-driven workflow inside **GitHub Copilot**.
 
-The server exposes **31 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, post-deployment smoke testing, bulk trigger activation (H7), ARM-template content export (M2), cross-pipeline regression harness (N1), behavioral data-flow parity (P4-1, see [behavioral-parity.md](docs/conversion/behavioral-parity.md)), encrypted-package secret automation (P4-4, see [encrypted-packages.md](docs/operations/encrypted-packages.md)), and Cost Management actuals reconciliation (P4-5).
+The server exposes **31 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, package consolidation, pre-deployment engineer reports, infrastructure provisioning (Bicep), deployment, RBAC pre-flight, ARM-template content export, bulk trigger activation, encrypted-package secret automation, post-deployment smoke testing, cross-pipeline regression harness, behavioral data-flow parity, estate diffing, and Cost Management actuals reconciliation.
+
+> **See the full tools index:** [docs/tools.md](docs/tools.md) — every tool, grouped by lifecycle phase, with one-line descriptions and links to the deep docs (including [behavioral-parity.md](docs/conversion/behavioral-parity.md), [encrypted-packages.md](docs/operations/encrypted-packages.md), [rbac.md](docs/operations/rbac.md), and [observability.md](docs/operations/observability.md)).
 
 All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
 
@@ -43,6 +45,7 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 
 ## Table of Contents
 
+- [Tools Reference (all 31 tools)](docs/tools.md)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Registering as an MCP Server in VS Code](#registering-as-an-mcp-server-in-vs-code)

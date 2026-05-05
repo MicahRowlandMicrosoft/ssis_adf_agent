@@ -17,3 +17,5 @@ ssis_adf_agent.code-workspace
 
 # Deferred-backlog scratchpad (maintainer-private)
 MAYBE.md
+.mcp.json
+

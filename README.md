@@ -69,6 +69,7 @@ SQL Agent jobs ───┤      │  Optional configs:     │
   - [SQL Agent Schedule Mapping](#sql-agent-schedule-mapping)
 - [LLM-Powered Script Task Translation](#llm-powered-script-task-translation)
 - [Using the Built-in Prompt Files](#using-the-built-in-prompt-files)
+- [SSIS Migration Guide — Copilot CLI Custom Agent](#ssis-migration-guide--copilot-cli-custom-agent)
 - [Authentication](#authentication)
 - [SSIS Component Mapping Reference](#ssis-component-mapping-reference)
 - [Generated Artifact Structure](#generated-artifact-structure)
@@ -791,7 +792,21 @@ Three reusable prompt files are included in `.vscode/` and can be invoked direct
 
 ---
 
+## SSIS Migration Guide — Copilot CLI Custom Agent
+
+A repository-shipped Copilot CLI custom agent at [`.github/agents/ssis-migration-guide.agent.md`](.github/agents/ssis-migration-guide.agent.md) encodes the recommended end-to-end migration workflow as a reusable agent. It tells the calling agent which MCP tools to invoke in which order, what gates to enforce (RBAC pre-flight, parity validation, pre-deployment PDF), what to suggest proactively (Script Task translation mode, file-path mapping, encrypted-package recovery), and what NOT to do without explicit user confirmation (anything that touches Azure).
+
+**How to use it:**
+
+* **Copilot CLI** — the agent is auto-discovered from the repo's `.github/agents/` folder once you `cd` into the repo. Launch with `copilot` and select **SSIS Migration Guide** from the agent picker, or invoke directly with `copilot --agent ssis-migration-guide`.
+* **Other Copilot surfaces / Claude Code / Cursor** — open the file and use it as a system prompt or instruction file.
+
+The agent is the source of truth for the autopilot defaults (e.g. recommend `translation_mode="host"` when Script Tasks are detected, auto-pick `metadata.recommended_mode` for DerivedColumn warnings) and the always-on hard gates that apply regardless of autopilot.
+
+---
+
 ## Authentication
+
 
 The `deploy_to_adf` tool uses `DefaultAzureCredential`, which tries the following in order:
 

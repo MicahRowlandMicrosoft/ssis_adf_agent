@@ -12,7 +12,8 @@ ssis_adf_agent.code-workspace
 ssis_modernization_agent.code-workspace
 *.code-workspace
 .scratch/
-.github/agents/
+.github/agents/*
+!.github/agents/ssis-migration-guide.agent.md
 
 # Local-only Copilot prompts
 .github/prompts/

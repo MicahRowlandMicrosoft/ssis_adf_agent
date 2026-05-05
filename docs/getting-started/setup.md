@@ -115,7 +115,7 @@ For local development, `az login` is sufficient — no environment variables nee
 
 ### Required for LLM Script Task translation
 
-Set these when using `convert_ssis_package` with `llm_translate=true`.
+Set these when using `convert_ssis_package` with `translation_mode="aoai"` (or the legacy `llm_translate=true`). **Not needed** when `translation_mode="host"` is used — in that mode the calling agent translates Script Tasks in-session via the manifest at `<output>/stubs/translation_manifest.json` and no Azure OpenAI deployment is required. See [docs/conversion/script-task-translation.md](../conversion/script-task-translation.md).
 
 **Microsoft Entra ID (recommended; required when API keys are disabled by tenant policy):**
 

@@ -66,7 +66,9 @@ aware:
 
 ### What the LLM translator sends, where, and how to disable (P4-8)
 
-When `convert_ssis_package` is invoked with `llm_translate=true`, the
+> **Note:** This section applies only to `translation_mode="aoai"` (or the legacy `llm_translate=true`). When `translation_mode="host"` is used, the calling agent translates Script Tasks in its own session — **no data leaves your tenant via this code path**. The stub source is still passed to the host agent, but that channel is the same one the host agent already uses for everything else (your IDE/CLI's existing LLM provider). See [docs/conversion/script-task-translation.md](docs/conversion/script-task-translation.md). `translation_mode="none"` (the new default) sends nothing anywhere.
+
+When `convert_ssis_package` is invoked with `llm_translate=true` (or `translation_mode="aoai"`), the
 following data is sent **once per Script Task** to your configured
 **Azure OpenAI** deployment (`AZURE_OPENAI_ENDPOINT`):
 

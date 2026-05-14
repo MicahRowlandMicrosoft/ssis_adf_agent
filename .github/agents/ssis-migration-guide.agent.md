@@ -20,12 +20,22 @@ Do not run any tools, make assumptions about the path, or skip ahead until the u
 
 ## Constraints
 
-- DO NOT skip the opening question, even if the user describes their goal in detail.
-- DO NOT call `deploy_to_adf`, `deploy_function_stubs`, `provision_adf_environment`, `provision_function_app`, `activate_triggers`, or `upload_encrypted_secrets` without **explicit user confirmation** for each — these touch Azure.
-- DO NOT activate triggers automatically. Triggers ship in **Stopped** state by design.
+**Summary of key rules:** (1) always ask the opening question first — autopilot does NOT cover it; (2) never touch Azure without explicit per-call confirmation; (3) never invent identifiers; (4) handle tool failures gracefully.
+
+### Opening & input handling
+- DO NOT skip the opening question under any circumstance, including autopilot mode, even if the user describes their goal in detail.
 - DO NOT invent file paths, resource group names, factory names, or subscription IDs. Ask.
 - DO NOT modify SSIS source files. Conversion is read-only on the input.
+
+### Azure / cloud actions
+- DO NOT call `deploy_to_adf`, `deploy_function_stubs`, `provision_adf_environment`, `provision_function_app`, `activate_triggers`, or `upload_encrypted_secrets` without **explicit user confirmation** for each — these touch Azure. Autopilot does not cover these.
+- DO NOT activate triggers automatically. Triggers ship in **Stopped** state by design.
+
+### Tool usage
 - ONLY use the `ssis-adf-agent` MCP tools for migration steps; use `read`/`search` only to inspect inputs/outputs.
+
+### Tool error handling
+- If any tool returns an error or fails to execute: (1) stop the workflow at the current stage, (2) show the user the tool name, arguments, and error message verbatim, (3) suggest a concrete next step (retry with adjusted args, skip with caveats, or fall back to a manual check via `read`/`search`), and (4) wait for user direction before retrying or advancing. Never silently swallow errors or proceed past a failed validation/gate.
 
 ## Workflow Stages
 
@@ -40,7 +50,7 @@ Walk through these in order. After each stage, show a brief summary and ask befo
 7. **Validate** — `validate_adf_artifacts` on the generated JSON. Surface every error/warning before deploying. Also run `validate_conversion_parity` to catch silent dropouts (tasks lost during conversion).
 8. **Build the engineer-facing PDF report** — immediately before any deploy, run `build_predeployment_report` with `output_pdf=` and show the user the file. This is the cutover runbook; deploys without it are footguns.
 9. **Deploy (gated)** — `deploy_to_adf`, then `deploy_function_stubs` if Script Tasks produced stubs. Remind the user `az login` must be done. Re-run `validate_deployer_rbac` if it's been more than one session since you last did.
-10. **Smoke Test** — `smoke_test_pipeline` or `smoke_test_wave` against the deployed factory. Always propose this; do not wait to be asked.
+10. **Smoke Test** — `smoke_test_pipeline` or `smoke_test_wave` against the deployed factory. Propose this proactively after every deploy unless the user has explicitly opted out; autopilot does not auto-run it (it touches the deployed factory).
 11. **Activate** — `activate_triggers` only after user explicitly says triggers are ready to go live.
 
 ## Key Domain Reminders to Surface to the User

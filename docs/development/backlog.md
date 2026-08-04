@@ -269,10 +269,10 @@ customer pilot, not in this backlog.
 - **Acceptance:** ROLLBACK.md gains a new "Strategy 4 — tearing down a provisioned factory" section covering the `az` recipe, RBAC cleanup, KV access-policy / role removal, and what `lineage.json` looks like for a fully-deprovisioned environment.
 - **Resolution:** [rollback.md](../operations/rollback.md) gained a "Strategy 4 — tearing down a provisioned factory" section covering: the order-of-operations recipe (stop triggers first → snapshot lineage → `az datafactory delete`), an explicit warning that this is rarely the right answer mid-migration, RBAC cleanup (orphaned role assignments after the factory MI is gone — `az role assignment list --all` query for empty principalNames, deletion by id, run at sub / RG / per-vault scope), Key Vault cleanup (RBAC mode vs. access-policy mode — different cleanup paths), and what `lineage.json` looks like post-teardown (azure_resource_id values now point at non-existent ARM resources; recommended path is rename to `lineage.pre-teardown.json` for the audit trail rather than rewriting). Closes with a "Strategy 4 vs. the others" table tying choice to situation. Decision tree at the top of the doc updated to put the factory-decommission question first.
 
-### P5-26. Confirm or replace the GitHub URL in SUPPORT.md — **LOW** ✅ DONE
-- **Buyer concern:** SUPPORT.md cites `MicahRowlandMicrosoft/ssis_adf_agent`. If this is a personal repo and not the engagement-customer-facing one, the URL misleads. **Requires one decision from the maintainer:** confirm or supply the correct URL.
-- **Acceptance:** SUPPORT.md, README "Need help?" callout, and any other GitHub-issues references all use the confirmed customer-facing URL.
-- **Resolution:** Maintainer confirmed `https://github.com/MicahRowlandMicrosoft/ssis_adf_agent` is the canonical customer-facing repo. Audited every Markdown file for GitHub-issues references: only two live links exist — [SUPPORT.md](SUPPORT.md) line 14 and the README's "Need help?" callout — and both already point at the confirmed URL. No URL changes required; this entry is closed as a verification-only item.
+### P5-26. Confirm or replace the GitHub URL in SUPPORT.md - **LOW** DONE
+- **Buyer concern:** SUPPORT.md cited `MicahRowlandMicrosoft/ssis_adf_agent`, which no longer matched the configured repository remote.
+- **Acceptance:** SUPPORT.md, the README "Need help?" callout, clone instructions, and any other GitHub references use the confirmed customer-facing URL.
+- **Resolution:** Both configured Git remotes use `https://github.com/MicahRowlandMicrosoft/ssis_modernization_agent`. README.md, SUPPORT.md, and the setup guide now use that canonical repository URL.
 
 ---
 

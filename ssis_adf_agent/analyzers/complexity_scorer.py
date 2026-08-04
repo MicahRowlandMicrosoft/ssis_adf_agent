@@ -23,14 +23,11 @@ from ..parsers.models import (  # type: ignore[attr-defined]
     ComplexityScore,
     CrossDbReferenceType,
     DataFlowTask,
-    ForEachLoopContainer,
-    ForLoopContainer,
     ScriptTask,
-    SequenceContainer,
     SSISPackage,
-    SSISTask,
     TaskType,
 )
+from ..parsers.task_traversal import iter_task_locations
 from .script_classifier import ScriptClassificationResult, classify_script
 
 # Weight per task type (contribution to raw score)
@@ -62,14 +59,6 @@ _NEST_DEPTH_WEIGHT = 3
 # Score per cross-database / linked server reference
 _LINKED_SERVER_WEIGHT = 8
 _CROSS_DB_WEIGHT = 3
-
-
-def _walk_tasks(tasks: list[SSISTask], depth: int = 0):  # type: ignore[type-arg]
-    """Generator: yields (task, depth) pairs recursively."""
-    for task in tasks:
-        yield task, depth
-        if isinstance(task, (SequenceContainer, ForEachLoopContainer, ForLoopContainer)):
-            yield from _walk_tasks(task.tasks, depth + 1)
 
 
 def score_package(package: SSISPackage) -> ComplexityScore:
@@ -112,7 +101,9 @@ def _score_package_impl(package: SSISPackage) -> _ScoringResult:
     raw_score = 0.0
     script_classifications: list[ScriptClassificationResult] = []
 
-    for task, depth in _walk_tasks(package.tasks):
+    for location in iter_task_locations(package, include_event_handlers=False):
+        task = location.task
+        depth = location.depth
         total_tasks += 1
         max_depth = max(max_depth, depth)
 

@@ -199,7 +199,7 @@ def _add_property(
     typ = spec.get("type")
     flag = _to_flag(name)
     kwargs: dict[str, Any] = {
-        "help": spec.get("description", ""),
+        "help": (spec.get("description") or "").replace("%", "%%"),
         "dest": name,
     }
     if "default" in spec:
@@ -208,7 +208,9 @@ def _add_property(
         kwargs["choices"] = spec["enum"]
 
     if typ == "boolean":
-        kwargs["action"] = argparse.BooleanOptionalAction
+        kwargs["action"] = (
+            "store_true" if name.startswith("no_") else argparse.BooleanOptionalAction
+        )
         if "default" not in kwargs:
             kwargs["default"] = None
     elif typ == "integer":

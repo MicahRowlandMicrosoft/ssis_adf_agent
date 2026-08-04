@@ -1,5 +1,5 @@
 ---
-mode: agent
+agent: agent
 tools:
   - scan_ssis_packages
   - analyze_ssis_package

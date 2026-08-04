@@ -8,8 +8,12 @@ For moderate / complex scripts the converter:
 1. Generates an AzureFunctionActivity JSON that calls an Azure Function endpoint.
 2. Writes a Python Azure Function stub to the ``stubs/`` output directory that
    preserves the original variable interface so the developer can fill in logic.
-3. Optionally calls Azure OpenAI to translate the original C# source to Python
-   (set ``llm_translate=True`` and configure AZURE_OPENAI_* env vars).
+3. Optionally records the task in a ``TranslationManifest`` so a host agent
+   (or a follow-up tool) can replace the stub's ``# BEGIN/END
+   SSIS_SCRIPT_TRANSLATION`` region with translated Python.
+4. Optionally calls Azure OpenAI in-process to translate the original C# source
+   to Python (set ``translation_mode="aoai"`` and configure AZURE_OPENAI_*
+   env vars). Legacy ``llm_translate=True`` arg maps to ``"aoai"``.
 """
 from __future__ import annotations
 
@@ -20,6 +24,12 @@ from typing import Any
 
 from ...analyzers.script_classifier import ScriptComplexity, classify_script
 from ...parsers.models import PrecedenceConstraint, ScriptTask, SSISTask
+from ...translators.translation_manifest import (
+    REGION_BEGIN_MARKER,
+    REGION_END_MARKER,
+    TranslationManifest,
+    TranslationMode,
+)
 from ..base_converter import BaseConverter
 
 
@@ -28,9 +38,20 @@ class ScriptTaskConverter(BaseConverter):
         self,
         stubs_output_dir: Path | None = None,
         llm_translate: bool = False,
+        *,
+        translation_mode: TranslationMode | None = None,
+        manifest: TranslationManifest | None = None,
     ) -> None:
         self.stubs_output_dir = stubs_output_dir or Path("stubs")
-        self.llm_translate = llm_translate
+        # Resolve effective mode. If translation_mode is supplied, it wins.
+        # Otherwise back-compat: llm_translate=True implies 'aoai'.
+        if translation_mode is None:
+            self.translation_mode: TranslationMode = "aoai" if llm_translate else "none"
+        else:
+            self.translation_mode = translation_mode
+        # Maintain the legacy attribute for any downstream caller still reading it.
+        self.llm_translate = self.translation_mode == "aoai"
+        self.manifest = manifest
 
     def convert(
         self,
@@ -166,9 +187,9 @@ class ScriptTaskConverter(BaseConverter):
         # --- LLM translation attempt ---
         translated_body: str | None = None
         translation_warning: str = ""
-        if self.llm_translate and task.source_code:
+        if self.translation_mode == "aoai" and task.source_code:
             translated_body, translation_warning = _attempt_llm_translation(task)
-        elif self.llm_translate and not task.source_code:
+        elif self.translation_mode == "aoai" and not task.source_code:
             translation_warning = (
                 f"[LLM translation skipped for '{task.name}': no "
                 f"{task.script_language} source code was extracted from the DTSX. "
@@ -212,6 +233,15 @@ class ScriptTaskConverter(BaseConverter):
                 + "    )"
             )
 
+        # Wrap the replaceable body in stable region markers so a host agent
+        # (or any downstream tooling) can replace ONLY the translation region
+        # without touching imports, request parsing, or the response shape.
+        impl_block = (
+            f"    {REGION_BEGIN_MARKER}: {task.name}\n"
+            f"{impl}\n"
+            f"    {REGION_END_MARKER}: {task.name}"
+        )
+
         stub_content = f'''\
 """
 Azure Function stub — auto-generated from SSIS Script Task: {task.name}
@@ -240,7 +270,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
 {param_assignments or "    pass  # no variables declared"}
 
-{impl}
+{impl_block}
 
     return func.HttpResponse(
         json.dumps({return_dict or "{}"}),
@@ -270,6 +300,31 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 },
             ],
         }, indent=2), encoding="utf-8")
+
+        # Manifest bookkeeping — record this task's translation status so a host
+        # agent (or estate-level tooling) can find it without scanning stubs.
+        if self.manifest is not None and self.translation_mode != "none":
+            if not task.source_code:
+                entry_status = "skipped_no_source"
+            elif self.translation_mode == "aoai":
+                entry_status = (
+                    "aoai_translated_needs_review" if translated_body
+                    else "aoai_failed_pending_manual"
+                )
+            else:  # "host"
+                entry_status = "pending_host_translation"
+            self.manifest.add_entry(
+                task_id=task.id,
+                task_name=task.name,
+                function_name=func_name,
+                stub_path=stub_file,
+                script_language=task.script_language,
+                read_only_variables=ro_vars,
+                read_write_variables=rw_vars,
+                source_code=task.source_code,
+                status=entry_status,  # type: ignore[arg-type]
+                translation_warning=translation_warning,
+            )
 
         return stub_file
 

@@ -447,8 +447,8 @@ def process_encrypted_package(
     """End-to-end: extract -> map -> upload -> rewrite.
 
     ``secret_client`` defaults to a real ``azure.keyvault.secrets.SecretClient``
-    using ``DefaultAzureCredential`` if ``None`` is passed. Tests should
-    always pass a fake.
+    using the shared project credential factory if ``None`` is passed. Tests
+    should always pass a fake.
     """
     extracted = extract_secrets_from_dtsx(unprotected_dtsx_path)
     mappings = build_secret_map(
@@ -485,7 +485,6 @@ def process_encrypted_package(
 def _default_secret_client(kv_url: str) -> SecretClientProtocol:
     """Lazy import so ``azure-keyvault-secrets`` is only required when used."""
     try:
-        from azure.identity import DefaultAzureCredential
         from azure.keyvault.secrets import SecretClient
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError(
@@ -493,4 +492,5 @@ def _default_secret_client(kv_url: str) -> SecretClientProtocol:
             "secrets. Install with `pip install azure-keyvault-secrets "
             "azure-identity`, or pass a custom secret_client."
         ) from exc
-    return SecretClient(vault_url=kv_url, credential=DefaultAzureCredential())
+    from ..credential import get_credential
+    return SecretClient(vault_url=kv_url, credential=get_credential())

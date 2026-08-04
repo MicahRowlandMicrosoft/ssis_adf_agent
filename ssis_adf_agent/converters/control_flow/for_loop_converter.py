@@ -145,12 +145,6 @@ class ForLoopConverter(BaseConverter):
             return [
                 {"name": f"activity_{t.name}", "type": "Wait",
                  "typeProperties": {"waitTimeInSeconds": 1}}
-                for t in parent.tasks
+                for t in parent.tasks if not t.disabled
             ]
-        activities = []
-        inner_task_by_id = {t.id: t for t in parent.tasks}
-        for t in parent.tasks:
-            activities.extend(
-                self._child_converter.convert_task(t, parent.constraints, inner_task_by_id)
-            )
-        return activities
+        return self._child_converter.convert_scope(parent.tasks, parent.constraints)

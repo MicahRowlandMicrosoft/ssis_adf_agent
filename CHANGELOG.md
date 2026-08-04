@@ -10,6 +10,20 @@ versions. From `1.0.0` onward, breaking changes will only land in major bumps.
 ## [Unreleased]
 
 ### Added
+- **Script Task translation modes** — `convert_ssis_package` and
+  `convert_estate` now accept a `translation_mode` enum (`none` /
+  `host` / `aoai`). The new `host` mode emits a translation manifest
+  (`<output>/stubs/translation_manifest.json` and an estate-level
+  `<output>/translation_index.json`) plus stable region markers
+  (`# BEGIN/END SSIS_SCRIPT_TRANSLATION`) inside each generated stub,
+  so the calling agent (Copilot CLI/Chat, Claude Code, …) can translate
+  Script Tasks in-session without provisioning a separate Azure OpenAI
+  deployment. `aoai` preserves the previous in-process Azure OpenAI
+  behaviour for headless / regulated tenants. `none` (default) emits a
+  deterministic stub only. The legacy `llm_translate=true` argument is
+  silently promoted to `translation_mode="aoai"`; `SSIS_ADF_NO_LLM` and
+  `no_llm=true` remain a hard off-switch. See
+  [docs/conversion/script-task-translation.md](docs/conversion/script-task-translation.md).
 - **P5-19** — [encrypted-packages.md](docs/operations/encrypted-packages.md) gained
   a "🧯 Real failure walkthrough" callout at the top linking to
   [docs/case-studies/first_deploy_keyvault_recovery/](docs/case-studies/first_deploy_keyvault_recovery/README.md),

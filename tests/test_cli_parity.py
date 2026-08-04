@@ -7,6 +7,7 @@ server uses, so the two surfaces stay in sync as new tools are added.
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 from unittest.mock import patch
@@ -61,6 +62,23 @@ class TestParityCoverage:
         assert "before_dir" in out or "before-dir" in out
         assert "after_dir" in out or "after-dir" in out
 
+    def test_percent_in_schema_help_is_rendered_literally(self):
+        parser = argparse.ArgumentParser()
+        cli._add_property(
+            parser,
+            "apply_learning_curve",
+            {
+                "type": "boolean",
+                "description": "Apply reuse discounts of 90%, 80%, and 70%.",
+                "default": True,
+            },
+            required=False,
+        )
+
+        help_text = parser.format_help()
+        assert "90%, 80%, and 70%" in help_text
+        assert "90%%" not in help_text
+
 
 class TestAutoDispatch:
     def test_diff_estate_forwards_args_to_mcp_handler(self, capsys, tmp_path):
@@ -100,6 +118,35 @@ class TestAutoDispatch:
                 "--with-cost-projection",
             ])
         assert captured["args"]["with_cost_projection"] is True
+
+    def test_negative_named_boolean_uses_single_flag(self, capsys):
+        captured = {}
+
+        def _fake(name, args):
+            captured["name"] = name
+            captured["args"] = args
+            return _ok({"ok": True})
+
+        with patch.object(cli.mcp_server, "call_tool", side_effect=_fake):
+            rc = cli.main([
+                "convert-ssis-package",
+                "--package-path", "Pkg.dtsx",
+                "--output-dir", "out",
+                "--no-llm",
+            ])
+
+        assert rc == 0
+        assert captured["name"] == "convert_ssis_package"
+        assert captured["args"]["no_llm"] is True
+
+        parser = cli._build_parser()
+        try:
+            parser.parse_args(["convert-ssis-package", "--help"])
+        except SystemExit as exc:
+            assert exc.code == 0
+        help_text = capsys.readouterr().out
+        assert "--no-llm" in help_text
+        assert "--no-no-llm" not in help_text
 
     def test_array_argument_collects_multiple_values(self):
         captured = {}

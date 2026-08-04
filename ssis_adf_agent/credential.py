@@ -38,7 +38,6 @@ def get_credential():
         )
         logger.debug("Using DefaultAzureCredential (%s)", reason)
         return DefaultAzureCredential(
-            exclude_managed_identity_credential=True,
             exclude_shared_token_cache_credential=True,
         )
 

@@ -20,11 +20,14 @@ from ..parsers.models import (  # type: ignore[attr-defined]
     GapItem,
     ProtectionLevel,
     ScriptTask,
-    SequenceContainer,
     Severity,
     SSISPackage,
     SSISTask,
     TaskType,
+)
+from ..parsers.task_traversal import (
+    disabled_task_bypass_issue,
+    iter_task_locations,
 )
 from .script_classifier import ScriptComplexity, classify_script
 
@@ -49,14 +52,6 @@ _REVIEW_DF_COMPONENTS: dict[str, str] = {
     "MergeJoin": "Inputs must be sorted in ADF; add Sort transformations if needed",
     "Merge": "Inputs must be sorted in ADF Merge transformation",
 }
-
-
-def _walk_tasks(tasks: list[SSISTask]):  # type: ignore[type-arg]
-    """Recursively yield all tasks."""
-    for task in tasks:
-        yield task
-        if isinstance(task, (SequenceContainer, ForEachLoopContainer, ForLoopContainer)):
-            yield from _walk_tasks(task.tasks)
 
 
 def analyze_gaps(package: SSISPackage) -> list[GapItem]:
@@ -84,15 +79,40 @@ def analyze_gaps(package: SSISPackage) -> list[GapItem]:
             ),
         ))
 
-    for task in _walk_tasks(package.tasks):
+    for location in iter_task_locations(package):
+        task = location.task
+        if task.disabled:
+            issue = disabled_task_bypass_issue(task, location.constraints)
+            if issue:
+                gaps.append(GapItem(
+                    task_id=task.id,
+                    task_name=task.name,
+                    task_type=task.task_type.value,
+                    severity=Severity.MANUAL_REQUIRED,
+                    message=(
+                        "Disabled task cannot be omitted without changing control-flow "
+                        f"semantics: {issue}."
+                    ),
+                    recommendation=(
+                        "Rewrite the affected precedence constraints or explicitly model "
+                        "the disabled branch before conversion."
+                    ),
+                ))
+            else:
+                gaps.append(GapItem(
+                    task_id=task.id,
+                    task_name=task.name,
+                    task_type=task.task_type.value,
+                    severity=Severity.INFO,
+                    message="Disabled task will be omitted during ADF conversion.",
+                    recommendation=(
+                        "No action is required unless the task should be enabled in the "
+                        "target pipeline."
+                    ),
+                ))
+            continue
         task_gaps = _analyze_task(task)
         gaps.extend(task_gaps)
-
-    # Event handlers
-    for eh in package.event_handlers:
-        for task in _walk_tasks(eh.tasks):
-            task_gaps = _analyze_task(task)
-            gaps.extend(task_gaps)
 
     return gaps
 

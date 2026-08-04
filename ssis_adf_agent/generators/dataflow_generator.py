@@ -100,12 +100,18 @@ def generate_data_flows(
     ls_name_map: dict[str, str] | None = None,
     name_overrides: dict[str, str] | None = None,
     substitution_registry: "SubstitutionRegistry | None" = None,
+    derived_column_mode: str = "preserve",
 ) -> list[dict[str, Any]]:
     """
     For every complex Data Flow Task in the package, generate a Mapping Data Flow JSON.
     Files are written to *output_dir*/dataflow/.
 
     Returns the list of data flow dicts.
+
+    ``derived_column_mode`` is forwarded to ``convert_transformation`` and
+    governs how SSIS DerivedColumn output columns left at the SSDT default
+    name pattern ('Derived Column N') are emitted. See
+    ``converters.data_flow.transformation_converter._derived_column``.
     """
     df_dir = output_dir / "dataflow"
     df_dir.mkdir(parents=True, exist_ok=True)
@@ -136,9 +142,13 @@ def generate_data_flows(
         transformations: list[dict[str, Any]] = []
         for comp in transform_comps:
             if substitution_registry is not None:
-                t = convert_transformation(comp, registry=substitution_registry)
+                t = convert_transformation(
+                    comp,
+                    registry=substitution_registry,
+                    derived_column_mode=derived_column_mode,
+                )
             else:
-                t = convert_transformation(comp)
+                t = convert_transformation(comp, derived_column_mode=derived_column_mode)
             if t is not None:
                 transformations.append(t)
 

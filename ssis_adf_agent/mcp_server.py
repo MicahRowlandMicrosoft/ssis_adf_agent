@@ -45,6 +45,7 @@ Or via the installed script::
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import tempfile
@@ -171,13 +172,36 @@ async def list_tools() -> list[types.Tool]:
                     "llm_translate": {
                         "type": "boolean",
                         "description": (
-                            "If true, call Azure OpenAI to translate C# Script Task source code to Python "
-                            "in the generated Azure Function stubs. Requires AZURE_OPENAI_ENDPOINT and "
-                            "AZURE_OPENAI_API_KEY environment variables. Falls back gracefully if unavailable. "
-                            "Default: false. Forced to false when SSIS_ADF_NO_LLM env var is set, or when "
-                            "the no_llm parameter is true."
+                            "[LEGACY — prefer translation_mode='aoai'] If true, call Azure OpenAI "
+                            "to translate C# Script Task source code to Python in the generated "
+                            "Azure Function stubs. Requires AZURE_OPENAI_ENDPOINT and "
+                            "AZURE_OPENAI_API_KEY environment variables. Falls back gracefully if "
+                            "unavailable. Default: false. Forced to false when SSIS_ADF_NO_LLM env "
+                            "var is set, or when the no_llm parameter is true."
                         ),
                         "default": False,
+                    },
+                    "translation_mode": {
+                        "type": "string",
+                        "enum": ["none", "host", "aoai"],
+                        "description": (
+                            "Controls C# Script Task → Python translation:\n"
+                            "  'none' (default) — emit deterministic TODO stubs only; no AI calls. "
+                            "Same as legacy llm_translate=false.\n"
+                            "  'host' — emit deterministic stubs + a translation_manifest.json so "
+                            "the calling agent (Copilot/Claude) can translate each task in-session "
+                            "by editing the marked region of each stub. No external AOAI call. "
+                            "Recommended for interactive workflows.\n"
+                            "  'aoai' — call Azure OpenAI in-process to inline a Python translation "
+                            "into each stub. Requires AZURE_OPENAI_* env vars. Recommended for "
+                            "headless / CI / regulated-tenant workflows where translation must "
+                            "happen inside the customer's tenant.\n"
+                            "Wins over the legacy llm_translate flag when supplied. The no_llm arg "
+                            "and SSIS_ADF_NO_LLM env var force 'none' regardless. Note that 'host' "
+                            "mode is still AI-assisted source-code translation — just by the "
+                            "calling agent rather than AOAI."
+                        ),
+                        "default": "none",
                     },
                     "no_llm": {
                         "type": "boolean",
@@ -193,6 +217,15 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Integration Runtime name for on-prem connections. Default: 'SelfHostedIR'.",
                         "default": "SelfHostedIR",
+                    },
+                    "ir_mapping": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "description": (
+                            "Optional mapping of connection-manager name glob patterns to "
+                            "Integration Runtime names. First match wins; unmatched on-premises "
+                            "connections use on_prem_ir_name."
+                        ),
                     },
                     "auth_type": {
                         "type": "string",
@@ -277,6 +310,26 @@ async def list_tools() -> list[types.Tool]:
                             "Non-DROP simplifications are recorded in the response as deferred TODOs."
                         ),
                     },
+                    "derived_column_mode": {
+                        "type": "string",
+                        "description": (
+                            "Controls how DerivedColumn output columns left at the SSDT default name "
+                            "pattern ('Derived Column 1', 'Derived Column 2', ...) are emitted. SSIS "
+                            "authors frequently forget to rename these in the designer, leaving the ADF "
+                            "data flow with meaningless placeholder column names that almost always "
+                            "duplicate a source column.\n"
+                            "  'preserve' (default) \u2014 keep the original names; emit a warning so the "
+                            "user knows the choice exists.\n"
+                            "  'rename_to_expression' \u2014 when the expression is a single bare source "
+                            "column reference (e.g. FriendlyExpression='Biennium'), rename the output "
+                            "column to that source column. Falls back to preserving on name collision.\n"
+                            "  'drop_passthrough' \u2014 omit pure pass-through columns entirely; ADF "
+                            "allowSchemaDrift carries the underlying source columns through unchanged. "
+                            "Most aggressive; cleanest output."
+                        ),
+                        "enum": ["preserve", "rename_to_expression", "drop_passthrough"],
+                        "default": "preserve",
+                    },
                 },
                 "required": ["package_path", "output_dir"],
             },
@@ -305,7 +358,8 @@ async def list_tools() -> list[types.Tool]:
                 "Deploy ADF JSON artifacts from a local directory to an Azure Data Factory instance. "
                 "Deploys in correct dependency order: linked services → datasets → data flows → pipelines → triggers. "
                 "Triggers are deployed in Stopped state and must be activated manually (see activate_triggers). "
-                "Uses DefaultAzureCredential (az login, managed identity, or service principal env vars). "
+                "Uses the shared credential factory (Azure CLI locally; DefaultAzureCredential "
+                "for service-principal, workload-identity, or managed-identity environments). "
                 "By default the deploy is destructive (put_or_update overwrites in-factory edits). "
                 "Pass skip_if_exists=true (H8) to refuse to overwrite any artifact that already exists "
                 "in the target factory — recommended once a customer has hand-edited a linked service "
@@ -703,7 +757,7 @@ async def list_tools() -> list[types.Tool]:
                 "non-MI auth is required. Built-in Azure RBAC role assignments are emitted "
                 "into the same template; SQL-server-side roles like db_datareader are skipped "
                 "with a note (must be granted via T-SQL post-deploy). Requires the Azure CLI "
-                "on PATH (for 'az bicep build') and authentication via DefaultAzureCredential. "
+                "on PATH (for 'az bicep build') and authentication via the shared credential factory. "
                 "Day-2 follow-up: see docs/operations/observability.md for the recommended Log Analytics "
                 "diagnostic-settings target (PipelineRuns, ActivityRuns, TriggerRuns, "
                 "PipelineActivityRuns, AllMetrics) plus the three baseline alert rules. Pass "
@@ -842,6 +896,23 @@ async def list_tools() -> list[types.Tool]:
                         "default": True,
                     },
                     "generate_trigger": {"type": "boolean", "default": True},
+                    "shared_artifacts_dir": {
+                        "type": "string",
+                        "description": (
+                            "Optional shared directory for cross-package linked-service and "
+                            "dataset deduplication. Forwarded to convert_ssis_package for every "
+                            "package in the estate."
+                        ),
+                    },
+                    "ir_mapping": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "description": (
+                            "Optional mapping of connection-manager name glob patterns to "
+                            "Integration Runtime names. Forwarded to convert_ssis_package for "
+                            "every package in the estate."
+                        ),
+                    },
                     "with_cost_projection": {
                         "type": "boolean",
                         "description": (
@@ -851,6 +922,28 @@ async def list_tools() -> list[types.Tool]:
                             "default). Default: false. (P5-14)"
                         ),
                         "default": False,
+                    },
+                    "derived_column_mode": {
+                        "type": "string",
+                        "description": (
+                            "Forwarded to convert_ssis_package for every package. See that "
+                            "tool's schema for full details. Use to bulk-clean default-named "
+                            "DerivedColumn outputs across the estate."
+                        ),
+                        "enum": ["preserve", "rename_to_expression", "drop_passthrough"],
+                        "default": "preserve",
+                    },
+                    "translation_mode": {
+                        "type": "string",
+                        "description": (
+                            "Forwarded to convert_ssis_package for every package. See that "
+                            "tool's schema for full details. When 'host' or 'aoai', a top-level "
+                            "<output_dir>/translation_index.json is also written aggregating "
+                            "every per-package manifest so the host agent can discover them "
+                            "without globbing."
+                        ),
+                        "enum": ["none", "host", "aoai"],
+                        "default": "none",
                     },
                 },
                 "required": ["source_path", "output_dir"],
@@ -1006,11 +1099,16 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="build_predeployment_report",
             description=(
-                "Generate a comprehensive pre-deployment Markdown report for an SSIS migration estate. "
+                "Generate a comprehensive pre-deployment report for an SSIS migration estate. "
                 "For each package: SSIS summary, Mermaid control-flow and data-flow diagrams, "
                 "component descriptions, ADF solution overview with pipeline activity graphs, "
                 "and detailed pre- and post-deployment checklists of manual tasks. "
-                "Targets the engineer/admin persona. Requires converted ADF artifacts on disk."
+                "Targets the engineer/admin persona. Requires converted ADF artifacts on disk. "
+                "Outputs Markdown by default; pass output_pdf to also emit a PDF with all Mermaid "
+                "diagrams rendered as embedded images (requires npx + @mermaid-js/mermaid-cli on "
+                "PATH for diagram rendering — falls back to inline source on failure). "
+                "RECOMMENDED: always generate the PDF before deploy_to_adf so engineers have a "
+                "stakeholder-ready handoff document."
             ),
             inputSchema={
                 "type": "object",
@@ -1036,6 +1134,15 @@ async def list_tools() -> list[types.Tool]:
                     "output_path": {
                         "type": "string",
                         "description": "Absolute path to write the Markdown report. If omitted, the report is returned inline.",
+                    },
+                    "output_pdf": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to write a PDF version of the report with all Mermaid "
+                            "diagrams rendered as embedded images. Recommended for stakeholder "
+                            "handoffs. Requires npx + @mermaid-js/mermaid-cli on PATH; without "
+                            "them the diagrams are embedded as code blocks instead of images."
+                        ),
                     },
                     "title": {
                         "type": "string",
@@ -1598,31 +1705,36 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
     path = _safe_resolve(args["package_path"], must_exist=True, label="package_path")
     output_dir = _safe_resolve(args["output_dir"], label="output_dir")
     gen_trigger = args.get("generate_trigger", True)
-    llm_translate = args.get("llm_translate", False)
+    legacy_llm_translate = args.get("llm_translate", False)
+    requested_translation_mode = args.get("translation_mode")
 
-    # P4-8 — per-call no-LLM switch.  Honour both the per-call arg and the
-    # environment-level policy switch; either one wins.
+    # Resolve effective translation mode against the documented precedence
+    # (no_llm / SSIS_ADF_NO_LLM > translation_mode > legacy llm_translate).
     from .translators.csharp_to_python import no_llm_policy_enabled
+    from .translators.translation_manifest import (
+        TranslationManifest,
+        resolve_translation_mode,
+    )
     no_llm_arg = bool(args.get("no_llm", False))
-    if no_llm_arg or no_llm_policy_enabled():
-        if llm_translate:
-            # Caller asked for LLM but policy / arg forbids it — surface a
-            # warning so the response makes the degraded behaviour explicit.
-            import warnings as _warnings
-            reason = (
-                "no_llm=true argument" if no_llm_arg
-                else "SSIS_ADF_NO_LLM environment variable"
-            )
-            _warnings.warn(
-                f"[P4-8] llm_translate=true was requested but is overridden "
-                f"by {reason}. Script Task stubs will use deterministic "
-                "TODO scaffolding only.",
-                stacklevel=2,
-            )
-        llm_translate = False
+    effective_mode, mode_notes = resolve_translation_mode(
+        translation_mode=requested_translation_mode,
+        legacy_llm_translate=bool(legacy_llm_translate),
+        no_llm_arg=no_llm_arg,
+        no_llm_env=no_llm_policy_enabled(),
+    )
+    if mode_notes:
+        import warnings as _warnings
+        for _n in mode_notes:
+            _warnings.warn(f"[translation_mode] {_n}", stacklevel=2)
+    # Legacy llm_translate flag flowed into the dispatcher; preserve back-compat
+    # by re-deriving it from the effective mode.
+    llm_translate = effective_mode == "aoai"
 
     # New parameters
     on_prem_ir_name = args.get("on_prem_ir_name", "SelfHostedIR")
+    ir_mapping = args.get("ir_mapping")
+    if ir_mapping is not None and not isinstance(ir_mapping, dict):
+        raise ValueError("ir_mapping must be an object mapping glob patterns to IR names")
     auth_type = args.get("auth_type", "SystemAssignedManagedIdentity")
     use_key_vault = args.get("use_key_vault", False)
     kv_ls_name = args.get("kv_ls_name", "LS_KeyVault")
@@ -1671,6 +1783,17 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         safe_reg = _safe_resolve(sub_reg_path, must_exist=True, label="substitution_registry_path")
         substitution_registry = load_registry(safe_reg)
 
+    # DerivedColumn handling — see tool inputSchema for description.
+    derived_column_mode = args.get("derived_column_mode", "preserve")
+    if derived_column_mode not in {"preserve", "rename_to_expression", "drop_passthrough"}:
+        return [types.TextContent(
+            type="text",
+            text=(
+                f"Error: derived_column_mode={derived_column_mode!r} is not one of "
+                "'preserve', 'rename_to_expression', 'drop_passthrough'."
+            ),
+        )]
+
     with WarningsCollector() as wc:
         reader = LocalReader()
         package = reader.read(path)
@@ -1685,6 +1808,16 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
             package, plan_application = apply_plan(package, plan)
 
         stubs_dir = output_dir / "stubs"
+
+        # Translation manifest — collected during pipeline generation, written
+        # below if the effective mode is anything other than "none".
+        translation_manifest: TranslationManifest | None = None
+        if effective_mode != "none":
+            translation_manifest = TranslationManifest(
+                package_name=package.name,
+                package_path=str(path),
+                translation_mode=effective_mode,
+            )
 
         # Extract name overrides from plan, if present
         name_overrides: dict[str, str] | None = None
@@ -1703,6 +1836,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         linked_services, ls_name_map = generate_linked_services(
             package, output_dir,
             on_prem_ir_name=on_prem_ir_name,
+            ir_mapping=ir_mapping,
             auth_type=auth_type,
             use_key_vault=use_key_vault,
             kv_ls_name=kv_ls_name,
@@ -1722,6 +1856,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
             ls_name_map=ls_name_map,
             name_overrides=name_overrides,
             substitution_registry=substitution_registry,
+            derived_column_mode=derived_column_mode,
         )
         pipeline = generate_pipeline(
             package, output_dir,
@@ -1733,6 +1868,8 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
             schema_remap=schema_remap,
             ls_name_map=ls_name_map,
             name_overrides=name_overrides,
+            translation_mode=effective_mode,
+            translation_manifest=translation_manifest,
         )
         triggers = generate_triggers(
             package, output_dir,
@@ -1767,6 +1904,45 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
 
         # Find stub files
         stub_files = list(stubs_dir.rglob("*.py")) if stubs_dir.exists() else []
+
+        # Write the translation manifest (if any tasks were collected) and
+        # build a per-call translation summary surfaced in the tool response.
+        translation_summary: dict[str, Any] = {
+            "requested_translation_mode": requested_translation_mode,
+            "effective_translation_mode": effective_mode,
+            "manifest_path": None,
+            "entry_count": 0,
+            "status_counts": {},
+            "translation_performed": effective_mode == "aoai",
+            "notes": mode_notes,
+            "next_steps": [],
+        }
+        if translation_manifest is not None and translation_manifest.has_entries:
+            manifest_path = stubs_dir / "translation_manifest.json"
+            translation_manifest.write(manifest_path)
+            translation_summary["manifest_path"] = str(manifest_path)
+            translation_summary["entry_count"] = len(translation_manifest.entries)
+            translation_summary["status_counts"] = translation_manifest.status_counts()
+            if effective_mode == "host":
+                translation_summary["next_steps"] = [
+                    f"Read {manifest_path} and translate each entry whose status "
+                    "is 'pending_host_translation'.",
+                    "For each entry, edit ONLY the bytes between the "
+                    "'# BEGIN SSIS_SCRIPT_TRANSLATION' and "
+                    "'# END SSIS_SCRIPT_TRANSLATION' marker lines in the stub file.",
+                    "Do not modify the request parsing, response shape, or marker "
+                    "lines themselves — downstream tooling depends on them.",
+                ]
+            elif effective_mode == "aoai":
+                failed = translation_summary["status_counts"].get(
+                    "aoai_failed_pending_manual", 0
+                )
+                if failed:
+                    translation_summary["next_steps"] = [
+                        f"{failed} task(s) failed AOAI translation. Open the "
+                        "manifest, find entries with status 'aoai_failed_pending_manual', "
+                        "and translate them manually within the marked region.",
+                    ]
 
         # Generate Azure Functions project files around the stubs
         func_project_files: dict[str, str] = {}
@@ -1838,6 +2014,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         }
         if plan_application is not None:
             summary["migration_plan_applied"] = plan_application.model_dump()
+        summary["translation"] = translation_summary
 
     return [types.TextContent(type="text", text=json.dumps(summary, indent=2))]
 
@@ -2289,7 +2466,7 @@ async def _provision_adf_env(args: dict[str, Any]) -> list[types.TextContent]:
         else:
             tmp_bicep = Path(bicep_saved_to)
         try:
-            _compile_bicep(tmp_bicep)
+            await asyncio.to_thread(_compile_bicep, tmp_bicep)
             payload["status"] = "bicep_compiled"
             payload["mode"] = "offline_dry_run"
         except RuntimeError as exc:
@@ -2299,7 +2476,8 @@ async def _provision_adf_env(args: dict[str, Any]) -> list[types.TextContent]:
         return [types.TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
 
     # Online path (live deploy or dry_run with credentials).
-    result = deploy_bicep(
+    result = await asyncio.to_thread(
+        deploy_bicep,
         bicep_source=bicep,
         subscription_id=subscription_id,
         resource_group=resource_group,
@@ -2501,6 +2679,9 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
     save_plans = args.get("save_plans", True)
     generate_trigger = args.get("generate_trigger", True)
     shared_artifacts_dir = args.get("shared_artifacts_dir")
+    ir_mapping = args.get("ir_mapping")
+    derived_column_mode = args.get("derived_column_mode", "preserve")
+    translation_mode = args.get("translation_mode", "none")
 
     if source_path.is_file():
         files = [source_path] if source_path.suffix.lower() == ".dtsx" else []
@@ -2525,9 +2706,13 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
                 "package_path": str(f),
                 "output_dir": str(pkg_output),
                 "generate_trigger": generate_trigger,
+                "derived_column_mode": derived_column_mode,
+                "translation_mode": translation_mode,
             }
             if shared_artifacts_dir:
                 convert_args["shared_artifacts_dir"] = shared_artifacts_dir
+            if ir_mapping:
+                convert_args["ir_mapping"] = ir_mapping
             if plan_path is not None:
                 convert_args["design_path"] = str(plan_path)
             convert_result = await _convert(convert_args)
@@ -2544,6 +2729,7 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
                     for k in ("pipeline", "linked_services", "datasets", "data_flows", "triggers", "stubs")
                     if k in convert_payload
                 },
+                "translation": convert_payload.get("translation"),
             })
         except Exception as exc:
             logger.exception("convert_estate failed for %s", f)
@@ -2564,6 +2750,36 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
         "failed_count": len(results) - succeeded,
         "packages": results,
     }
+
+    # Estate-level translation index — aggregates per-package manifests so the
+    # host agent can find pending Script Tasks without globbing nested dirs.
+    if translation_mode != "none":
+        from .translators.translation_manifest import write_estate_index
+        manifests_summary: list[dict[str, Any]] = []
+        for r in results:
+            t = r.get("translation") or {}
+            mp = t.get("manifest_path")
+            if not mp:
+                continue
+            counts = t.get("status_counts") or {}
+            manifests_summary.append({
+                "package_name": r["package_name"],
+                "manifest_path": mp,
+                "total_entries": t.get("entry_count", 0),
+                "pending_count": counts.get("pending_host_translation", 0),
+                "failed_aoai_count": counts.get("aoai_failed_pending_manual", 0),
+                "skipped_no_source_count": counts.get("skipped_no_source", 0),
+            })
+        if manifests_summary:
+            index_path = output_dir / "translation_index.json"
+            write_estate_index(manifests_summary, index_path)
+            summary["translation_index"] = {
+                "path": str(index_path),
+                "translation_mode": translation_mode,
+                "manifest_count": len(manifests_summary),
+                "total_pending": sum(m["pending_count"] for m in manifests_summary),
+                "total_aoai_failed": sum(m["failed_aoai_count"] for m in manifests_summary),
+            }
 
     # P5-14: optional per-estate cost projection emitted alongside lineage.
     if args.get("with_cost_projection"):
@@ -2847,8 +3063,6 @@ async def _diff_estate(args: dict[str, Any]) -> list[types.TextContent]:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    import asyncio
-
     async def _run() -> None:
         async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
             await server.run(
@@ -2889,6 +3103,21 @@ async def _build_predeployment_report(args: dict[str, Any]) -> list[types.TextCo
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(report, encoding="utf-8")
         result["saved_to"] = str(out)
+
+    if args.get("output_pdf"):
+        from .documentation.markdown_to_pdf import markdown_to_pdf
+        pdf_out = _safe_resolve(args["output_pdf"], label="output_pdf")
+        try:
+            pdf_summary = await asyncio.to_thread(
+                markdown_to_pdf,
+                report,
+                pdf_out,
+                title=args.get("title") or "SSIS \u2192 ADF Pre-Deployment Report",
+            )
+            result["pdf"] = pdf_summary
+        except Exception as exc:
+            logger.exception("PDF generation failed")
+            result["pdf"] = {"status": "failed", "error": str(exc)}
 
     result["report_lines"] = len(report.splitlines())
 

@@ -11,7 +11,7 @@
 
 | What | Where | Response-time |
 |---|---|---|
-| Bugs, feature requests, questions | [GitHub Issues](https://github.com/MicahRowlandMicrosoft/ssis_adf_agent/issues) | Best-effort. Typically 2–5 business days for a first response; longer for non-trivial requests. No SLA. |
+| Bugs, feature requests, questions | [GitHub Issues](https://github.com/MicahRowlandMicrosoft/ssis_modernization_agent/issues) | Best-effort. Typically 2-5 business days for a first response; longer for non-trivial requests. No SLA. |
 | Security vulnerabilities | See [SECURITY.md](SECURITY.md) for the private disclosure path. **Do not file public issues** for vulnerabilities. | Per SECURITY.md (target: 5 business days for triage). |
 
 What you should expect:

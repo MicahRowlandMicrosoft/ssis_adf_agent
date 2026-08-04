@@ -424,6 +424,7 @@ class ConversionWarning(BaseModel):
     task_name: str = ""
     task_id: str = ""
     detail: str = ""  # additional context (e.g. fallback value used)
+    metadata: dict[str, Any] = Field(default_factory=dict)  # optional structured payload for tooling
 
 
 class ComplexityScore(BaseModel):

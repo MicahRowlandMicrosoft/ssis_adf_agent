@@ -5,7 +5,9 @@
 
 An MCP (Model Context Protocol) server that turns SSIS migration into an agent-driven workflow inside **GitHub Copilot**.
 
-The server exposes **31 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, infrastructure provisioning (Bicep), deployment, post-deployment smoke testing, bulk trigger activation (H7), ARM-template content export (M2), cross-pipeline regression harness (N1), behavioral data-flow parity (P4-1, see [behavioral-parity.md](docs/conversion/behavioral-parity.md)), encrypted-package secret automation (P4-4, see [encrypted-packages.md](docs/operations/encrypted-packages.md)), and Cost Management actuals reconciliation (P4-5).
+The server exposes **31 tools** that span the full lifecycle: estate-scale triage, design proposal & plan editing, wave planning & cost projection, deterministic SSIS → ADF conversion, package consolidation, pre-deployment engineer reports, infrastructure provisioning (Bicep), deployment, RBAC pre-flight, ARM-template content export, bulk trigger activation, encrypted-package secret automation, post-deployment smoke testing, cross-pipeline regression harness, behavioral data-flow parity, estate diffing, and Cost Management actuals reconciliation.
+
+> **See the full tools index:** [docs/tools.md](docs/tools.md) — every tool, grouped by lifecycle phase, with one-line descriptions and links to the deep docs (including [behavioral-parity.md](docs/conversion/behavioral-parity.md), [encrypted-packages.md](docs/operations/encrypted-packages.md), [rbac.md](docs/operations/rbac.md), and [observability.md](docs/operations/observability.md)).
 
 All generated artifacts follow **Microsoft Recommended patterns** from [learn.microsoft.com](https://learn.microsoft.com/en-us/azure/data-factory/).
 
@@ -43,6 +45,7 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 
 ## Table of Contents
 
+- [Tools Reference (all 31 tools)](docs/tools.md)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Registering as an MCP Server in VS Code](#registering-as-an-mcp-server-in-vs-code)
@@ -66,6 +69,7 @@ SQL Agent jobs ───┤      │  Optional configs:     │
   - [SQL Agent Schedule Mapping](#sql-agent-schedule-mapping)
 - [LLM-Powered Script Task Translation](#llm-powered-script-task-translation)
 - [Using the Built-in Prompt Files](#using-the-built-in-prompt-files)
+- [SSIS Migration Guide — Copilot CLI Custom Agent](#ssis-migration-guide--copilot-cli-custom-agent)
 - [Authentication](#authentication)
 - [SSIS Component Mapping Reference](#ssis-component-mapping-reference)
 - [Generated Artifact Structure](#generated-artifact-structure)
@@ -79,7 +83,7 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 > to 1.0 and the deprecation-window policy for the `0.9.0 → 1.0.0`
 > transition.
 
-> **Need help?** Open a [GitHub Issue](https://github.com/MicahRowlandMicrosoft/ssis_adf_agent/issues)
+> **Need help?** Open a [GitHub Issue](https://github.com/MicahRowlandMicrosoft/ssis_modernization_agent/issues)
 > for bugs, feature requests, or questions. This is a community-supported
 > open-source project, not an officially supported Microsoft product —
 > see [SUPPORT.md](SUPPORT.md) for the best-effort response model and
@@ -110,10 +114,8 @@ SQL Agent jobs ───┤      │  Optional configs:     │
 Clone the repository and install in editable mode (recommended for development):
 
 ```bash
-# Replace <org>/<repo> with the GitHub coordinates of your fork or the
-# upstream repo you cloned this from.
-git clone https://github.com/<org>/<repo>.git ssis_adf_agent
-cd ssis_adf_agent
+git clone https://github.com/MicahRowlandMicrosoft/ssis_modernization_agent.git
+cd ssis_modernization_agent
 pip install -e .
 ```
 
@@ -129,11 +131,21 @@ To enable **automatic C# → Python translation** of Script Tasks via Azure Open
 pip install -e ".[llm]"
 ```
 
+To generate PDF estate and pre-deployment reports:
+
+```bash
+pip install -e ".[pdf]"
+```
+
 Verify the installation:
 
 ```bash
-ssis-adf-agent --help
+python -m ssis_adf_agent --help
 ```
+
+`ssis-adf-agent` is the MCP stdio entry point. Running it directly starts the
+server and waits for an MCP client; it is not the headless CLI and does not
+implement `--help`.
 
 > **Note:** When the package is published to PyPI, you can install it with `pip install ssis-adf-agent` without cloning the repository.
 
@@ -141,14 +153,17 @@ ssis-adf-agent --help
 
 ## Registering as an MCP Server in VS Code
 
-Add the server to your VS Code `settings.json` so GitHub Copilot can discover it as a set of agent tools.
+The repository includes [`.vscode/mcp.json`](.vscode/mcp.json), which registers
+the server for this workspace after the `.venv` has been created. The checked-in
+command targets a Windows virtual environment. On macOS or Linux, change the
+command to `${workspaceFolder}/.venv/bin/python`.
 
-1. Open **Command Palette** (`Ctrl+Shift+P`) → **Preferences: Open User Settings (JSON)**
-2. Add the following inside the root object:
+For a user-profile registration that is available in every workspace, run
+**MCP: Open User Configuration** from the Command Palette and add:
 
 ```jsonc
 {
-  "github.copilot.chat.experimental.mcpServers": {
+  "servers": {
     "ssis-adf-agent": {
       "type": "stdio",
       "command": "ssis-adf-agent",
@@ -158,10 +173,12 @@ Add the server to your VS Code `settings.json` so GitHub Copilot can discover it
 }
 ```
 
-> If you installed into a virtual environment, replace `"command": "ssis-adf-agent"` with the full path to the script, e.g. `"C:\\path\\to\\.venv\\Scripts\\ssis-adf-agent.exe"` (Windows) or `"/path/to/.venv/bin/ssis-adf-agent"` (macOS/Linux).
+If you installed into a virtual environment, replace the command with the full
+path to `ssis-adf-agent.exe` on Windows or `ssis-adf-agent` on macOS/Linux.
 
-3. Restart VS Code (or reload the window: `Ctrl+Shift+P` → **Developer: Reload Window**).
-4. Open **Copilot Chat**, switch to **Agent** mode, and verify that the 31 tools appear. They group into three tiers:
+Start the server from the CodeLens in `mcp.json`, or reload VS Code. Open
+Copilot Chat, switch to Agent mode, select **Configure Tools**, and verify that the 31 tools
+appear. They group into three tiers:
 
    **Per-package backbone** — the deterministic conversion path:
    - `scan_ssis_packages`
@@ -211,7 +228,8 @@ The `samples/` directory is intended as a convenient drop zone for `.dtsx` files
 
 3. For output, create a directory alongside `samples/` (e.g. `adf_output/`) to keep generated artifacts separate from source packages.
 
-> The `samples/` directory is `.gitignore`-friendly — add your test packages there without worrying about committing proprietary SSIS files.
+> `samples/` is ignored by Git. Create it locally as needed; no sample packages
+> are distributed with this repository.
 
 ---
 
@@ -557,7 +575,10 @@ Deploy the function stubs in C:\adf_output\LoadFactSales\stubs to Function App f
 | `function_app_name` | Yes | Name of the existing Azure Function App |
 | `dry_run` | No | `true` to build the zip and validate without uploading (default: `false`) |
 
-> **Note:** The tool uses `DefaultAzureCredential`. Run `az login` before deploying from a developer machine, or set `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` for CI/CD.
+> **Note:** Azure operations use the shared credential factory. It selects
+> `AzureCliCredential` for local use and `DefaultAzureCredential` when
+> `AZURE_CLIENT_ID` is set or `SSIS_ADF_CREDENTIAL=default`. Run `az login`
+> locally; set the service-principal variables in CI/CD.
 
 ---
 
@@ -601,7 +622,10 @@ Provision a Function App called func-stubs-prod in resource group rg-data-prod, 
 | App Service Plan | Consumption / Y1 / Dynamic, Linux |
 | Function App | Python runtime, Linux, FTPS disabled, TLS 1.2, HTTP/2 enabled |
 
-> **Note:** The tool uses `DefaultAzureCredential`. Run `az login` before provisioning from a developer machine, or set `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` for CI/CD.
+> **Note:** Azure operations use the shared credential factory. It selects
+> `AzureCliCredential` for local use and `DefaultAzureCredential` when
+> `AZURE_CLIENT_ID` is set or `SSIS_ADF_CREDENTIAL=default`. Run `az login`
+> locally; set the service-principal variables in CI/CD.
 
 ---
 
@@ -615,7 +639,7 @@ On-prem connections are automatically detected (heuristics: `localhost`, IP addr
 
 #### Multi-IR Mapping
 
-For environments with multiple Integration Runtimes (e.g. per-region or per-network-zone), pass an `ir_mapping` dictionary from glob patterns to IR names:
+For environments with multiple Integration Runtimes (e.g. per-region or per-network-zone), pass an `ir_mapping` object to `convert_ssis_package` or `convert_estate`, mapping glob patterns to IR names:
 
 ```json
 {
@@ -723,9 +747,17 @@ If no SQL Agent schedule is available, the trigger falls back to a placeholder d
 
 ## LLM-Powered Script Task Translation
 
-SSIS Script Tasks contain C# (or VB.NET) code that cannot be rule-based converted. By default the converter generates a Python Azure Function stub with `TODO` comments and the original source embedded as comments. When `llm_translate=true` is passed to `convert_ssis_package`, the agent extracts the embedded C# source from the DTSX binary blob and calls **Azure OpenAI** to produce a working Python implementation body.
+SSIS Script Tasks contain C# (or VB.NET) code that cannot be rule-based converted. The converter offers **three translation modes** via the `translation_mode` argument — see [docs/conversion/script-task-translation.md](docs/conversion/script-task-translation.md) for the full contract, including region markers and manifest schema.
 
-### How it works
+| Mode | Translator | Use when |
+|---|---|---|
+| `none` *(default)* | Nobody — deterministic stub | Air-gapped / regulated tenants, CI, review-only conversions |
+| `host` | The calling agent (Copilot CLI/Chat, Claude Code, …) translates in-session via the manifest + region markers | You're already in an AI-agent session and don't want a duplicative AOAI call |
+| `aoai` | In-process Azure OpenAI call from the converter | Headless pipelines where no host agent is present and AOAI is provisioned |
+
+The legacy `llm_translate=true` argument still works and is silently promoted to `translation_mode="aoai"`. `SSIS_ADF_NO_LLM=1` (env) and `no_llm=true` (arg) remain a hard off-switch.
+
+### `aoai` mode — how it works
 
 1. **Extraction** — The parser decodes the base64-encoded ZIP blob inside `DTS:ObjectData/ScriptProject/BinaryData`, unzips it, and reads all `.cs` / `.vb` source files (excluding `AssemblyInfo` and designer files).
 2. **Translation** — `CSharpToPythonTranslator` sends the source to Azure OpenAI Chat Completions with a structured prompt that preserves business logic and replaces unsupported patterns (SQL calls, file I/O, SMTP) with `# TODO` comments pointing to Azure equivalents.
@@ -780,16 +812,29 @@ Three reusable prompt files are included in `.vscode/` and can be invoked direct
 
 ---
 
+## SSIS Migration Guide — Copilot CLI Custom Agent
+
+A repository-shipped Copilot CLI custom agent at [`.github/agents/ssis-migration-guide.agent.md`](.github/agents/ssis-migration-guide.agent.md) encodes the recommended end-to-end migration workflow as a reusable agent. It tells the calling agent which MCP tools to invoke in which order, what gates to enforce (RBAC pre-flight, parity validation, pre-deployment PDF), what to suggest proactively (Script Task translation mode, file-path mapping, encrypted-package recovery), and what NOT to do without explicit user confirmation (anything that touches Azure).
+
+**How to use it:**
+
+* **Copilot CLI** — the agent is auto-discovered from the repo's `.github/agents/` folder once you `cd` into the repo. Launch with `copilot` and select **SSIS Migration Guide** from the agent picker, or invoke directly with `copilot --agent ssis-migration-guide`.
+* **Other Copilot surfaces / Claude Code / Cursor** — open the file and use it as a system prompt or instruction file.
+
+The agent is the source of truth for the autopilot defaults (e.g. recommend `translation_mode="host"` when Script Tasks are detected, auto-pick `metadata.recommended_mode` for DerivedColumn warnings) and the always-on hard gates that apply regardless of autopilot.
+
+---
+
 ## Authentication
 
-The `deploy_to_adf` tool uses `DefaultAzureCredential`, which tries the following in order:
+Azure deployment, provisioning, validation, smoke-test, parity, and Key Vault
+operations use one shared credential factory:
 
-| Priority | Method | When to use |
+| Condition | Credential | Intended use |
 |---|---|---|
-| 1 | Environment variables | CI/CD pipelines (service principal) |
-| 2 | Workload Identity | Azure-hosted compute (AKS, etc.) |
-| 3 | Azure CLI (`az login`) | Local developer machines |
-| 4 | Azure PowerShell | Local developer machines |
+| `SSIS_ADF_CREDENTIAL=default` | `DefaultAzureCredential` | Explicit workload identity, managed identity, service principal, or other supported chain |
+| `AZURE_CLIENT_ID` is set | `DefaultAzureCredential` | CI/CD service principal or workload identity |
+| Neither is set | `AzureCliCredential` | Local developer signed in with `az login` |
 
 **For local development,** the simplest approach is:
 
@@ -805,7 +850,10 @@ az login
 | `AZURE_CLIENT_SECRET` | Service principal secret |
 | `AZURE_TENANT_ID` | Azure Active Directory tenant ID |
 
-The service principal must have the **Data Factory Contributor** role on the target ADF instance.
+Set `SSIS_ADF_CREDENTIAL=default` on Azure-hosted compute when no
+`AZURE_CLIENT_ID` is present and managed identity should be used. The identity
+must have the least-privilege roles for the requested tool; see
+[rbac.md](docs/operations/rbac.md).
 
 ### Azure OpenAI (for LLM Script Task translation)
 

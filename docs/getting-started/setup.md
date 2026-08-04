@@ -27,8 +27,8 @@ Step-by-step instructions for getting `ssis-adf-agent` running on a new machine.
 ## 2. Clone and Install
 
 ```bash
-git clone https://github.com/chsimons_microsoft/ssis_adf_agent.git
-cd ssis_adf_agent
+git clone https://github.com/MicahRowlandMicrosoft/ssis_modernization_agent.git
+cd ssis_modernization_agent
 ```
 
 ### Create a virtual environment (recommended)
@@ -55,30 +55,37 @@ pip install -e ".[dev]"
 # With LLM Script Task translation (Azure OpenAI)
 pip install -e ".[llm]"
 
+# With PDF report generation
+pip install -e ".[pdf]"
+
 # Everything
-pip install -e ".[dev,llm]"
+pip install -e ".[dev,llm,pdf]"
 ```
 
 ### Verify
 
 ```bash
-ssis-adf-agent --help
+python -m ssis_adf_agent --help
 ```
+
+The `ssis-adf-agent` executable starts the MCP stdio server and waits for a
+client. It is not the headless CLI and does not implement `--help`.
 
 ---
 
 ## 3. Register the MCP Server in VS Code
 
-The workspace already includes `.vscode/mcp.json` which registers the server automatically when you open the workspace. No manual configuration is needed.
+The workspace includes `.vscode/mcp.json`, which registers the server after the
+virtual environment has been created. Its checked-in command targets Windows.
+On macOS or Linux, change the command to
+`${workspaceFolder}/.venv/bin/python`.
 
-If you need to register it in your **user** settings instead (e.g. for use across multiple workspaces):
-
-1. Open **Command Palette** (`Ctrl+Shift+P`) → **Preferences: Open User Settings (JSON)**
-2. Add:
+For a user-profile registration across workspaces, run **MCP: Open User
+Configuration** from the Command Palette and add:
 
 ```jsonc
 {
-  "github.copilot.chat.experimental.mcpServers": {
+  "servers": {
     "ssis-adf-agent": {
       "type": "stdio",
       "command": "ssis-adf-agent",
@@ -88,13 +95,14 @@ If you need to register it in your **user** settings instead (e.g. for use acros
 }
 ```
 
-> **Virtual environment note:** If you installed into a venv, replace `"command": "ssis-adf-agent"` with the full path:
+> **Virtual environment note:** Replace `"command": "ssis-adf-agent"` with the full path when the venv is not activated:
 > - Windows: `"C:\\path\\to\\.venv\\Scripts\\ssis-adf-agent.exe"`
 > - macOS/Linux: `"/path/to/.venv/bin/ssis-adf-agent"`
 
-3. Reload VS Code (`Ctrl+Shift+P` → **Developer: Reload Window**).
-4. Open **Copilot Chat** → switch to **Agent** mode → confirm the server registered and that the 23 SSIS→ADF tools appear (a partial list of the most commonly used ones):
-   `scan_ssis_packages`, `analyze_ssis_package`, `bulk_analyze`, `propose_adf_design`, `convert_ssis_package`, `convert_estate`, `validate_adf_artifacts`, `validate_conversion_parity`, `smoke_test_pipeline`, `deploy_to_adf`. The complete list is in [README.md](README.md#tools-reference).
+Start the server from the CodeLens in `mcp.json`, or reload VS Code. Open
+Copilot Chat, switch to Agent mode, select **Configure Tools**, and confirm that
+all 31 SSIS-to-ADF tools appear. The complete list is in
+[tools.md](../tools.md).
 
 ---
 
@@ -115,11 +123,11 @@ For local development, `az login` is sufficient — no environment variables nee
 
 ### Required for LLM Script Task translation
 
-Set these when using `convert_ssis_package` with `llm_translate=true`.
+Set these when using `convert_ssis_package` with `translation_mode="aoai"` (or the legacy `llm_translate=true`). **Not needed** when `translation_mode="host"` is used — in that mode the calling agent translates Script Tasks in-session via the manifest at `<output>/stubs/translation_manifest.json` and no Azure OpenAI deployment is required. See [docs/conversion/script-task-translation.md](../conversion/script-task-translation.md).
 
 **Microsoft Entra ID (recommended; required when API keys are disabled by tenant policy):**
 
-Only the endpoint is required — credentials come from `DefaultAzureCredential`
+Only the endpoint is required - credentials come from `DefaultAzureCredential`
 (Azure CLI, managed identity, workload identity, environment service principal,
 etc.). Run `az login` for local development. The signed-in identity needs the
 **Cognitive Services OpenAI User** role on the Azure OpenAI resource.
@@ -153,7 +161,8 @@ $env:AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
 
 ## 5. Optional Configuration Files
 
-These JSON config files enable enterprise features. Pass their paths as parameters to `analyze_ssis_package` or `convert_ssis_package`.
+These JSON config files enable enterprise features. The parameter accepted by
+each tool is named below.
 
 ### ESI Tables Config (`esi_tables_path`)
 
@@ -235,7 +244,7 @@ mypy ssis_adf_agent/
 ruff check --fix .
 ```
 
-The project enforces `ruff` with `line-length = 100` and `mypy --strict`.
+The project enforces `ruff` with `line-length = 120` and `mypy --strict`.
 
 ---
 
@@ -243,7 +252,7 @@ The project enforces `ruff` with `line-length = 100` and `mypy --strict`.
 
 | Problem | Solution |
 |---|---|
-| `ssis-adf-agent` command not found | Ensure the venv is activated, or use the full path to the script |
+| `ssis-adf-agent` command not found | Ensure the venv is activated, or use `python -m ssis_adf_agent --help` to verify the headless CLI |
 | Tools don't appear in Copilot Chat | Reload VS Code; confirm `.vscode/mcp.json` exists and Agent mode is selected |
 | ODBC errors when scanning SQL Server | Install [ODBC Driver 17+](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server) and verify with `odbcinst -j` (Linux) or ODBC Data Source Administrator (Windows) |
 | `EncryptAllWithPassword` warnings | The SSIS package has encrypted connection strings. Passwords must be filled in manually in linked service JSON or referenced via Key Vault (`use_key_vault=true`) |

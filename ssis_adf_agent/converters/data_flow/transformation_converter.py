@@ -7,7 +7,8 @@ Mapping Data Flow JSON.
 """
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Any, Literal
 
 from ...parsers.models import DataFlowComponent
 from ...translators.ssis_expression_translator import translate_expression
@@ -18,6 +19,21 @@ from ..substitution_registry import (
     SubstitutionRegistry,
 )
 from ._naming import safe_node_name
+
+# DerivedColumn handling mode (see _derived_column).
+DerivedColumnMode = Literal["preserve", "drop_passthrough", "rename_to_expression"]
+
+# Matches the SSDT default name pattern that authors leave in place when they
+# add a derived column and don't bother renaming it ("Derived Column 1",
+# "Derived Column 2", ...).  These names are useless in ADF and almost always
+# indicate the author meant to "Replace existing column" rather than "Add as
+# new column".
+_DEFAULT_DERIVED_NAME_RE = re.compile(r"^Derived Column \d+$")
+
+# Matches a single bare identifier (the translated form of a no-op pass-through
+# expression like FriendlyExpression="Biennium").  Used to detect cases where
+# we can safely rename or drop the column.
+_BARE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # ---------------------------------------------------------------------------
 # Aggregation type enum used in SSIS Aggregate component
@@ -38,6 +54,7 @@ def convert_transformation(
     component: DataFlowComponent,
     *,
     registry: SubstitutionRegistry = EMPTY_REGISTRY,
+    derived_column_mode: DerivedColumnMode = "preserve",
 ) -> dict[str, Any] | None:
     """
     Dispatch to the right transformation builder based on component_type.
@@ -48,13 +65,17 @@ def convert_transformation(
     it instead of falling through to the generic placeholder. The substitution
     short-circuits everything below — it is the customer's responsibility to
     ensure the chosen ADF transformation type is valid.
+
+    ``derived_column_mode`` controls how DerivedColumn output columns left at
+    the SSDT default name ("Derived Column 1", ...) are emitted.  See
+    ``_derived_column`` for behaviour.
     """
     sub = registry.lookup_data_flow(component.component_type)
     if sub is not None:
         return _from_substitution(component, sub)
 
     dispatch: dict[str, Any] = {
-        "DerivedColumn": _derived_column,
+        "DerivedColumn": lambda c: _derived_column(c, mode=derived_column_mode),
         "Lookup": _lookup,
         "ConditionalSplit": _conditional_split,
         "Aggregate": _aggregate,
@@ -96,9 +117,52 @@ def _base(component: DataFlowComponent, transform_type: str) -> dict[str, Any]:
 # DerivedColumn — reads Expression from each output column's properties
 # ---------------------------------------------------------------------------
 
-def _derived_column(component: DataFlowComponent) -> dict[str, Any] | None:
+def _derived_column(
+    component: DataFlowComponent,
+    *,
+    mode: DerivedColumnMode = "preserve",
+) -> dict[str, Any] | None:
+    """Convert an SSIS DerivedColumn to an ADF DerivedColumn transformation.
+
+    SSDT auto-names new derived columns "Derived Column 1", "Derived Column 2",
+    ... and many authors never rename them.  When that happens the ADF data
+    flow ends up unreadable and — worse — usually contains pure pass-through
+    columns that just duplicate a source column under a meaningless name.
+
+    ``mode`` controls how those default-named columns are handled:
+
+    * ``"preserve"`` (default) — keep the original names.  Emits an info-level
+      warning when default names are detected so the user knows the option
+      to re-convert with a different mode exists.
+    * ``"drop_passthrough"`` — when the expression is a single bare column
+      reference, omit the output column entirely; ``allowSchemaDrift`` lets
+      the underlying source column flow through.
+    * ``"rename_to_expression"`` — when the expression is a single bare column
+      reference and that name doesn't collide with an existing input/output
+      column, rename the output column to the referenced source column.
+      Falls back to preserving the original name on collision.
+    """
     t = _base(component, "DerivedColumn")
+
+    # Build a set of names already used elsewhere in this component, for
+    # rename-collision detection.  Includes input columns and any non-default
+    # output column names.
+    reserved_names: set[str] = {c.name for c in component.input_columns if c.name}
+    reserved_names.update(
+        c.name for c in component.output_columns
+        if c.name and not _DEFAULT_DERIVED_NAME_RE.match(c.name)
+    )
+
     columns: list[dict] = []
+    used_renames: set[str] = set()
+    default_named_count = 0
+    default_named_bare_ref_count = 0
+    default_named_complex_count = 0
+    default_named_examples: list[dict[str, str]] = []
+    renamed_count = 0
+    dropped_count = 0
+    collision_count = 0
+
     for col in component.output_columns:
         # Prefer FriendlyExpression (uses column names) over Expression (uses
         # lineage IDs like #{Package\...\Columns[X]} that ADF cannot parse).
@@ -110,13 +174,137 @@ def _derived_column(component: DataFlowComponent) -> dict[str, Any] | None:
             ssis_expr = component.properties.get(col.name)
             adf_expr = translate_expression(ssis_expr) if ssis_expr else f"/* TODO: expression for {col.name} */"
 
-        # Skip pure pass-through columns (expression is just the column name
-        # with no transformation).  These flow automatically via allowSchemaDrift.
+        # Skip pure pass-through columns where the expression is just the
+        # column's own name (no transformation, no rename).  These flow
+        # automatically via allowSchemaDrift.
         stripped = adf_expr.strip()
-        if stripped == col.name or stripped == col.name.strip("{}"):
+        if stripped == col.name or stripped == (col.name or "").strip("{}"):
             continue
 
+        is_default = bool(col.name and _DEFAULT_DERIVED_NAME_RE.match(col.name))
+        is_bare_ref = bool(_BARE_IDENT_RE.match(stripped))
+
+        if is_default:
+            default_named_count += 1
+            if is_bare_ref:
+                default_named_bare_ref_count += 1
+            else:
+                default_named_complex_count += 1
+            # Capture up to 5 examples for the warning payload.
+            if len(default_named_examples) < 5:
+                default_named_examples.append({
+                    "output_name": col.name,
+                    "expression": adf_expr,
+                })
+
+            # Mode-specific handling for default-named columns whose
+            # expression is a bare source-column reference.
+            if is_bare_ref:
+                if mode == "drop_passthrough":
+                    dropped_count += 1
+                    continue
+                if mode == "rename_to_expression":
+                    if stripped in reserved_names or stripped in used_renames:
+                        collision_count += 1
+                        # Fall through to preserve the original name below.
+                    else:
+                        used_renames.add(stripped)
+                        renamed_count += 1
+                        columns.append({"name": stripped, "expression": adf_expr})
+                        continue
+
         columns.append({"name": col.name, "expression": adf_expr})
+
+    # Surface a warning explaining the situation and the user's options.
+    if default_named_count:
+        # Recommend the cleanest mode based on the actual expression mix.
+        # If every default-named column is a bare reference, drop_passthrough
+        # is the safest aggressive cleanup.  If they're a mix, rename is
+        # safer because it preserves the column.  If none are bare refs,
+        # there's nothing the modes can do and preserve is correct.
+        if default_named_complex_count == 0 and default_named_bare_ref_count > 0:
+            recommended_mode = "drop_passthrough"
+        elif default_named_bare_ref_count > 0:
+            recommended_mode = "rename_to_expression"
+        else:
+            recommended_mode = "preserve"
+
+        metadata: dict[str, Any] = {
+            "component_name": component.name,
+            "default_named_count": default_named_count,
+            "bare_ref_count": default_named_bare_ref_count,
+            "complex_expr_count": default_named_complex_count,
+            "examples": default_named_examples,
+            "recommended_mode": recommended_mode,
+            "current_mode": mode,
+        }
+
+        if mode == "preserve":
+            warn(
+                phase="convert",
+                severity="warning",
+                source="data_flow.derived_column",
+                message=(
+                    f"DerivedColumn '{component.name}' has {default_named_count} output "
+                    f"column(s) using the SSDT default name pattern ('Derived Column N'). "
+                    f"The original SSIS author never renamed them in the designer."
+                ),
+                detail=(
+                    "These columns will appear in the generated ADF data flow with the "
+                    "same placeholder names. To clean them up, re-run convert_ssis_package "
+                    "with one of:\n"
+                    "  derived_column_mode='rename_to_expression' — when the expression is "
+                    "a bare source-column reference (e.g. FriendlyExpression='Biennium'), "
+                    "rename the output column to that source column. Skipped on collision.\n"
+                    "  derived_column_mode='drop_passthrough' — drop pure pass-through "
+                    "columns entirely; ADF allowSchemaDrift carries the underlying source "
+                    "column through unchanged. Most aggressive, cleanest output.\n"
+                    f"Default is 'preserve' (current behaviour) which keeps names as-is. "
+                    f"Recommended for this component: '{recommended_mode}'."
+                ),
+                metadata=metadata,
+            )
+        elif mode == "rename_to_expression":
+            parts: list[str] = []
+            if renamed_count:
+                parts.append(f"renamed {renamed_count}")
+            if collision_count:
+                parts.append(f"kept {collision_count} as-is (name collision with source/sibling column)")
+            kept = default_named_count - renamed_count - collision_count
+            if kept:
+                parts.append(f"kept {kept} as-is (expression is not a bare column reference)")
+            metadata["renamed_count"] = renamed_count
+            metadata["collision_count"] = collision_count
+            metadata["kept_count"] = kept
+            warn(
+                phase="convert",
+                severity="info",
+                source="data_flow.derived_column",
+                message=(
+                    f"DerivedColumn '{component.name}' default-named columns: "
+                    + (", ".join(parts) if parts else "no changes applied") + "."
+                ),
+                metadata=metadata,
+            )
+        elif mode == "drop_passthrough":
+            kept = default_named_count - dropped_count
+            metadata["dropped_count"] = dropped_count
+            metadata["kept_count"] = kept
+            warn(
+                phase="convert",
+                severity="info",
+                source="data_flow.derived_column",
+                message=(
+                    f"DerivedColumn '{component.name}': dropped {dropped_count} pass-through "
+                    f"column(s) with default names" + (
+                        f"; kept {kept} (expression is not a bare column reference)" if kept else ""
+                    ) + "."
+                ),
+                detail=(
+                    "Source columns flow through unchanged via allowSchemaDrift."
+                ),
+                metadata=metadata,
+            )
 
     # If no meaningful columns remain, this DerivedColumn is a no-op — skip it
     # so the generator can fall back to a Copy Activity if no other transforms exist.

@@ -29,6 +29,8 @@ def generate_consolidated_pipelines(
     stubs_dir: Path | None = None,
     llm_translate: bool = False,
     schema_remap: dict[str, str] | None = None,
+    translation_mode: str | None = None,
+    translation_manifest: Any | None = None,
 ) -> dict[str, Any]:
     """Generate a parent + child pipeline pair for a consolidation group.
 
@@ -37,8 +39,13 @@ def generate_consolidated_pipelines(
         output_dir: Root output directory for ADF artifacts.
         pipeline_prefix: Prefix for pipeline names.
         stubs_dir: Optional stubs directory for script task conversion.
-        llm_translate: Whether to use LLM for C# → Python translation.
+        llm_translate: Whether to use LLM for C# → Python translation (legacy;
+            use ``translation_mode="aoai"`` going forward).
         schema_remap: Optional schema remap configuration.
+        translation_mode: One of ``"none"``, ``"host"``, ``"aoai"``. Wins over
+            ``llm_translate`` when supplied.
+        translation_manifest: Optional manifest collector forwarded to the
+            script-task converter.
 
     Returns:
         Summary dict with generated file paths and config.
@@ -63,6 +70,8 @@ def generate_consolidated_pipelines(
         llm_translate=llm_translate,
         pipeline_prefix="",  # we control the name directly
         schema_remap=schema_remap,
+        translation_mode=translation_mode,
+        translation_manifest=translation_manifest,
     )
 
     # Rename the child pipeline

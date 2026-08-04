@@ -218,6 +218,15 @@ async def list_tools() -> list[types.Tool]:
                         "description": "Integration Runtime name for on-prem connections. Default: 'SelfHostedIR'.",
                         "default": "SelfHostedIR",
                     },
+                    "ir_mapping": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "description": (
+                            "Optional mapping of connection-manager name glob patterns to "
+                            "Integration Runtime names. First match wins; unmatched on-premises "
+                            "connections use on_prem_ir_name."
+                        ),
+                    },
                     "auth_type": {
                         "type": "string",
                         "description": (
@@ -886,6 +895,23 @@ async def list_tools() -> list[types.Tool]:
                         "default": True,
                     },
                     "generate_trigger": {"type": "boolean", "default": True},
+                    "shared_artifacts_dir": {
+                        "type": "string",
+                        "description": (
+                            "Optional shared directory for cross-package linked-service and "
+                            "dataset deduplication. Forwarded to convert_ssis_package for every "
+                            "package in the estate."
+                        ),
+                    },
+                    "ir_mapping": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "description": (
+                            "Optional mapping of connection-manager name glob patterns to "
+                            "Integration Runtime names. Forwarded to convert_ssis_package for "
+                            "every package in the estate."
+                        ),
+                    },
                     "with_cost_projection": {
                         "type": "boolean",
                         "description": (
@@ -1705,6 +1731,9 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
 
     # New parameters
     on_prem_ir_name = args.get("on_prem_ir_name", "SelfHostedIR")
+    ir_mapping = args.get("ir_mapping")
+    if ir_mapping is not None and not isinstance(ir_mapping, dict):
+        raise ValueError("ir_mapping must be an object mapping glob patterns to IR names")
     auth_type = args.get("auth_type", "SystemAssignedManagedIdentity")
     use_key_vault = args.get("use_key_vault", False)
     kv_ls_name = args.get("kv_ls_name", "LS_KeyVault")
@@ -1806,6 +1835,7 @@ async def _convert(args: dict[str, Any]) -> list[types.TextContent]:
         linked_services, ls_name_map = generate_linked_services(
             package, output_dir,
             on_prem_ir_name=on_prem_ir_name,
+            ir_mapping=ir_mapping,
             auth_type=auth_type,
             use_key_vault=use_key_vault,
             kv_ls_name=kv_ls_name,
@@ -2648,6 +2678,7 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
     save_plans = args.get("save_plans", True)
     generate_trigger = args.get("generate_trigger", True)
     shared_artifacts_dir = args.get("shared_artifacts_dir")
+    ir_mapping = args.get("ir_mapping")
     derived_column_mode = args.get("derived_column_mode", "preserve")
     translation_mode = args.get("translation_mode", "none")
 
@@ -2679,6 +2710,8 @@ async def _convert_estate(args: dict[str, Any]) -> list[types.TextContent]:
             }
             if shared_artifacts_dir:
                 convert_args["shared_artifacts_dir"] = shared_artifacts_dir
+            if ir_mapping:
+                convert_args["ir_mapping"] = ir_mapping
             if plan_path is not None:
                 convert_args["design_path"] = str(plan_path)
             convert_result = await _convert(convert_args)

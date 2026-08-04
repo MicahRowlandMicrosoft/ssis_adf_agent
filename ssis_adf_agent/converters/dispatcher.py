@@ -6,7 +6,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..analyzers.dependency_graph import topological_sort
 from ..parsers.models import PrecedenceConstraint, SSISTask, TaskType
+from ..parsers.task_traversal import (
+    disabled_task_bypass_issue,
+    DisabledTaskBypassError,
+    normalize_task_scope,
+)
 from ..warnings_collector import warn
 from ..generators.naming import resolve_ls_name, sanitize_adf_name
 from .base_converter import BaseConverter
@@ -78,8 +84,55 @@ class ConverterDispatcher:
         constraints: list[PrecedenceConstraint],
         task_by_id: dict[str, SSISTask],
     ) -> list[dict[str, Any]]:
+        if getattr(task, "disabled", False):
+            issue = disabled_task_bypass_issue(task, constraints)
+            if issue:
+                raise DisabledTaskBypassError(task, issue)
+            warn(
+                phase="convert",
+                severity="info",
+                source="dispatcher",
+                message=f"Omitted disabled task '{task.name}'",
+                task_name=task.name,
+                task_id=task.id,
+            )
+            return []
         converter = self._registry.get(task.task_type, self._fallback)
         return converter.convert(task, constraints, task_by_id)
+
+    def convert_scope(
+        self,
+        tasks: list[SSISTask],
+        constraints: list[PrecedenceConstraint],
+    ) -> list[dict[str, Any]]:
+        """Normalize and convert every enabled task in one execution scope."""
+
+        scope = normalize_task_scope(tasks, constraints)
+        task_by_id = {task.id: task for task in scope.tasks}
+        ordered_ids = topological_sort(
+            list(scope.tasks),
+            list(scope.constraints),
+        )
+        for task_id in scope.omitted_disabled_task_ids:
+            task = next(task for task in tasks if task.id == task_id)
+            warn(
+                phase="convert",
+                severity="info",
+                source="dispatcher",
+                message=f"Omitted disabled task '{task.name}'",
+                task_name=task.name,
+                task_id=task.id,
+                metadata={"disposition": "omitted", "scope": "execution"},
+            )
+
+        activities: list[dict[str, Any]] = []
+        normalized_constraints = list(scope.constraints)
+        for task_id in ordered_ids:
+            task = task_by_id[task_id]
+            activities.extend(
+                self.convert_task(task, normalized_constraints, task_by_id)
+            )
+        return activities
 
 
 # ---------------------------------------------------------------------------
@@ -175,13 +228,7 @@ class _SequenceConverter(BaseConverter):
     def convert(self, task, constraints, task_by_id):  # type: ignore[override]
         from ..parsers.models import SequenceContainer
         assert isinstance(task, SequenceContainer)
-        activities = []
-        inner_by_id = {t.id: t for t in task.tasks}
-        for t in task.tasks:
-            activities.extend(
-                self._child.convert_task(t, task.constraints, inner_by_id)
-            )
-        return activities
+        return self._child.convert_scope(task.tasks, task.constraints)
 
 
 class _FallbackConverter(BaseConverter):

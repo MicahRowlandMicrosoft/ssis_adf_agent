@@ -254,9 +254,9 @@ class _Credential(Protocol):
 
 
 def _default_secret_client_factory(vault_url: str) -> _SecretGetter:
-    from azure.identity import DefaultAzureCredential
     from azure.keyvault.secrets import SecretClient
-    return SecretClient(vault_url=vault_url, credential=DefaultAzureCredential())
+    from ..credential import get_credential
+    return SecretClient(vault_url=vault_url, credential=get_credential())
 
 
 def _default_dns_resolver(host: str) -> list[str]:
@@ -276,8 +276,8 @@ def _default_dns_resolver(host: str) -> list[str]:
 
 
 def _default_credential() -> _Credential:
-    from azure.identity import DefaultAzureCredential
-    return DefaultAzureCredential()
+    from ..credential import get_credential
+    return get_credential()
 
 
 # ---------------------------------------------------------------------------
@@ -461,8 +461,8 @@ def run_preflight(
         secret_client_factory: ``vault_url -> SecretClient``. Defaults to a
             real ``azure-keyvault-secrets`` client.
         dns_resolver: ``host -> list[ip]``. Defaults to ``socket.getaddrinfo``.
-        credential: Object exposing ``get_token(*scopes)``. Defaults to
-            ``DefaultAzureCredential``.
+        credential: Object exposing ``get_token(*scopes)``. Defaults to the
+            shared project credential factory.
         skip_*: Disable the matching probe class; useful in air-gapped envs.
     """
     artifacts_dir = Path(artifacts_dir)

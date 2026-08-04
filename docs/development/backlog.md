@@ -276,16 +276,189 @@ customer pilot, not in this backlog.
 
 ---
 
+## P6 - Functional automation review (July 24, 2026)
+
+These items come from an executable review of the assessment, conversion,
+validation, and deployment paths. The review ran the complete test suite and
+used focused in-memory fixtures to verify the highest-risk findings. P6 work is
+ordered by data-correctness and deployment-safety risk, not implementation size.
+
+Status legend for this section:
+- **READY**: scoped and ready for implementation.
+- **IN PROGRESS**: implementation has started.
+- **BLOCKED**: requires another P6 item or external evidence.
+- **DONE**: acceptance criteria and tests are complete.
+
+### P6-1. Fix reflected CLI handling for negative boolean names - **P0 / DONE**
+- **Problem:** The schema-driven CLI passes the existing `--no-llm` option to `argparse.BooleanOptionalAction`, which attempts to create a second negative form. On Python 3.14, parser construction fails before any command can run.
+- **Scope:** Centralize boolean action selection in `cli.py`. Positive boolean properties retain `BooleanOptionalAction`; schema properties whose CLI name already starts with `no-` use a single `store_true` option while preserving the JSON argument name.
+- **Acceptance:** `build_parser()` succeeds on every supported Python version; every MCP tool has a CLI subcommand; `convert-ssis-package --no-llm` dispatches `no_llm=True`; help contains no `--no-no-*` option; legacy aliases remain compatible.
+- **Tests:** Add focused parser and dispatch tests in `test_cli_parity.py`, then run `test_cli.py`, `test_cli_parity.py`, and the full suite.
+- **Depends on:** None.
+- **Resolution:** `_add_property()` now uses `store_true` for schema properties whose names start with `no_` and retains `BooleanOptionalAction` for ordinary booleans. The same schema boundary escapes literal percent signs in help descriptions, which Python 3.14 validates during parser construction. Focused CLI tests pass, and the full suite completed with 934 passed and 1 pre-existing Azure OpenAI configuration warning.
+
+### P6-2. Introduce a recursive, scope-aware execution IR - **P0 / IN PROGRESS**
+- **Problem:** Assessment and artifact generators traverse different task shapes. Nested tasks, scoped variables, disabled executables, container boundaries, and event handlers therefore receive inconsistent treatment.
+- **Scope:** Add one normalization layer between parsing and analysis/conversion. It must recursively enumerate package tasks, container children, and handlers; retain owning scope; expose stable entry and terminal nodes; and preserve source IDs for lineage.
+- **Acceptance:** Every executable appears exactly once in the normalized graph; each node records its owner, scope path, enabled state, inbound and outbound constraints, and source construct; all analyzers and generators consume the shared traversal API rather than walking `package.tasks` independently.
+- **Tests:** Nested Sequence, ForEach, For Loop, and event-handler fixtures prove traversal order, scope ownership, and source-ID stability.
+- **Depends on:** None. P6-3 through P6-7 should build on this item.
+- **Progress:** Added `parsers/task_traversal.py` with deterministic recursive traversal across package tasks, nested containers, and event handlers. Each location carries owner kind/ID/name, stable scope path, depth, local/inbound/outbound constraints, event context, and the original task. `NormalizedTaskScope` now computes enabled tasks, rewritten constraints, entry nodes, terminal nodes, and omitted disabled nodes for any execution scope. Complexity analysis, gap analysis, top-level pipeline generation, Sequence, ForEach, and For Loop conversion use the shared traversal/normalization path. Scoped-variable normalization, event-handler graph integration, and the non-pipeline artifact generators remain open.
+
+### P6-3. Preserve disabled-task semantics - **P0 / DONE**
+- **Problem:** The parser records disabled tasks, but pipeline generation emits them as live ADF activities.
+- **Scope:** Normalize disabled executables before generation. Omit them and bypass their graph node only when incoming/outgoing constraints can be preserved exactly; otherwise emit a blocking fidelity finding instead of guessing.
+- **Acceptance:** Disabled tasks never become executable ADF activities; downstream dependencies never reference omitted activity names; ambiguous success/failure or expression-based bypasses make the conversion non-deployable; assessment reports disabled constructs and the chosen disposition.
+- **Tests:** Cover isolated, chained, fan-in, fan-out, nested, and expression-constrained disabled tasks.
+- **Depends on:** P6-2.
+- **Resolution:** `normalize_task_scope()` omits isolated disabled tasks and safely rewrites plain success-only constraint chains, including chained disabled nodes and fan-in/fan-out graphs. Expression, failure, completion, OR, and self-dependency cases raise `DisabledTaskBypassError` before artifact generation. The dispatcher applies the same normalization at package, Sequence, ForEach, and For Loop scopes. Gap analysis reports safe omission as informational and unsafe omission as manual-required. Tests include model-level graph cases, nested conversion, direct dispatch, and a parsed DTSX chain with `DTS:Disabled="1"`.
+
+### P6-4. Compile complete precedence-constraint semantics - **P0 / READY**
+- **Problem:** Current dependency generation keeps only success, failure, or completion and discards `eval_op`, expression text, and AND/OR grouping.
+- **Scope:** Model constraint groups explicitly and lower supported combinations into ADF dependencies plus `IfCondition` or equivalent gates. Unsupported combinations must produce blockers, not silently weakened dependencies.
+- **Acceptance:** Generated control flow is truth-table equivalent for constraint-only, expression-only, expression-and-constraint, expression-or-constraint, multi-predecessor AND, and multi-predecessor OR cases; translated expressions retain variable references; no expression metadata is silently dropped.
+- **Tests:** Table-driven truth cases plus parsed DTSX fixtures for each `PrecedenceEvalOp` and `logical_and` value.
+- **Depends on:** P6-2.
+
+### P6-5. Rewrite container boundaries and loop ordering - **P0 / READY**
+- **Problem:** Flattened Sequence containers leave dependencies pointing at activities that do not exist, and For Loop increments can run in parallel with the loop body.
+- **Scope:** Compute entry and terminal sets for every container. Rewrite external edges through those sets, preserve internal ordering, and make For Loop increment activities depend on every successful terminal body path before re-evaluating the condition.
+- **Acceptance:** No dependency references a flattened container name; predecessors gate all container entry nodes; successors wait for the correct terminal nodes and outcomes; loop increments cannot start before the body completes; empty and nested containers have defined behavior.
+- **Tests:** Sequence before/after, nested Sequence, fan-in/fan-out, empty container, single/multi-terminal For Loop, and failure-path fixtures.
+- **Depends on:** P6-2 and P6-4.
+
+### P6-6. Integrate event handlers into production conversion - **P0 / READY**
+- **Problem:** An event-handler converter exists but is not called by pipeline generation, and parity validation currently treats omitted handlers as informational.
+- **Scope:** Normalize package-level and task-level handlers, lower supported events such as OnError and OnPostExecute into explicit ADF branches or child pipelines, and classify unsupported event semantics as blocking.
+- **Acceptance:** Every parsed handler has an emitted artifact/branch or a blocking fidelity record; handler tasks use normal converters rather than placeholders; owner scope and system-variable bindings are retained; parity fails when a handler is omitted.
+- **Tests:** Package and task-level handlers, nested handler tasks, OnError propagation, OnPostExecute ordering, unsupported event type, and deliberate omission regression.
+- **Depends on:** P6-2, P6-4, and P6-5.
+
+### P6-7. Use shared recursive traversal in every artifact generator - **P0 / READY**
+- **Problem:** Pipeline conversion reaches nested tasks, while dataset and Mapping Data Flow generators inspect only top-level `package.tasks`. Nested activities can reference artifacts that were never generated.
+- **Scope:** Replace generator-specific top-level loops with the normalized execution traversal for datasets, data flows, Function stubs, conversion warnings, and lineage relationships.
+- **Acceptance:** A Data Flow Task nested at any supported depth emits its data flow and all datasets exactly once; nested Script/XML/File System tasks emit required stubs; generated summaries and lineage include nested artifacts; names remain deterministic.
+- **Tests:** Data Flow and stub-producing tasks nested in Sequence, ForEach, and For Loop containers, including duplicate-name and repeated-reference cases.
+- **Depends on:** P6-2.
+
+### P6-8. Compile multi-input Mapping Data Flow graphs correctly - **P0 / READY**
+- **Problem:** Join and Union generation selects only the first predecessor, silently dropping other input streams.
+- **Scope:** Build Mapping Data Flow DSL from the complete path graph, with deterministic stream aliases, operator-specific arity checks, join-side mapping, union input ordering, and explicit rejection of malformed graphs.
+- **Acceptance:** Join emits both left and right streams and the translated condition; Union emits every connected input exactly once; graph fan-out remains intact; disconnected or wrong-arity operators are blocking validation errors.
+- **Tests:** Two-input Join, self-join aliases, three-input Union, fan-out/fan-in, reversed path ordering, missing input, and behavioral parity fixtures.
+- **Depends on:** P6-7.
+
+### P6-9. Generate every converter-referenced artifact - **P0 / READY**
+- **Problem:** Some converters, including FTP and Bulk Insert paths, emit dataset or linked-service references for which no producer exists.
+- **Scope:** Inventory every artifact reference emitted by control-flow and data-flow converters. Add producers for valid automatic mappings and convert manual placeholders into explicit blockers where a deployable artifact cannot be generated safely.
+- **Acceptance:** Every emitted linked-service, dataset, data-flow, pipeline, Function, and trigger reference resolves to exactly one generated or declared shared artifact; FTP and Bulk Insert fixtures have complete reference closure; executable `SELECT 1` or similar placeholders cannot be classified as deployable.
+- **Tests:** One reference-closure fixture for every converter family plus shared-artifact and missing-artifact cases.
+- **Depends on:** P6-7. Validated by P6-12.
+
+### P6-10. Parse and resolve SSIS property expressions - **P0 / READY**
+- **Problem:** Dynamic `PropertyExpression` values are not represented in the IR or covered by tests, so assessment and conversion can use stale design-time values.
+- **Scope:** Parse property-expression target paths, source scope, and expression text. Resolve supported expressions at runtime through ADF parameters/variables and classify unsupported dynamic targets as blockers.
+- **Acceptance:** Assessment lists every property expression and affected task/property; supported connection, SQL, path, and task-property expressions become ADF dynamic content; unresolved expressions cannot silently fall back to the design-time value.
+- **Tests:** Package/task/container scope, variable shadowing, connection-string expression, SQL command expression, file path expression, unsupported target, and malformed expression.
+- **Depends on:** P6-2 and P6-4.
+
+### P6-11. Emit a schema-versioned conversion-fidelity manifest - **P0 / READY**
+- **Problem:** Conversion completeness is inferred from description strings such as `MANUAL REVIEW`, while assessment, conversion summaries, and parity use different definitions of a gap.
+- **Scope:** Emit one structured record per source construct with `exact`, `approximate`, `manual`, `blocking`, or `omitted` status; source ID/path; generated artifact references; reason code; and remediation. Derive assessment and conversion summary counts from this manifest.
+- **Acceptance:** No warning count depends on free-text scanning; every parsed executable, constraint, handler, Data Flow component, schedule, and property expression has one fidelity disposition; unknown major schema versions are rejected and unknown minor versions warn.
+- **Tests:** Manifest coverage/uniqueness, status aggregation, nested constructs, schema compatibility, and regression fixtures for every current manual placeholder.
+- **Depends on:** P6-2 through P6-10.
+
+### P6-12. Replace structural validation with semantic reference-closure validation - **P0 / READY**
+- **Problem:** Validation accepts parseable JSON even when dependencies point to missing activities/artifacts, placeholders remain, or Mapping Data Flow topology is incomplete.
+- **Scope:** Build a reusable validator for activity graphs, nested activities, artifact references, linked-service/dataset compatibility, dynamic expressions, Mapping Data Flow stream closure, trigger targets, and forbidden placeholder markers. Reuse it in conversion, parity, ARM export, and deployment.
+- **Acceptance:** The known broken fixtures for disabled FTP, missing event handler, missing Sequence target, dropped Join input, `TODO_KEY_COLUMN`, `_ssis_todo`, and manual executable placeholders all fail with stable reason codes and source locations; valid shared-artifact references pass.
+- **Tests:** Focused rule tests, aggregate malformed-estate fixture, valid nested-estate fixture, and optional Azure SDK deserialization as a secondary check.
+- **Depends on:** P6-7 through P6-11.
+
+### P6-13. Make conversion readiness and deployment fail closed - **P0 / READY**
+- **Problem:** Deployment validates one file at a time, skips invalid files, and continues creating other resources, producing partially deployed factories.
+- **Scope:** Validate the entire artifact set and fidelity manifest before constructing any create/update operation. Add an explicit non-deployable conversion status and require a separately named operator override for acknowledged non-blocking approximations only.
+- **Acceptance:** Any validation error or blocking fidelity item causes zero Azure mutations; dependency failure stops dependent deployment; partial success is reported as an interrupted transaction, never overall success; triggers remain stopped.
+- **Tests:** Mock clients assert zero calls on pre-validation failure, no dependent calls after a deployment failure, and correct behavior for warnings versus blockers.
+- **Depends on:** P6-11 and P6-12.
+
+### P6-14. Return structured MCP errors and reliable CLI exit codes - **P1 / READY**
+- **Problem:** MCP exceptions are returned as ordinary text content, and the CLI can interpret non-JSON error text as a successful command.
+- **Scope:** Define a stable error envelope with code, phase, message, retryability, and optional details; set MCP `isError`; map tool outcomes and exceptions to documented CLI exit codes without parsing human-readable text.
+- **Acceptance:** Every raised tool exception yields `isError=true`; machine-readable failures round-trip through MCP and CLI; invalid text can never exit 0; validation and deployment blockers use distinct stable codes; secrets remain redacted.
+- **Tests:** Unit tests for exception, validation failure, deployment failure, retryable Azure error, malformed result, and successful text/JSON results across both surfaces.
+- **Depends on:** P6-1 for the working CLI surface. Align reason codes with P6-11 and P6-12.
+
+### P6-15. Preserve complete SQL Agent schedule semantics - **P1 / READY**
+- **Problem:** Trigger generation treats a daily active-window end time as a permanent ADF trigger end date and lacks metadata for one-time, relative-monthly, date-bounded, seconds-based, and source-time-zone schedules.
+- **Scope:** Expand `SqlAgentSchedule` and the `msdb` query to retain active dates, relative interval, enabled state, sub-day cadence, and time-zone provenance. Generate equivalent ADF recurrence arrays where possible and blockers where ADF has no equivalent.
+- **Acceptance:** One-time, daily, sub-day window, weekly, absolute monthly, and relative monthly schedules preserve occurrence semantics; service-start, idle, and unsupported seconds schedules are explicit blockers; time zone is never guessed silently; generated triggers remain stopped.
+- **Tests:** Table-driven fixtures for every SQL Agent `freq_type`, active date/window boundaries, daylight-saving time zones, disabled schedules, and unsupported modes.
+- **Depends on:** P6-11 and P6-12 for fidelity and validation reporting.
+
+### P6-16. Add immutable deployment planning and remote diff - **P1 / READY**
+- **Problem:** Deployment has no complete create/update/unchanged plan, ownership boundary, or optimistic-concurrency guard before mutation.
+- **Scope:** Build a plan from local checksums, remote definitions, dependency order, ownership metadata, and remote ETags. Expose the same plan through dry-run and require the apply phase to consume an unchanged plan.
+- **Acceptance:** Every artifact is classified `create`, `update`, `unchanged`, `skip_unowned`, or `blocked`; remote changes after planning fail with a concurrency error; ambiguous ownership is non-destructive by default; the plan is serializable and secret-redacted.
+- **Tests:** New/update/unchanged, unowned artifact, remote mutation after plan, checksum stability, dependency ordering, and redaction.
+- **Depends on:** P6-12 through P6-14.
+
+### P6-17. Add deployment journal, resume, and compensating rollback - **P1 / READY**
+- **Problem:** A mid-wave failure leaves no durable machine-readable checkpoint and recovery relies on manual interpretation of lineage and logs.
+- **Scope:** Persist plan ID, operation attempts, prior remote definitions/ETags, successful mutations, failures, and rollback status. Support idempotent resume and compensating restoration/deletion for agent-owned artifacts.
+- **Acceptance:** Interrupted deployment resumes without replaying completed operations; rollback restores updates and deletes newly created owned artifacts in reverse dependency order; failed compensation is explicit and resumable; journals contain no secrets.
+- **Tests:** Failure at each artifact layer, process restart/resume, repeated resume, rollback of creates and updates, partial rollback failure, and redaction.
+- **Depends on:** P6-16.
+
+### P6-18. Verify Azure Function stub deployment to readiness - **P1 / READY**
+- **Problem:** Zip deployment can return before Functions are indexed and callable, and generated stubs may still contain manual TODO work.
+- **Scope:** Poll Kudu/Function deployment to a terminal state, collect sanitized failure logs, enumerate expected functions/routes, and distinguish generated placeholders from completed ports in the fidelity manifest.
+- **Acceptance:** Deployment succeeds only after all expected functions are indexed; failed or timed-out deployments return actionable structured errors; blocking stubs prevent pipeline readiness; completed functions receive a lightweight HTTP readiness probe where configured.
+- **Tests:** Mocked successful, failed, timed-out, missing-function, TODO-stub, and redacted-log cases.
+- **Depends on:** P6-11 and P6-14.
+
+### P6-19. Gate trigger activation on smoke and parity evidence - **P1 / READY**
+- **Problem:** Trigger activation is a separate operation that does not require proof that the exact deployed revision passed smoke or parity checks.
+- **Scope:** Record deployment-plan identity and validation evidence, run selected smoke/parity checks against that revision, and make activation reject stale, failed, incomplete, or blocking evidence unless an audited override is supplied.
+- **Acceptance:** Activation names the exact deployment and test evidence; any failed pipeline, unresolved blocker, stale artifact checksum, or unready Function prevents activation; dry-run explains every decision; override use is explicit in the journal.
+- **Tests:** Passing gate, failed smoke, failed parity, stale deployment, missing evidence, Function not ready, dry-run, and override audit.
+- **Depends on:** P6-13 and P6-16 through P6-18.
+
+### P6-20. Add golden DTSX regression fixtures for reviewed semantics - **P1 / READY**
+- **Problem:** Existing tests did not cover disabled conversion or property expressions and allowed several parseable-but-wrong graph transformations to regress.
+- **Scope:** Add minimal sanitized DTSX fixtures and expected normalized IR/artifacts for disabled tasks, every precedence mode, nested data flows, Join/Union, Sequence boundaries, loop ordering, handlers, property expressions, FTP/Bulk references, and SQL Agent schedules.
+- **Acceptance:** Each P6 correctness defect has a fixture that fails on the pre-fix implementation and passes only when semantic behavior is preserved; expected artifacts are deterministic and reviewed as golden files.
+- **Tests:** Run fixture tests on every supported Python version and include them in the default suite, not an optional marker.
+- **Depends on:** Fixtures should land with P6-2 through P6-15 rather than as a final test-only change.
+
+### P6-21. Add an ephemeral Azure integration and recovery pipeline - **P2 / READY**
+- **Problem:** Unit and SDK-shape tests cannot prove that generated artifacts publish, run, fail closed, and recover correctly in the real ADF control plane.
+- **Scope:** Provision an isolated test factory, deploy a small non-secret fixture estate, run smoke tests, exercise one forced mid-deploy failure/resume, verify triggers remain stopped, and tear down all resources. Keep pull-request validation mocked and run this pipeline on schedule or release candidates.
+- **Acceptance:** The run publishes logs and deployment journal as artifacts, enforces a cost/time budget, always attempts cleanup, and blocks release promotion on artifact publish/run/recovery regressions.
+- **Tests:** Scheduled Azure pipeline plus an offline test of pipeline configuration and cleanup guards.
+- **Depends on:** P6-13 and P6-16 through P6-20. Requires an Azure test subscription and service connection.
+
+### P6-22. Align coverage, workflow, and release gates with fidelity status - **P2 / READY**
+- **Problem:** Documentation can label a construct supported even when only structural JSON or an executable placeholder exists.
+- **Scope:** Generate or verify coverage claims from golden fixtures and fidelity records; document strict conversion/deployment defaults, override policy, error codes, deployment journals, and activation evidence; make unresolved P0/P1 fidelity gaps release blockers.
+- **Acceptance:** Every supported/partial coverage row links to semantic evidence; `workflow.md` uses the strict validator and activation gate; roadmap and changelog identify schema/behavior changes; a consistency test fails when code, manifest status, and coverage disagree.
+- **Tests:** Documentation link/claim consistency and published-schema compatibility checks in the default suite.
+- **Depends on:** P6-11 through P6-21.
+
+---
+
 ## Suggested execution order
 
-All B / H / M / N / P3 / P4 items are ✅ done. Remaining work:
+All completed B / H / M / N / P3 / P4 / P5 items remain historical evidence.
+Active engineering work should proceed in this order:
 
-1. **B2** — customer-side proof; cannot be executed without an Azure factory.
-2. **P2** items as adoption progresses.
-3. **P5 — second-round buyer review followups**, ordered for ship velocity:
-   1. Same-day doc fixes: **P5-9** (tool-count + diagram), **P5-18** (HOWTO start-here), **P5-19** (KV cross-link), **P5-21** (provisioner → OBSERVABILITY).
-   2. Schema + flag plumbing: **P5-6** (schemaVersion), **P5-7** (`--with-observability`), **P5-11** (uniform `--dry-run`).
-   3. Security audit: **P5-8** (no-LLM egress confirmation; needs maintainer sign-off).
-   4. Net-new tools / surface: **P5-12** (`validate_deployer_rbac`), **P5-16** (`diff_estate`), **P5-17** (CLI parity), **P5-14** (cost projection at convert time).
-   5. Doc derivations from source: **P5-20** (expression functions), **P5-23** (encryption failure modes), **P5-24** (LLM truncation), **P5-25** (factory teardown).
-   6. CI hardening + repo URL: **P5-26** (GitHub URL). **P5-15** (`pipx run` smoke) parked in [maybe.md](maybe.md) pending release-engineering decision.
+1. **P6-1**: restore a working CLI and CI surface.
+2. **P6-2 through P6-7**: establish normalized control-flow semantics and recursive generation.
+3. **P6-8 through P6-10**: close Data Flow, artifact-reference, and dynamic-property correctness gaps.
+4. **P6-11 through P6-14**: make fidelity, validation, deployment readiness, and error signaling machine-enforceable.
+5. **P6-15**: complete trigger schedule fidelity.
+6. **P6-16 through P6-19**: add safe plan/apply, recovery, Function readiness, and activation gates.
+7. **P6-20 through P6-22**: complete regression evidence, live Azure proof, and documentation/release alignment.
+8. **B2 / M4 / M8 / P6-21**: collect customer or test-subscription evidence when the required Azure environment and sanitized estates are available.
+9. **P5-15**: remains parked in [maybe.md](maybe.md) pending the release-engineering decision.

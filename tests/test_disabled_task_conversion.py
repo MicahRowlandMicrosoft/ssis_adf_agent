@@ -19,7 +19,6 @@ from ssis_adf_agent.parsers.ssis_parser import SSISParser
 from ssis_adf_agent.parsers.task_traversal import DisabledTaskBypassError
 from ssis_adf_agent.warnings_collector import WarningsCollector
 
-
 _DISABLED_CHAIN_DTSX = r"""<?xml version="1.0"?>
 <DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
     DTS:ExecutableType="Microsoft.Package"

@@ -255,6 +255,7 @@ class _Credential(Protocol):
 
 def _default_secret_client_factory(vault_url: str) -> _SecretGetter:
     from azure.keyvault.secrets import SecretClient
+
     from ..credential import get_credential
     return SecretClient(vault_url=vault_url, credential=get_credential())
 

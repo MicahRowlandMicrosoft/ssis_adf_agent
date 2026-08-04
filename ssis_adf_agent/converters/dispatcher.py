@@ -7,14 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from ..analyzers.dependency_graph import topological_sort
+from ..generators.naming import resolve_ls_name, sanitize_adf_name
 from ..parsers.models import PrecedenceConstraint, SSISTask, TaskType
 from ..parsers.task_traversal import (
-    disabled_task_bypass_issue,
     DisabledTaskBypassError,
+    disabled_task_bypass_issue,
     normalize_task_scope,
 )
 from ..warnings_collector import warn
-from ..generators.naming import resolve_ls_name, sanitize_adf_name
 from .base_converter import BaseConverter
 from .control_flow.data_flow_converter import DataFlowConverter
 from .control_flow.execute_package_converter import ExecutePackageConverter
